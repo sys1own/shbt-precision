@@ -122,6 +122,7 @@ impl BenchmarkDelta {
 }
 
 #[derive(Debug, Clone)]
+#[pyclass]
 pub struct BaryogenesisOptimizer {
     pub boundary: StaticBoundary,
     pub gamma_3: Float,
@@ -189,6 +190,14 @@ fn dot_4(a: &[Float; 4], b: &[Float; 4]) -> Float {
         sum += &term;
     }
     sum
+}
+
+#[pymethods]
+impl BaryogenesisOptimizer {
+    #[new]
+    fn py_new() -> Self {
+        Self::new(StaticBoundary::new())
+    }
 }
 
 impl BaryogenesisOptimizer {

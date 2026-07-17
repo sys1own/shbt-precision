@@ -88,6 +88,7 @@ impl ProjectionReport {
 }
 
 #[derive(Debug, Clone)]
+#[pyclass]
 pub struct HolographicProjection {
     pub boundary: StaticBoundary,
     pub lambda_closure: Float,
@@ -268,6 +269,14 @@ fn jacobi_eigenvalues(a: &[[Float; 4]; 4]) -> [Float; 4] {
     let mut values: Vec<Float> = (0..4).map(|i| Float::with_val(PREC, &m[i][i])).collect();
     values.sort_by(|a, b| a.partial_cmp(b).unwrap());
     std::array::from_fn(|i| values[i].clone())
+}
+
+#[pymethods]
+impl HolographicProjection {
+    #[new]
+    fn py_new() -> Self {
+        Self::new(StaticBoundary::new())
+    }
 }
 
 impl HolographicProjection {
