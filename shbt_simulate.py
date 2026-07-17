@@ -596,6 +596,179 @@ def _numeric_or_none(x: Any) -> float | None:
     return None
 
 
+def _safe_float(value: Any) -> float | None:
+    """Return *value* as a float, or None if it is not numeric."""
+    try:
+        return float(value)
+    except Exception:
+        return None
+
+
+def _generate_plots(result: dict[str, Any], output_base: str | Path) -> list[Path]:
+    """Generate mode-specific plots and return the written file paths.
+
+    Produces:
+      - ``audit`` mode: metric eigenvalues and spatial-metric heatmap.
+      - ``cosmology`` mode: Hubble ladder, growth suppression, ISW residual,
+        and (if metric slices are available) a spatial-metric heatmap.
+      - ``all`` mode: all of the above with no duplicate files.
+    """
+    if not _HAS_MPL:
+        _LOGGER.warning("Plotting requested but matplotlib is not installed; skipping.")
+        return []
+
+    base = Path(output_base)
+    if base.suffix:
+        base = base.with_suffix("")
+
+    files: list[Path] = []
+    mode = result.get("config", {}).get("mode", "all")
+
+    # Prefer a cosmology report dict under the ``cosmology`` key; fall back to a
+    # top-level ``summary`` or ``precision_cosmology`` report.
+    report = result.get("cosmology")
+    if not isinstance(report, dict) or not (
+        report.get("redshift_ladder") or report.get("growth_suppression") or report.get("isw_stability")
+    ):
+        report = result.get("summary")
+    if not isinstance(report, dict) or not (
+        report.get("redshift_ladder") or report.get("growth_suppression") or report.get("isw_stability")
+    ):
+        report = result.get("precision_cosmology")
+
+    def _get_floats(rows: list[dict[str, Any]], key: str) -> list[float | None]:
+        return [_safe_float(row.get(key)) for row in rows]
+
+    # Foundation plots for ``audit`` and ``all`` modes
+    if mode in ("audit", "all"):
+        slices = result.get("audit", {}).get("metric_slices", [])
+        if not slices:
+            _LOGGER.warning("Skipping metric eigenvalues plot: no metric slices available.")
+        else:
+            fig, ax = _plt.subplots(figsize=(6, 4))
+            taus = list(range(1, len(slices) + 1))
+            for dim in range(4):
+                vals = [s.get("eigenvalues", [None] * 4)[dim] for s in slices]
+                vals = [_safe_float(v) for v in vals]
+                if all(v is not None for v in vals):
+                    ax.plot(taus, vals, marker="o", label=f"λ{dim}")
+            ax.set_xlabel("redshift step (τ)")
+            ax.set_ylabel("Metric eigenvalue")
+            ax.set_title("Metric eigenvalues")
+            ax.legend()
+            fig.tight_layout()
+            p = base.parent / (base.name + "_eigenvalues.png")
+            fig.savefig(p)
+            files.append(p)
+            _plt.close(fig)
+
+        first_slice = next((s for s in slices if s.get("spatial_metric")), None)
+        if first_slice:
+            fig, ax = _plt.subplots(figsize=(5, 4))
+            sm = first_slice["spatial_metric"]
+            im = ax.imshow(sm, cmap="viridis", aspect="auto")
+            ax.set_title("Spatial metric components (first slice)")
+            ax.set_xlabel("j")
+            ax.set_ylabel("i")
+            fig.colorbar(im, ax=ax)
+            fig.tight_layout()
+            p = base.parent / (base.name + "_spatial_metric.png")
+            fig.savefig(p)
+            files.append(p)
+            _plt.close(fig)
+        else:
+            _LOGGER.warning("Skipping spatial metric plot: no spatial metric data in slices.")
+
+    # Cosmology plots for ``cosmology`` and ``all`` modes
+    if mode in ("cosmology", "all"):
+        if not isinstance(report, dict):
+            _LOGGER.warning("Skipping cosmology plots: no cosmology report found.")
+        else:
+            # Hubble ladder
+            ladder = report.get("redshift_ladder", [])
+            zs = _get_floats(ladder, "z")
+            h0s = _get_floats(ladder, "h0_z_km_s_mpc")
+            if ladder and all(v is not None for v in zs + h0s):
+                fig, ax = _plt.subplots(figsize=(7, 4))
+                ax.plot(zs, h0s, "o-")
+                ax.set_xlabel("redshift z")
+                ax.set_ylabel("H₀(z) [km/s/Mpc]")
+                ax.set_title("Hubble ladder")
+                ax.grid(True, linestyle="--", alpha=0.5)
+                fig.tight_layout()
+                p = base.parent / (base.name + "_hubble_ladder.png")
+                fig.savefig(p)
+                files.append(p)
+                _plt.close(fig)
+            else:
+                _LOGGER.warning("Skipping Hubble ladder plot: missing or non-numeric data.")
+
+            # Growth suppression
+            growth = report.get("growth_suppression", [])
+            zs = _get_floats(growth, "z")
+            lcdm = _get_floats(growth, "lcdm_fsigma8")
+            shbt = _get_floats(growth, "shbt_fsigma8")
+            if growth and all(v is not None for v in zs + lcdm + shbt):
+                fig, ax = _plt.subplots(figsize=(7, 4))
+                ax.plot(zs, lcdm, "o-", label="ΛCDM")
+                ax.plot(zs, shbt, "s-", label="SHBT")
+                ax.set_xlabel("redshift z")
+                ax.set_ylabel("fσ₈")
+                ax.set_title("Growth suppression")
+                ax.legend()
+                ax.grid(True, linestyle="--", alpha=0.5)
+                fig.tight_layout()
+                p = base.parent / (base.name + "_growth_suppression.png")
+                fig.savefig(p)
+                files.append(p)
+                _plt.close(fig)
+            else:
+                _LOGGER.warning("Skipping growth suppression plot: missing or non-numeric data.")
+
+            # ISW residual
+            isw = report.get("isw_stability", [])
+            zs = _get_floats(isw, "z")
+            vals = _get_floats(isw, "delta_dotH_over_H2")
+            if isw and all(v is not None for v in zs + vals):
+                fig, ax = _plt.subplots(figsize=(7, 4))
+                ax.plot(zs, vals, "o-")
+                ax.axhline(0, color="gray", linestyle="--", linewidth=0.8)
+                ax.set_xlabel("redshift z")
+                ax.set_ylabel("Δ(Ḣ/H²)")
+                ax.set_title("ISW residual vs redshift")
+                ax.grid(True, linestyle="--", alpha=0.5)
+                fig.tight_layout()
+                p = base.parent / (base.name + "_isw_residual.png")
+                fig.savefig(p)
+                files.append(p)
+                _plt.close(fig)
+            else:
+                _LOGGER.warning("Skipping ISW residual plot: missing or non-numeric data.")
+
+        # Spatial metric from cosmology slice, only in ``cosmology`` mode so ``all``
+        # does not duplicate the foundation spatial metric.
+        if mode == "cosmology":
+            cosmology_slices = result.get("cosmology") if isinstance(result.get("cosmology"), list) else []
+            first_slice = next((s for s in cosmology_slices if s.get("spatial_metric")), None)
+            if first_slice:
+                fig, ax = _plt.subplots(figsize=(5, 4))
+                sm = first_slice["spatial_metric"]
+                im = ax.imshow(sm, cmap="viridis", aspect="auto")
+                ax.set_title("Spatial metric components (first slice)")
+                ax.set_xlabel("j")
+                ax.set_ylabel("i")
+                fig.colorbar(im, ax=ax)
+                fig.tight_layout()
+                p = base.parent / (base.name + "_spatial_metric.png")
+                fig.savefig(p)
+                files.append(p)
+                _plt.close(fig)
+            else:
+                _LOGGER.warning("Skipping spatial metric plot: no cosmology metric slice available.")
+
+    return files
+
+
 def _plot_result(result: dict[str, Any], prefix: Path, *, sweep: bool = False) -> list[Path]:
     """Generate optional plots and return the written file paths."""
     if not _HAS_MPL:
@@ -925,6 +1098,7 @@ def run_precision_cosmology(config: dict[str, Any]) -> dict[str, Any]:
             "precision": precision,
         },
         "precision_cosmology": report,
+        "summary": report.get("summary_table_17", {}),
     }
     _add_repro_metadata(result)
     return result
@@ -1006,12 +1180,14 @@ def _summarise(result: dict[str, Any]) -> dict[str, Any]:
     if "history" in result:
         summary["history_entries"] = len(result["history"])
 
-    if "precision_cosmology" in result:
-        pc = result["precision_cosmology"]
-        summary["h0_local"] = str(pc.get("h0_local_km_s_mpc"))
-        summary["A_H"] = str(pc.get("A_H_km_s_mpc"))
-        summary["cosmic_age_gyr"] = str(pc.get("cosmic_age_gyr"))
-        summary["overall_precision_audit"] = pc.get("summary_table_17", {}).get("overall_precision_audit")
+    if "precision_cosmology" in result or "summary" in result:
+        pc = result.get("precision_cosmology", {})
+        summary_table = result.get("summary") or pc.get("summary_table_17", {})
+        if pc:
+            summary["h0_local"] = str(pc.get("h0_local_km_s_mpc"))
+            summary["A_H"] = str(pc.get("A_H_km_s_mpc"))
+            summary["cosmic_age_gyr"] = str(pc.get("cosmic_age_gyr"))
+        summary["overall_precision_audit"] = summary_table.get("overall_precision_audit")
 
     if "sweep_results" in result:
         summary["sweep_runs"] = len(result["sweep_results"])
@@ -1317,16 +1493,17 @@ def main(argv: list[str] | None = None) -> int:
         _LOGGER.info("Running precision cosmology report")
         pc_start = time.time()
         pc_result = run_precision_cosmology(config)
-        result["precision_cosmology"] = pc_result["precision_cosmology"]
+        pc_report = pc_result["precision_cosmology"]
+        result["precision_cosmology"] = pc_report
+        result["summary"] = pc_result.get("summary", pc_report.get("summary_table_17", {}))
         result["metadata"]["precision_cosmology_duration_s"] = time.time() - pc_start
+        summary_table = pc_result.get("summary") or pc_report.get("summary_table_17", {})
         _log_event(
             "precision_cosmology_complete",
-            h0_local=pc_result["precision_cosmology"].get("h0_local_km_s_mpc"),
-            A_H=pc_result["precision_cosmology"].get("A_H_km_s_mpc"),
-            cosmic_age_gyr=pc_result["precision_cosmology"].get("cosmic_age_gyr"),
-            overall_precision_audit=pc_result["precision_cosmology"]
-            .get("summary_table_17", {})
-            .get("overall_precision_audit"),
+            h0_local=pc_report.get("h0_local_km_s_mpc"),
+            A_H=pc_report.get("A_H_km_s_mpc"),
+            cosmic_age_gyr=pc_report.get("cosmic_age_gyr"),
+            overall_precision_audit=summary_table.get("overall_precision_audit"),
         )
 
     # Determine where to write results
@@ -1361,12 +1538,9 @@ def main(argv: list[str] | None = None) -> int:
             prefix = Path(explicit_output).with_name(Path(explicit_output).stem)
         else:
             prefix = out_dir / output_name
-        plot_paths = _plot_result(result, prefix, sweep=False)
+        plot_paths = _generate_plots(result, prefix)
         for p in plot_paths:
             _shbt_print(f"Wrote plot to {p}", quiet=config.get("quiet", False))
-        if "precision_cosmology" in result:
-            for p in _plot_cosmology_result(result, prefix):
-                _shbt_print(f"Wrote plot to {p}", quiet=config.get("quiet", False))
 
     if config.get("mode") in ("audit", "all"):
         _log_event(
