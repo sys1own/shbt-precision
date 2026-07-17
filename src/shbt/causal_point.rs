@@ -188,6 +188,7 @@ impl MemoryReport {
 }
 
 #[derive(Debug, Clone)]
+#[pyclass]
 pub struct CausalPoint {
     pub boundary: StaticBoundary,
     pub projection: HolographicProjection,
@@ -715,5 +716,13 @@ mod tests {
         let causal = CausalPoint::new(boundary);
         let cone = causal.build_past_light_cone();
         assert_eq!(cone.len(), 9);
+    }
+}
+
+#[pymethods]
+impl CausalPoint {
+    #[new]
+    fn py_new() -> Self {
+        Self::new(StaticBoundary::new())
     }
 }

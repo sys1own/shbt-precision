@@ -156,6 +156,22 @@ Expected output:
 }
 ```
 
+## Precision cosmology integration
+
+The standalone module `precision_cosmology.py` implements the Section 9 equations and can now pull the canonical constants directly from the compiled simulator:
+
+```python
+import precision_cosmology
+constants = precision_cosmology.load_default_constants()
+print(constants.h0_cmb, constants.lambda_holo_si_m2, constants.n_sat, constants.c_dark_residual)
+```
+
+Run its embedded audit with:
+
+```bash
+python precision_cosmology.py --run-tests
+```
+
 ## Run custom simulations with `shbt_simulate.py`
 
 `shbt_simulate.py` is the programmable CLI and API entry point for research runs. It supports the same `ShbtSimulator` backend but exposes modes and parameters for custom studies.

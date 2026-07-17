@@ -1,0 +1,9 @@
+/target
+/Cargo.lock
+/.venv
+__pycache__/
+*.pyc
+*.pyo
+.ipynb_checkpoints/
+/simulation_results
+*.egg-info/

@@ -12,10 +12,13 @@ const LEPTON_LEVEL: u32 = 26;
 const QUARK_LEVEL: u32 = 8;
 const PARENT_LEVEL: u32 = 312;
 const C_DARK_NUM: u32 = 1197103;
+const C_DARK_RES_NUM: u32 = 834433;
 const C_DARK_DEN: u32 = 362670;
 const LAMBDA_HOLO_STR: &str = "1.0892229828054038e-52";
+const LAMBDA_HOLO_SI_M2_STR: &str = "1.08913883e-52";
 const BIT_BUDGET_STR: &str = "3.311997720142366e122";
 const TOLERANCE: f64 = 1.0e-12;
+const H0_CMB: f64 = 67.4;
 
 const LOW_SU3_WEIGHTS: [(u32, u32); 3] = [(0, 0), (1, 0), (0, 1)];
 const CHARGE_EMBEDDING: [u32; 3] = [LEPTON_LEVEL - 4, LEPTON_LEVEL - 3, LEPTON_LEVEL];
@@ -121,6 +124,7 @@ impl VerificationReport {
 }
 
 #[derive(Debug, Clone)]
+#[pyclass]
 pub struct StaticBoundary {
     pub benchmark_branch: (u32, u32, u32),
     pub lepton_level: u32,
@@ -129,8 +133,12 @@ pub struct StaticBoundary {
     pub i_l_star: Float,
     pub i_q_star: Float,
     pub c_dark: Rational,
+    pub c_dark_residual: Rational,
     pub lambda_holo: Float,
+    pub lambda_holo_si_m2: Float,
     pub bit_budget: Float,
+    pub n_sat: Float,
+    pub h0_cmb: Float,
     pub tolerance: Float,
 
     charge_embedding: [u32; 3],
@@ -158,8 +166,12 @@ impl StaticBoundary {
         i_q_star /= Float::with_val(PREC, 3 * quark_level);
 
         let c_dark = Rational::from((C_DARK_NUM, C_DARK_DEN));
+        let c_dark_residual = Rational::from((C_DARK_RES_NUM, C_DARK_DEN));
         let lambda_holo = Float::with_val(PREC, Float::parse(LAMBDA_HOLO_STR).unwrap());
+        let lambda_holo_si_m2 = Float::with_val(PREC, Float::parse(LAMBDA_HOLO_SI_M2_STR).unwrap());
         let bit_budget = Float::with_val(PREC, Float::parse(BIT_BUDGET_STR).unwrap());
+        let n_sat = Float::with_val(PREC, &bit_budget);
+        let h0_cmb = Float::with_val(PREC, H0_CMB);
         let tolerance = Float::with_val(PREC, TOLERANCE);
 
         let su2_visible_block =
@@ -188,8 +200,12 @@ impl StaticBoundary {
             i_l_star,
             i_q_star,
             c_dark,
+            c_dark_residual,
             lambda_holo,
+            lambda_holo_si_m2,
             bit_budget,
+            n_sat,
+            h0_cmb,
             tolerance,
             charge_embedding,
             su2_visible_block,
@@ -208,7 +224,110 @@ impl StaticBoundary {
     pub fn new() -> Self {
         Self::new_with_branch(LEPTON_LEVEL, QUARK_LEVEL, PARENT_LEVEL)
     }
+}
 
+#[pymethods]
+impl StaticBoundary {
+    /// Construct the canonical benchmark boundary.
+    #[new]
+    fn py_new() -> Self {
+        Self::new()
+    }
+
+    /// Construct a boundary with arbitrary branch levels.
+    #[staticmethod]
+    fn with_branch(lepton_level: u32, quark_level: u32, parent_level: u32) -> Self {
+        Self::new_with_branch(lepton_level, quark_level, parent_level)
+    }
+
+    #[getter]
+    fn benchmark_branch(&self) -> (u32, u32, u32) {
+        self.benchmark_branch
+    }
+
+    #[getter]
+    fn lepton_level(&self) -> u32 {
+        self.lepton_level
+    }
+
+    #[getter]
+    fn quark_level(&self) -> u32 {
+        self.quark_level
+    }
+
+    #[getter]
+    fn parent_level(&self) -> u32 {
+        self.parent_level
+    }
+
+    #[getter]
+    fn i_l_star(&self) -> f64 {
+        self.i_l_star.to_f64()
+    }
+
+    #[getter]
+    fn i_q_star(&self) -> f64 {
+        self.i_q_star.to_f64()
+    }
+
+    #[getter]
+    fn c_dark(&self) -> f64 {
+        self.c_dark.to_f64()
+    }
+
+    #[getter]
+    fn c_dark_residual(&self) -> f64 {
+        self.c_dark_residual.to_f64()
+    }
+
+    #[getter]
+    fn c_dark_completion(&self) -> f64 {
+        self.c_dark.to_f64()
+    }
+
+    #[getter]
+    fn lambda_holo(&self) -> f64 {
+        self.lambda_holo.to_f64()
+    }
+
+    #[getter]
+    fn lambda_holo_si_m2(&self) -> f64 {
+        self.lambda_holo_si_m2.to_f64()
+    }
+
+    #[getter]
+    fn bit_budget(&self) -> f64 {
+        self.bit_budget.to_f64()
+    }
+
+    #[getter]
+    fn n_sat(&self) -> f64 {
+        self.n_sat.to_f64()
+    }
+
+    #[getter]
+    fn h0_cmb(&self) -> f64 {
+        self.h0_cmb.to_f64()
+    }
+
+    /// Return the framing defect (Eq. 23).
+    fn framing_defect_py(&self) -> f64 {
+        self.framing_defect().to_f64()
+    }
+
+    /// Run the full boundary verification audit (Table 2).
+    fn verify_equations_py<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyDict>> {
+        self.verify_equations().to_dict(py)
+    }
+
+    /// Evaluate the boundary partition function at `tau` (Eq. 61).
+    fn evaluate_z_boundary_py(&self, tau_re: f64, tau_im: f64) -> f64 {
+        let tau = Complex::with_val(PREC, (tau_re, tau_im));
+        self.evaluate_z_boundary(tau).to_f64()
+    }
+}
+
+impl StaticBoundary {
     // ------------------------------------------------------------------
     // Helpers
     // ------------------------------------------------------------------

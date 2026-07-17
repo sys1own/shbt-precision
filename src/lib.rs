@@ -3609,4 +3609,16 @@ mod shbt_simulator {
 
     #[pymodule_export]
     use super::shbt::MemoryReport;
+
+    #[pymodule_export]
+    use super::shbt::StaticBoundary;
+
+    #[pymodule_export]
+    use super::shbt::HolographicProjection;
+
+    #[pymodule_export]
+    use super::shbt::BaryogenesisOptimizer;
+
+    #[pymodule_export]
+    use super::shbt::CausalPoint;
 }
