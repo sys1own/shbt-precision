@@ -240,6 +240,7 @@ The paper text mentions `noether_bridge.py` and `precision_cosmology_engine.py`.
 | (200)–(203) | Linear growth ODE | `precision_cosmology.growth_ode_system(...)` | `precision_cosmology.py` |
 | (204) | SHBT Hubble rate `H_SHBT(z)` | `precision_cosmology.shbt_hubble_rate(z, ...)` | `precision_cosmology.py` |
 | (206) | Growth suppression `(fσ_8)_SHBT / (fσ_8)_ΛCDM − 1` | `precision_cosmology.compute_growth_suppression(z, ...)` | `precision_cosmology.py` |
+| (200)–(206) + spherical collapse | Cluster-collapse linear threshold `δc(z)`, mass variance `σM(z)`, peak height `ν`, and Press-Schechter abundance ratio | `precision_cosmology.compute_cluster_collapse(z, ...)`; `precision_cosmology._cluster_collapse_delta_c(...)` | `precision_cosmology.py` |
 | (207)–(211) | ISW residual `Δ_ISW(z)` | `precision_cosmology.isw_residual(z, ...)` | `precision_cosmology.py` |
 | (212)–(217) | BBN loading shift / stability | `precision_cosmology.bbn_stability_check(z_bbn, ...)`; internal `_bbn_components` | `precision_cosmology.py` |
 | (188)–(193) | Neutrino hierarchy masses and tensions | `precision_cosmology.neutrino_hierarchy_masses(...)` | `precision_cosmology.py` |
@@ -253,16 +254,27 @@ The paper text mentions `noether_bridge.py` and `precision_cosmology_engine.py`.
 |-------------|-----------------------|-------|
 | Table 7 (Noether bridge) | `precision_cosmology.load_default_constants()`; `precision_cosmology.load_completed_ledger()`; `precision_cosmology.neutrino_hierarchy_masses(...)` | `κ_D5` is internal to `baryogenesis_identity`; `m_ν,1` and hierarchy sums are produced by `neutrino_hierarchy_masses` |
 | Table 8 (Neutrino hierarchy) | `precision_cosmology.neutrino_hierarchy_masses(...)` | Returns `normal_hierarchy` and `inverted_hierarchy` dicts with `m1..m3`, `sum_meV`, `tension_sigma` |
-| Table 9 (Code-to-math map) | Use the equation index above | This table is a cross-reference; the new canonical source is `precision_cosmology.py` |
+| Table 9 (Code-to-math map) | Use the equation index above; cluster-collapse entry maps `δc, σM, abundance ratio` → `precision_cosmology.compute_cluster_collapse(...)` → `report['cluster_collapse']` (Table 13) | This table is a cross-reference; the new canonical source is `precision_cosmology.py` |
 | Table 10 (Redshift ladder) | `report['redshift_ladder']` from `build_precision_cosmology_report(...)` | Each row contains `z`, `loading_term_km_s_mpc`, `h0_z_km_s_mpc` |
 | Table 11 (Growth suppression) | `report['growth_suppression']` from `build_precision_cosmology_report(...)` | Produced by `compute_growth_suppression` for `GROWTH_AUDIT_REDSHIFTS` |
 | Table 12 (High-redshift mirage) | `report['cpl_template']` from `build_precision_cosmology_report(...)` | Internal `_cpl_template` computes `w0`, `wa`, `density_zero_crossing_redshift`, `density_ratio_z1_5` |
-| Table 13 (Cluster-collapse) | *Not implemented as a dedicated function in `precision_cosmology.py`* | Related data lives in `report['growth_suppression']` and `report['cpl_template']` |
+| Table 13 (Cluster-collapse) | `precision_cosmology.compute_cluster_collapse(z, h0_cmb, A_H, omega_m, sigma8, ...)`; `report['cluster_collapse']` from `build_precision_cosmology_report(...)` | Rows for `z = 0, 0.5, 1.0` contain `z`, `scale_factor`, `lcdm_delta_c`, `shbt_delta_c`, `lcdm_sigma_mass`, `shbt_sigma_mass`, `lcdm_peak_height`, `shbt_peak_height`, `abundance_ratio`, `delta_c_shift_percent`, `sigma_mass_suppression_percent` |
 | Table 14 (Light-cone ledger) | `report['lightcone_entropy_debt']` from `build_precision_cosmology_report(...)` | Rows contain `z`, `h0_z`, `h_shbt`, `f_load`, `S_debt_bits` |
 | Table 15 (ISW stability) | `report['isw_stability']` from `build_precision_cosmology_report(...)` | Produced by `isw_residual` for `ISW_AUDIT_REDSHIFTS` |
 | Table 16 (Cosmic chronometers) | `report['cosmic_chronometer_validation']` | Hard-coded `χ² = 30.16`, `ν = 29`, `χ²_ν = 1.04` from paper |
 | Table 17 (Summary ledger) | `report['summary_table_17']` from `build_precision_cosmology_report(...)` | Includes `local_uplift`, `gradient_target`, `cpl_template`, `bbn_loading_shift`, `chronometer`, `forecast_chi2_sensitivity`, `cosmic_age_gyr`, `thermodynamic_arrow`, `overall_precision_audit` |
 | Table 18 (GET cost metrics) | `precision_cosmology.get_measurement_cost(...)` and `precision_cosmology.collapse_index(...)` | Implements `C_addr`, `C_ens`, `C_get`, `R_entropy`, collapse index `ι` |
+
+### 5.5 Cluster-collapse model (Table 13)
+
+The dedicated cluster-collapse audit was previously marked as not implemented. It is now exposed through `precision_cosmology.compute_cluster_collapse(...)`, which uses the same background expansion and growth ODE as the other Section 9 audits.
+
+| Quantity | Equation / model | Code implementation | Report field |
+|----------|------------------|---------------------|--------------|
+| Spherical top-hat linear overdensity `δc(z)` | Calibrated spherical-collapse threshold using the matter density `Ωm(z)` and Hubble intercept slope `dln H0(z) / d ln a` from Eqs. (200)–(206) | `precision_cosmology._cluster_collapse_delta_c(...)`; called by `compute_cluster_collapse(...)` | `row['lcdm_delta_c']`, `row['shbt_delta_c']` |
+| Mass variance `σM(z) = σM(0) D(z) / D(0)` | Linear growth factor `D(z)` from Eq. (203) / `compute_growth_suppression`; `σM(0)` normalized to the reference value `reference_sigma_mass_z0 * (sigma8 / 0.812)` | `precision_cosmology.compute_cluster_collapse(...)` | `row['lcdm_sigma_mass']`, `row['shbt_sigma_mass']` |
+| Peak height `ν = δc / σM` | Direct ratio of calibrated `δc` and `σM(z)` | `precision_cosmology.compute_cluster_collapse(...)` | `row['lcdm_peak_height']`, `row['shbt_peak_height']` |
+| Abundance ratio `n_SHBT / n_LCDM` | Press-Schechter multiplicity function `f(ν) ∝ ν exp(-ν²/2)`; ratio cancels the common prefactors | `precision_cosmology.compute_cluster_collapse(...)` | `row['abundance_ratio']` |
 
 ---
 
@@ -337,7 +349,10 @@ maturin build --release
 - `report.projection_report.slice_count == 9`
 - `report.eta_b == 6.449923359416e-10`
 - `report.stress_energy_preserved == True`
-- `precision_cosmology.py --run-tests` prints `OK` (11 tests)
+- `precision_cosmology.py --run-tests` prints `OK` (12 tests)
+- `report['cluster_collapse'][0]['lcdm_delta_c']` ≈ `1.6760` at `z = 0`
+- `report['cluster_collapse'][0]['shbt_delta_c']` ≈ `1.6733` at `z = 0`
+- `report['cluster_collapse'][0]['abundance_ratio']` ≈ `6.10E-1` at `z = 0`
 
 ---
 
@@ -370,6 +385,7 @@ maturin build --release
 | `redshift_ladder` | `h0_redshift_dependent(...)` | Table 10 / Eq. (199) |
 | `lightcone_entropy_debt` | `compute_loading_fraction(...)` / `compute_entropy_debt(...)` / `shbt_hubble_rate(...)` | Table 14 / Eqs. (176), (180), (204) |
 | `growth_suppression` | `compute_growth_suppression(...)` | Table 11 / Eq. (206) |
+| `cluster_collapse` | `compute_cluster_collapse(...)` | Table 13 |
 | `isw_stability` | `isw_residual(...)` | Table 15 / Eq. (211) |
 | `bbn_stability` | `bbn_stability_check(...)` | Eqs. (214)–(217) |
 | `neutrino_hierarchy` | `neutrino_hierarchy_masses(...)` | Table 8 / Eqs. (188)–(193) |
