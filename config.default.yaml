@@ -1,0 +1,33 @@
+# Default SHBT simulation configuration.
+# Copy this file and edit it for your own runs, then pass it with:
+#   python shbt_simulate.py --config my_config.yaml
+
+mode: all
+branch:
+  - 26
+  - 8
+  - 312
+observer_radius_fraction: 0.125
+redshift_max: 3.0
+redshift_samples: 9
+particles: 512
+seed: 0
+
+# Where results are saved. A timestamped subdirectory is created under this path.
+output_dir: ./simulation_results
+
+# List of export formats for each run: json, csv, hdf5 (requires h5py)
+export_formats:
+  - json
+
+# Whether to generate optional matplotlib plots alongside data exports
+plot: false
+
+# Enable verbose progress logging
+verbose: false
+
+# Logging configuration
+log_level: INFO      # DEBUG, INFO, WARNING, ERROR
+log_format: text     # text or json
+log_file: null       # optional path for a log file
+quiet: false         # suppress non-essential output
