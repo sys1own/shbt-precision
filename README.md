@@ -174,17 +174,29 @@ python precision_cosmology.py --run-tests
 
 ## Run custom simulations with `shbt_simulate.py`
 
-`shbt_simulate.py` is the programmable CLI and API entry point for research runs. It supports the same `ShbtSimulator` backend but exposes modes and parameters for custom studies.
+`shbt_simulate.py` is the unified CLI and API entry point for research runs. It wraps the Rust/PyO3 simulator and the `precision_cosmology.py` Section 9 audit in one interface.
 
 ```bash
 python shbt_simulate.py --mode audit
-PYTHONPATH=target/release python shbt_simulate.py --mode all --branch 26 8 312 --output result.json --verbose
-python shbt_simulate.py --mode cosmology --redshift-max 3.0 --redshift-samples 9
+python shbt_simulate.py --mode all --output result.json
+python shbt_simulate.py --mode cosmology --output cosmology.json
+python shbt_simulate.py --mode cosmology-test
 python shbt_simulate.py --mode baryogenesis --particles 1024
 python shbt_simulate.py --mode history --observer-radius-fraction 0.2
 ```
 
-Available modes are `audit`, `cosmology`, `baryogenesis`, `history`, and `all` (default).
+Available modes are `audit` (foundation audit only), `cosmology` (Section 9 precision-cosmology report), `cosmology-test` (embedded precision-cosmology unit tests), `baryogenesis`, `history`, and `all` (default; foundation + precision cosmology).
+
+`--mode cosmology` accepts optional precision-cosmology parameters:
+
+```bash
+python shbt_simulate.py --mode cosmology \
+  --h0-cmb 67.4 \
+  --omega-m 0.315 \
+  --omega-r0 9.2e-5 \
+  --z-samples 0 0.5 1 2 10 1100 \
+  --output cosmology.json
+```
 
 Programmatically:
 
@@ -203,30 +215,59 @@ print(result["audit"]["eta_b"])
 
 ### Export formats
 
-`shbt_simulate.py` can write results as JSON (default), CSV, or HDF5:
+`--output` writes the full result to a file. The format is inferred from the extension (`json`, `csv`, `h5`/`hdf5`) or set explicitly with `--format`. If no format is specified, JSON is used.
 
 ```bash
 python shbt_simulate.py --mode all --output result.json
-python shbt_simulate.py --mode cosmology --format csv --output slices
+python shbt_simulate.py --mode cosmology --output cosmology.json
+python shbt_simulate.py --mode cosmology --format csv --output cosmology
 python shbt_simulate.py --mode all --format hdf5 --output result.h5
 ```
 
-- CSV produces `{prefix}_metric_slices.csv` and `{prefix}_history.csv`.
-- HDF5 requires `h5py` and stores the full nested result tree.
+- JSON (default) stores the complete nested result tree.
+- CSV writes table files: `{prefix}_metric_slices.csv`, `{prefix}_history.csv`, and for cosmology `{prefix}_precision_summary.csv`, `{prefix}_redshift_ladder.csv`, `{prefix}_growth_suppression.csv`, `{prefix}_lightcone_entropy_debt.csv`, and `{prefix}_isw_stability.csv`.
+- HDF5 requires `h5py` and stores the full result tree.
 
 ### Optional plots
 
 If `matplotlib` is installed, `--plot` writes PNG figures alongside the data export:
 
 ```bash
-PYTHONPATH=target/release python shbt_simulate.py --mode all --output result.json --plot
+python shbt_simulate.py --mode all --output result.json --plot
+python shbt_simulate.py --mode cosmology --output cosmology.json --plot
 ```
 
-This creates `result_eigenvalues.png`, `result_spatial_metric.png`, and (for sweeps) `result_eta_b.png`.
+For `cosmology`/`all`, this produces:
+
+- `result_eigenvalues.png` (metric eigenvalues vs redshift step)
+- `result_spatial_metric.png` (spatial metric heatmap)
+- `result_hubble_ladder.png` (`H0(z)` vs redshift)
+- `result_growth_suppression.png` (`fσ8` vs redshift)
+- `result_isw_residual.png` (ISW residual vs redshift)
+
+For sweeps, `--plot` also visualises the scanned parameter.
 
 ### Parameter sweeps
 
-Write a JSON file with list-valued parameters, e.g. `sweep.json`:
+Write a JSON file with list-valued parameters. The sweep runner detects cosmology keys (`h0_cmb`, `omega_m`, `omega_r0`, `delta_mod`, `z_samples`, `precision`) and runs the precision cosmology audit for each combination; otherwise it runs the foundation simulator.
+
+```json
+{
+  "h0_cmb": [67.0, 67.4, 68.0],
+  "omega_m": [0.30, 0.315, 0.33]
+}
+```
+
+Then run:
+
+```bash
+python shbt_simulate.py --mode cosmology --sweep sweep.json --output sweep_result.json
+python shbt_simulate.py --mode cosmology --sweep sweep.json --plot --output sweep_result.json
+```
+
+The first command scans nine combinations of `h0_cmb` and `omega_m`. The second also writes sweep summary plots.
+
+Foundation sweeps use the original keys:
 
 ```json
 {
@@ -235,13 +276,7 @@ Write a JSON file with list-valued parameters, e.g. `sweep.json`:
 }
 ```
 
-Then run:
-
-```bash
-python shbt_simulate.py --sweep sweep.json --output sweep_result.json
-```
-
-The simulator evaluates the Cartesian product of all parameter lists. For sweep runs you can also add `--plot` to visualise `η_b` across configurations.
+Then run as before.
 
 ### Configuration files
 
@@ -256,6 +291,12 @@ redshift_max: 3.0
 redshift_samples: 9
 particles: 512
 seed: 0
+# Optional precision-cosmology overrides (used when mode is cosmology or all)
+h0_cmb: 67.4
+omega_m: 0.315
+omega_r0: 9.2e-5
+z_samples: [0, 0.5, 1, 2, 10, 1100]
+precision: 80
 output_dir: ./simulation_results
 export_formats: [json, csv]
 plot: true
