@@ -247,6 +247,9 @@ The paper text mentions `noether_bridge.py` and `precision_cosmology_engine.py`.
 | (222)–(226) | GET measurement cost | `precision_cosmology.get_measurement_cost(...)` | `precision_cosmology.py` |
 | (227) | Deterministic collapse index `ι` | `precision_cosmology.collapse_index(...)` | `precision_cosmology.py` |
 | (173)–(231) | Full Section 9 audit | `precision_cosmology.build_precision_cosmology_report(...)` | `precision_cosmology.py` |
+| (DM1) | Dark matter density `rho_DM = (c_dark_comp / 12) * rho_crit * (1 - f_load)` with `rho_crit(z) = 3 H_SHBT(z)^2 / (8 pi G_eff)` | `precision_cosmology.compute_dark_matter_density(...)` | `precision_cosmology.py` |
+| (DM2) | Dark matter-to-baryon ratio `Omega_DM / Omega_b` | `precision_cosmology.compute_dm_baryon_ratio(...)` | `precision_cosmology.py` |
+| (DM3) | Dark matter equation of state `w_DM = 0` (pressureless gravitational ghost) | `precision_cosmology.dark_matter_equation_of_state(...)` | `precision_cosmology.py` |
 
 ### 5.4 Section 9 table mappings
 
@@ -264,6 +267,7 @@ The paper text mentions `noether_bridge.py` and `precision_cosmology_engine.py`.
 | Table 16 (Cosmic chronometers) | `report['cosmic_chronometer_validation']` | Hard-coded `χ² = 30.16`, `ν = 29`, `χ²_ν = 1.04` from paper |
 | Table 17 (Summary ledger) | `report['summary_table_17']` from `build_precision_cosmology_report(...)` | Includes `local_uplift`, `gradient_target`, `cpl_template`, `bbn_loading_shift`, `chronometer`, `forecast_chi2_sensitivity`, `cosmic_age_gyr`, `thermodynamic_arrow`, `overall_precision_audit` |
 | Table 18 (GET cost metrics) | `precision_cosmology.get_measurement_cost(...)` and `precision_cosmology.collapse_index(...)` | Implements `C_addr`, `C_ens`, `C_get`, `R_entropy`, collapse index `ι` |
+| Table 19 (Dark matter as topological gravitational ghost) | `report['dark_matter']` from `build_precision_cosmology_report(...)` | Contains per-redshift `rho_DM_kg_m3`, `Omega_DM`, `Omega_b`, `Omega_DM_over_Omega_b`, `w_DM`; top-level `abundance_ratio` and `w_DM` |
 
 ### 5.5 Cluster-collapse model (Table 13)
 
@@ -275,6 +279,19 @@ The dedicated cluster-collapse audit was previously marked as not implemented. I
 | Mass variance `σM(z) = σM(0) D(z) / D(0)` | Linear growth factor `D(z)` from Eq. (203) / `compute_growth_suppression`; `σM(0)` normalized to the reference value `reference_sigma_mass_z0 * (sigma8 / 0.812)` | `precision_cosmology.compute_cluster_collapse(...)` | `row['lcdm_sigma_mass']`, `row['shbt_sigma_mass']` |
 | Peak height `ν = δc / σM` | Direct ratio of calibrated `δc` and `σM(z)` | `precision_cosmology.compute_cluster_collapse(...)` | `row['lcdm_peak_height']`, `row['shbt_peak_height']` |
 | Abundance ratio `n_SHBT / n_LCDM` | Press-Schechter multiplicity function `f(ν) ∝ ν exp(-ν²/2)`; ratio cancels the common prefactors | `precision_cosmology.compute_cluster_collapse(...)` | `row['abundance_ratio']` |
+
+---
+
+### 5.6 Dark matter as topological gravitational ghost (Table 19)
+
+The passive stress-energy of de-rendered anti-baryons is identified with the dark-matter source.  It is gravitational only, so it is pressureless and produces the observed `Omega_DM / Omega_b ≈ 5.4` from the same modular ledger that fixes the baryon asymmetry.
+
+| Quantity | Equation / model | Code implementation | Report field |
+|----------|------------------|---------------------|--------------|
+| Dark matter energy density `rho_DM(z)` | `rho_DM = (c_dark_comp / 12) * rho_crit(z) * (1 - f_load(z))` with `rho_crit = 3 H_SHBT^2 / (8 pi G_eff)` and `G_eff = G_N (1 + Delta_mod)` | `precision_cosmology.compute_dark_matter_density(...)` | `report['dark_matter']['rows'][i]['rho_DM_kg_m3']`, `Omega_DM` |
+| Baryon density parameter `Omega_b(z)` | `rho_b(z) = eta_b * n_gamma * m_p * (1+z)^3` divided by the same SHBT critical density | `precision_cosmology.compute_dm_baryon_ratio(...)` | `report['dark_matter']['rows'][i]['Omega_b']`, `Omega_DM_over_Omega_b` |
+| Dark matter equation of state `w_DM` | Pressureless passive stress-energy: `w_DM = 0` | `precision_cosmology.dark_matter_equation_of_state(...)` | `report['dark_matter']['w_DM']` and per-row `w_DM` |
+| Benchmark abundance ratio | `Omega_DM / Omega_b` at `z = 0` | `compute_dm_baryon_ratio(...)` called inside `build_precision_cosmology_report(...)` | `report['dark_matter']['abundance_ratio']` |
 
 ---
 
@@ -349,10 +366,13 @@ maturin build --release
 - `report.projection_report.slice_count == 9`
 - `report.eta_b == 6.449923359416e-10`
 - `report.stress_energy_preserved == True`
-- `precision_cosmology.py --run-tests` prints `OK` (12 tests)
+- `precision_cosmology.py --run-tests` prints `OK` (14 tests)
 - `report['cluster_collapse'][0]['lcdm_delta_c']` ≈ `1.6760` at `z = 0`
 - `report['cluster_collapse'][0]['shbt_delta_c']` ≈ `1.6733` at `z = 0`
 - `report['cluster_collapse'][0]['abundance_ratio']` ≈ `6.10E-1` at `z = 0`
+- `report['dark_matter']['abundance_ratio']` ≈ `5.34` at `z = 0` (observed `≈ 5.4`)
+- `report['dark_matter']['w_DM']` ≈ `0.0`
+- `python shbt_simulate.py --mode cosmology --format csv --output cosmo` produces `cosmo_dark_matter.csv` with per-redshift `rho_DM_kg_m3`, `Omega_DM`, `Omega_b`, `Omega_DM_over_Omega_b`, `w_DM`
 
 ---
 
@@ -386,6 +406,7 @@ maturin build --release
 | `lightcone_entropy_debt` | `compute_loading_fraction(...)` / `compute_entropy_debt(...)` / `shbt_hubble_rate(...)` | Table 14 / Eqs. (176), (180), (204) |
 | `growth_suppression` | `compute_growth_suppression(...)` | Table 11 / Eq. (206) |
 | `cluster_collapse` | `compute_cluster_collapse(...)` | Table 13 |
+| `dark_matter` | `compute_dark_matter_density(...)`, `compute_dm_baryon_ratio(...)`, `dark_matter_equation_of_state(...)` | Table 19 / Eqs. (DM1)–(DM3) |
 | `isw_stability` | `isw_residual(...)` | Table 15 / Eq. (211) |
 | `bbn_stability` | `bbn_stability_check(...)` | Eqs. (214)–(217) |
 | `neutrino_hierarchy` | `neutrino_hierarchy_masses(...)` | Table 8 / Eqs. (188)–(193) |

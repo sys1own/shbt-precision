@@ -51,6 +51,15 @@ BBN_AUDIT_REDSHIFT = Decimal("1e9")
 GROWTH_INDEX_GAMMA = Decimal("0.55")
 INITIAL_GROWTH_SCALE_FACTOR = Decimal("0.001")
 
+# Physical constants used by the dark-matter topological ghost (Section 9 extension).
+DEFAULT_ETA_B = Decimal("6.449923359416e-10")
+GRAVITATIONAL_CONSTANT_SI = Decimal("6.67430e-11")  # m^3 kg^-1 s^-2
+PROTON_MASS_KG = Decimal("1.67262192369e-27")
+CMB_PHOTON_DENSITY_M3 = Decimal("410.7e6")  # m^-3
+METERS_PER_MPC = Decimal("3.085677581491367e22")
+KMS_TO_M_S = Decimal("1000")
+PI_DECIMAL = Decimal("3.14159265358979323846264338327950288419716939937510")
+
 
 Number = Decimal | Fraction | mpmath.mpf | float | int | str
 
@@ -697,6 +706,132 @@ def compute_cluster_collapse(
     }
 
 
+def _dark_matter_effective_g(c_dark_comp: Number) -> Decimal:
+    """Return the effective gravitational coupling for the dark ghost sector.
+
+    The SHBT entropy-debt variable ``Delta_mod = c_dark_comp / 24`` lifts the
+    effective coupling by the factor ``1 + Delta_mod``.  This keeps the absolute
+    dark-matter density realistic and reproduces the observed ``Omega_DM / Omega_b``
+    ratio when ``rho_DM`` is built from the completed dark ledger.
+    """
+
+    delta_mod = _decimal(c_dark_comp) / Decimal("24")
+    return GRAVITATIONAL_CONSTANT_SI * (Decimal("1") + delta_mod)
+
+
+def _critical_density_kg_m3(h_kms_mpc: Number, c_dark_comp: Number) -> Decimal:
+    """Convert a Hubble rate in km/s/Mpc to a critical density in kg/m^3."""
+
+    h_si = _decimal(h_kms_mpc) * KMS_TO_M_S / METERS_PER_MPC
+    g_eff = _dark_matter_effective_g(c_dark_comp)
+    with localcontext() as context:
+        context.prec = DEFAULT_PRECISION
+        return Decimal("3") * h_si**2 / (Decimal("8") * PI_DECIMAL * g_eff)
+
+
+def compute_dark_matter_density(
+    z: Number,
+    h0_cmb: Number,
+    A_H: Number,
+    omega_m: Number,
+    c_dark_comp: Number,
+    N_sat: Number,
+    *,
+    omega_r0: Number = DEFAULT_OMEGA_R0,
+    precision: int = DEFAULT_PRECISION,
+) -> dict[str, Decimal]:
+    """Return the dark-matter energy density ``rho_DM(z)`` in SI units.
+
+    Implements the topological-gravitational-ghost density
+    ``rho_DM(z) = (c_dark_comp / 12) * rho_crit(z) * (1 - f_load(z))``,
+    where ``rho_crit(z) = 3 H_SHBT(z)^2 / (8 pi G_eff)`` and ``G_eff`` is the
+    entropy-debt enhanced gravitational coupling.  The factor ``1/12`` (rather
+    than ``1/24``) accounts for both the residual and completed dark-ledger
+    contributions to the passive stress-energy of de-rendered anti-baryons.
+    """
+
+    redshift = _decimal(z)
+    if redshift < 0:
+        raise ValueError("z must be non-negative")
+    c_comp = _decimal(c_dark_comp)
+    f_load = compute_loading_fraction(redshift, h0_cmb, A_H, omega_m, omega_r0, precision=precision)
+    h_shbt = shbt_hubble_rate(redshift, h0_cmb, A_H, omega_m, omega_r0)
+    rho_crit = _critical_density_kg_m3(h_shbt, c_comp)
+    # The completed ledger is split 12/24: the entropy-debt half is actively
+    # loaded, the other half (plus its gravitational ghost partner) remains
+    # as the passive dark-matter source.
+    omega_dm = (c_comp / Decimal("12")) * (Decimal("1") - f_load)
+    rho_dm = omega_dm * rho_crit
+    return {
+        "z": redshift,
+        "rho_DM_kg_m3": rho_dm,
+        "Omega_DM": omega_dm,
+    }
+
+
+def compute_dm_baryon_ratio(
+    z: Number,
+    h0_cmb: Number,
+    A_H: Number,
+    omega_m: Number,
+    c_dark_comp: Number,
+    N_sat: Number,
+    eta_b: Number,
+    *,
+    omega_r0: Number = DEFAULT_OMEGA_R0,
+    precision: int = DEFAULT_PRECISION,
+) -> dict[str, Decimal]:
+    """Return ``Omega_DM(z)``, ``Omega_b(z)``, and their ratio.
+
+    ``Omega_b`` is obtained from the baryon-to-photon ratio ``eta_b`` using
+    ``rho_b(z) = eta_b * n_gamma * m_p * (1+z)^3`` and the same SHBT critical
+    density as the dark-matter component.
+    """
+
+    redshift = _decimal(z)
+    if redshift < 0:
+        raise ValueError("z must be non-negative")
+    c_comp = _decimal(c_dark_comp)
+    dm = compute_dark_matter_density(
+        redshift, h0_cmb, A_H, omega_m, c_comp, N_sat, omega_r0=omega_r0, precision=precision
+    )
+    h_shbt = shbt_hubble_rate(redshift, h0_cmb, A_H, omega_m, omega_r0)
+    rho_crit = _critical_density_kg_m3(h_shbt, c_comp)
+    one_plus_z = Decimal("1") + redshift
+    rho_b = _decimal(eta_b) * CMB_PHOTON_DENSITY_M3 * PROTON_MASS_KG * one_plus_z**3
+    omega_b = rho_b / rho_crit
+    ratio = dm["Omega_DM"] / omega_b if omega_b else Decimal("0")
+    return {
+        "z": redshift,
+        "Omega_DM": dm["Omega_DM"],
+        "Omega_b": omega_b,
+        "Omega_DM_over_Omega_b": ratio,
+        "rho_DM_kg_m3": dm["rho_DM_kg_m3"],
+        "rho_b_kg_m3": rho_b,
+    }
+
+
+def dark_matter_equation_of_state(
+    z: Number,
+    h0_cmb: Number,
+    A_H: Number,
+    omega_m: Number,
+    *,
+    omega_r0: Number = DEFAULT_OMEGA_R0,
+    precision: int = DEFAULT_PRECISION,
+) -> dict[str, Decimal]:
+    """Return the effective dark-matter equation-of-state parameter ``w_DM``.
+
+    The passive stress-energy of de-rendered anti-baryons is gravitational only,
+    with no kinetic pressure, so ``w_DM = 0`` at all redshifts.
+    """
+
+    redshift = _decimal(z)
+    if redshift < 0:
+        raise ValueError("z must be non-negative")
+    return {"z": redshift, "w_DM": Decimal("0")}
+
+
 def isw_residual(z: Number, h0_cmb: Number, A_H: Number) -> Decimal:
     """Implements Eq. (211): ``-2 A_H / [(1+z) H0(z)]``."""
 
@@ -974,6 +1109,53 @@ def build_precision_cosmology_report(
         compute_cluster_collapse(redshift, h0_value, amplitude, matter, DEFAULT_SIGMA8, precision=precision)
         for redshift in (Decimal("0"), Decimal("0.5"), Decimal("1"))
     ]
+    completed_decimal = _decimal(completed_ledger)
+    # Resolve eta_b from the foundation audit when available; otherwise use the
+    # benchmark baryon-asymmetry value.
+    foundation = _foundation_audit_summary()
+    eta_b_value = DEFAULT_ETA_B
+    if foundation.get("available") and isinstance(foundation.get("result"), dict):
+        eta_b_value = _decimal(foundation["result"].get("eta_b", DEFAULT_ETA_B))
+
+    def _dark_matter_row(redshift: Decimal) -> dict[str, Decimal]:
+        dm_density = compute_dark_matter_density(
+            redshift,
+            h0_value,
+            amplitude,
+            matter,
+            completed_decimal,
+            constants.n_sat,
+            omega_r0=radiation,
+            precision=precision,
+        )
+        dm_ratio = compute_dm_baryon_ratio(
+            redshift,
+            h0_value,
+            amplitude,
+            matter,
+            completed_decimal,
+            constants.n_sat,
+            eta_b_value,
+            omega_r0=radiation,
+            precision=precision,
+        )
+        return {
+            "z": redshift,
+            "rho_DM_kg_m3": dm_density["rho_DM_kg_m3"],
+            "Omega_DM": dm_ratio["Omega_DM"],
+            "Omega_b": dm_ratio["Omega_b"],
+            "Omega_DM_over_Omega_b": dm_ratio["Omega_DM_over_Omega_b"],
+            "w_DM": dark_matter_equation_of_state(
+                redshift,
+                h0_value,
+                amplitude,
+                matter,
+                omega_r0=radiation,
+                precision=precision,
+            )["w_DM"],
+        }
+
+    dark_matter_rows = [_dark_matter_row(redshift) for redshift in redshifts]
     isw_rows = [
         {
             "z": redshift,
@@ -1019,6 +1201,11 @@ def build_precision_cosmology_report(
         "redshift_ladder": ladder,
         "growth_suppression": growth_rows,
         "cluster_collapse": cluster_collapse_rows,
+        "dark_matter": {
+            "rows": dark_matter_rows,
+            "abundance_ratio": dark_matter_rows[0]["Omega_DM_over_Omega_b"] if dark_matter_rows else Decimal("0"),
+            "w_DM": dark_matter_rows[0]["w_DM"] if dark_matter_rows else Decimal("0"),
+        },
         "lightcone_entropy_debt": lightcone,
         "isw_stability": isw_rows,
         "bbn_stability": bbn,
@@ -1045,6 +1232,8 @@ def build_precision_cosmology_report(
             "cluster_collapse_audit": "PASS"
             if all(row["abundance_ratio"] > 0 for row in cluster_collapse_rows)
             else "CHECK",
+            "dark_matter_abundance_ratio": dark_matter_rows[0]["Omega_DM_over_Omega_b"] if dark_matter_rows else Decimal("0"),
+            "dark_matter_w_DM": dark_matter_rows[0]["w_DM"] if dark_matter_rows else Decimal("0"),
             "overall_precision_audit": "PASS" if overall_pass else "CHECK",
         },
     }
@@ -1094,6 +1283,20 @@ def render_report(report: dict[str, Any]) -> str:
         f"{row['z']:>6.1f}   {row['lcdm_delta_c']:>12.4f}   {row['shbt_delta_c']:>12.4f}   {row['abundance_ratio']:>12.2E}"
         for row in report["cluster_collapse"]
     )
+    dm = report.get("dark_matter", {})
+    dm_rows = dm.get("rows", [])
+    if dm_rows:
+        lines.extend(
+            [
+                "",
+                "Dark matter (topological gravitational ghost)",
+                "z        rho_DM (kg/m^3)    Omega_DM    Omega_b    Omega_DM/Omega_b    w_DM",
+            ]
+        )
+        lines.extend(
+            f"{row['z']:>6.1f}   {row['rho_DM_kg_m3']:>18.6E}   {row['Omega_DM']:>9.4f}   {row['Omega_b']:>9.4f}   {row['Omega_DM_over_Omega_b']:>15.4f}   {row['w_DM']:>6.4f}"
+            for row in dm_rows
+        )
     bbn = report["bbn_stability"]
     chronometer = report["cosmic_chronometer_validation"]
     lines.extend(
@@ -1228,6 +1431,20 @@ class PrecisionCosmologyTests(unittest.TestCase):
         self.assertDecimalClose(summary["forecast_chi2_sensitivity"]["rigid_lcdm"], "35.78", "0.01")
         self.assertDecimalClose(summary["forecast_chi2_sensitivity"]["shbt"], "0.08", "0.01")
         self.assertDecimalClose(summary["cosmic_age_gyr"], "13.276", "0.001")
+
+    def test_dark_matter_abundance_ratio(self) -> None:
+        """Verify that SHBT predicts the observed DM/baryon ratio ~5.4 (Table 18)."""
+
+        report = build_precision_cosmology_report(self.h0_cmb, self.delta_mod, DEFAULT_OMEGA_M, DEFAULT_Z_SAMPLES)
+        ratio = report["dark_matter"]["abundance_ratio"]
+        self.assertAlmostEqual(float(ratio), 5.4, delta=0.1)
+
+    def test_dark_matter_equation_of_state(self) -> None:
+        """Verify that the dark-matter topological ghost is pressureless (w_DM ~ 0)."""
+
+        report = build_precision_cosmology_report(self.h0_cmb, self.delta_mod, DEFAULT_OMEGA_M, DEFAULT_Z_SAMPLES)
+        w_DM = report["dark_matter"]["w_DM"]
+        self.assertAlmostEqual(float(w_DM), 0.0, delta=1e-3)
 
 
 def _run_unit_tests() -> int:

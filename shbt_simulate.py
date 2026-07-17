@@ -527,8 +527,10 @@ def export_result(
                 p = Path(str(base) + "_precision_summary.csv")
                 _write_csv([_flatten_dict("", summary)], p)
                 paths.append(p)
-            for table_key in ("redshift_ladder", "growth_suppression", "cluster_collapse", "lightcone_entropy_debt", "isw_stability"):
+            for table_key in ("redshift_ladder", "growth_suppression", "cluster_collapse", "dark_matter", "lightcone_entropy_debt", "isw_stability"):
                 rows = pc.get(table_key)
+                if isinstance(rows, dict):
+                    rows = rows.get("rows", [])
                 if isinstance(rows, list) and rows:
                     p = Path(str(base) + f"_{table_key}.csv")
                     _write_records_csv(rows, p)
