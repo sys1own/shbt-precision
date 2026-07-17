@@ -7,9 +7,12 @@ configuration-file support (YAML or JSON).
 Example CLI::
 
     python shbt_simulate.py --config config.default.yaml
+    python shbt_simulate.py --mode audit
     python shbt_simulate.py --mode all --output result.json
-    python shbt_simulate.py --mode cosmology --format csv --output slices
+    python shbt_simulate.py --mode cosmology --output cosmology.json
+    python shbt_simulate.py --mode cosmology-test
     python shbt_simulate.py --sweep sweep.json --output sweep.json
+    python shbt_simulate.py --mode cosmology --plot --output cosmology.json
 
 Programmatic usage::
 
@@ -66,6 +69,13 @@ try:
     _HAS_JSONSCHEMA = True
 except Exception:  # pragma: no cover
     _HAS_JSONSCHEMA = False
+
+try:
+    import precision_cosmology as _pc  # type: ignore[import]
+    _HAS_PC = True
+except Exception:  # pragma: no cover
+    _pc = None  # type: ignore[assignment]
+    _HAS_PC = False
 
 
 def _ensure_rust() -> None:
@@ -221,7 +231,7 @@ SHBT_CONFIG_SCHEMA: dict[str, Any] = {
     "type": "object",
     "additionalProperties": False,
     "properties": {
-        "mode": {"type": "string", "enum": ["audit", "cosmology", "baryogenesis", "history", "all"]},
+        "mode": {"type": "string", "enum": ["audit", "cosmology", "cosmology-test", "baryogenesis", "history", "all"]},
         "branch": {
             "type": "array",
             "minItems": 3,
@@ -245,6 +255,15 @@ SHBT_CONFIG_SCHEMA: dict[str, Any] = {
         "log_format": {"type": "string", "enum": ["text", "json"]},
         "log_file": {"type": ["string", "null"]},
         "quiet": {"type": "boolean"},
+        "h0_cmb": {"type": ["string", "number"]},
+        "omega_m": {"type": ["string", "number"]},
+        "omega_r0": {"type": ["string", "number"]},
+        "delta_mod": {"type": ["string", "number"]},
+        "z_samples": {
+            "type": "array",
+            "items": {"type": ["string", "number"]},
+        },
+        "precision": {"type": "integer"},
     },
 }
 
@@ -286,7 +305,7 @@ def _validate_config(config: dict[str, Any]) -> None:
         for key in config:
             if key not in allowed:
                 raise ValueError(f"unknown configuration key: {key!r}")
-        if "mode" in config and config["mode"] not in ("audit", "cosmology", "baryogenesis", "history", "all"):
+        if "mode" in config and config["mode"] not in ("audit", "cosmology", "cosmology-test", "baryogenesis", "history", "all"):
             raise ValueError(f"invalid mode: {config['mode']!r}")
         if "branch" in config:
             b = config["branch"]
@@ -335,6 +354,18 @@ def _merge_with_cli(args: argparse.Namespace) -> dict[str, Any]:
         config["particles"] = args.particles
     if args.seed != DEFAULT_CONFIG["seed"]:
         config["seed"] = args.seed
+    if args.h0_cmb is not None:
+        config["h0_cmb"] = args.h0_cmb
+    if args.omega_m is not None:
+        config["omega_m"] = args.omega_m
+    if args.omega_r0 is not None:
+        config["omega_r0"] = args.omega_r0
+    if args.delta_mod is not None:
+        config["delta_mod"] = args.delta_mod
+    if args.z_samples is not None:
+        config["z_samples"] = list(args.z_samples)
+    if args.precision is not None:
+        config["precision"] = args.precision
     if args.format:
         config["export_formats"] = [args.format]
     if args.plot:
@@ -468,12 +499,16 @@ def export_result(
     if fmt == "json":
         output_path.parent.mkdir(parents=True, exist_ok=True)
         with open(output_path, "w", encoding="utf-8") as f:
-            json.dump(result, f, indent=2, sort_keys=True)
+            if _HAS_PC:
+                json.dump(_pc._as_json_safe(result), f, indent=2, sort_keys=True)
+            else:
+                json.dump(result, f, indent=2, sort_keys=True, default=str)
         return [output_path]
 
     if fmt == "csv":
         base = output_path.with_suffix("") if output_path.suffix else output_path
         paths: list[Path] = []
+        # Bulk metric slices and history (foundation outputs)
         slices = _metric_slices_for_export(result)
         if slices:
             p = Path(str(base) + "_metric_slices.csv")
@@ -484,6 +519,20 @@ def export_result(
             p = Path(str(base) + "_history.csv")
             _write_records_csv(history, p)
             paths.append(p)
+        # Precision-cosmology tables
+        pc = result.get("precision_cosmology")
+        if pc:
+            summary = pc.get("summary_table_17")
+            if summary:
+                p = Path(str(base) + "_precision_summary.csv")
+                _write_csv([_flatten_dict("", summary)], p)
+                paths.append(p)
+            for table_key in ("redshift_ladder", "growth_suppression", "lightcone_entropy_debt", "isw_stability"):
+                rows = pc.get(table_key)
+                if isinstance(rows, list) and rows:
+                    p = Path(str(base) + f"_{table_key}.csv")
+                    _write_records_csv(rows, p)
+                    paths.append(p)
         if not paths:
             p = Path(str(base) + "_summary.csv")
             _write_csv([_flatten_dict("", result)], p)
@@ -564,9 +613,9 @@ def _plot_result(result: dict[str, Any], prefix: Path, *, sweep: bool = False) -
             vals = [s.get("eigenvalues", [None] * 4)[dim] for s in slices]
             if all(v is not None for v in vals):
                 ax.plot(taus, vals, marker="o", label=f"λ{dim}")
-        ax.set_xlabel("τ")
+        ax.set_xlabel("redshift step (τ)")
         ax.set_ylabel("Metric eigenvalue")
-        ax.set_title("Metric eigenvalues across bulk slices")
+        ax.set_title("Metric eigenvalues across redshift steps")
         ax.legend()
         fig.tight_layout()
         p = prefix.parent / (prefix.name + "_eigenvalues.png")
@@ -621,6 +670,119 @@ def _plot_result(result: dict[str, Any], prefix: Path, *, sweep: bool = False) -
         files.append(p)
         _plt.close(fig)
 
+    return files
+
+
+def _plot_cosmology_result(result: dict[str, Any], prefix: Path) -> list[Path]:
+    """Generate Section 9 precision-cosmology plots and return the written file paths."""
+    if not _HAS_MPL:
+        logging.warning("Plotting requested but matplotlib is not installed; skipping.")
+        return []
+    report = result.get("precision_cosmology")
+    if not report:
+        return []
+    files: list[Path] = []
+
+    # 1. Hubble ladder H0(z) vs redshift
+    ladder = report.get("redshift_ladder", [])
+    if ladder:
+        fig, ax = _plt.subplots(figsize=(7, 4))
+        zs = [float(row["z"]) for row in ladder]
+        h0s = [float(row["h0_z_km_s_mpc"]) for row in ladder]
+        ax.plot(zs, h0s, marker="o")
+        ax.set_xlabel("z")
+        ax.set_ylabel("H0(z) [km s^-1 Mpc^-1]")
+        ax.set_title("Hubble ladder H0(z) vs redshift")
+        fig.tight_layout()
+        p = prefix.parent / (prefix.name + "_hubble_ladder.png")
+        fig.savefig(p)
+        files.append(p)
+        _plt.close(fig)
+
+    # 2. Growth suppression fσ8 vs redshift
+    growth = report.get("growth_suppression", [])
+    if growth:
+        fig, ax = _plt.subplots(figsize=(7, 4))
+        zs = [float(row["z"]) for row in growth]
+        lcdm = [float(row["lcdm_fsigma8"]) for row in growth]
+        shbt = [float(row["shbt_fsigma8"]) for row in growth]
+        ax.plot(zs, lcdm, marker="o", label="ΛCDM")
+        ax.plot(zs, shbt, marker="s", label="SHBT")
+        ax.set_xlabel("z")
+        ax.set_ylabel("fσ8")
+        ax.set_title("Growth suppression fσ8 vs redshift")
+        ax.legend()
+        fig.tight_layout()
+        p = prefix.parent / (prefix.name + "_growth_suppression.png")
+        fig.savefig(p)
+        files.append(p)
+        _plt.close(fig)
+
+    # 3. ISW residual vs redshift
+    isw = report.get("isw_stability", [])
+    if isw:
+        fig, ax = _plt.subplots(figsize=(7, 4))
+        zs = [float(row["z"]) for row in isw]
+        vals = [float(row["delta_dotH_over_H2"]) for row in isw]
+        ax.plot(zs, vals, marker="o")
+        ax.axhline(0, color="gray", linestyle="--", linewidth=0.8)
+        ax.set_xlabel("z")
+        ax.set_ylabel("δ(Ḣ/H²)")
+        ax.set_title("ISW residual vs redshift")
+        fig.tight_layout()
+        p = prefix.parent / (prefix.name + "_isw_residual.png")
+        fig.savefig(p)
+        files.append(p)
+        _plt.close(fig)
+
+    return files
+
+
+def _plot_cosmology_sweep(result: dict[str, Any], prefix: Path) -> list[Path]:
+    """Generate sweep plots for a cosmology parameter scan."""
+    if not _HAS_MPL:
+        logging.warning("Plotting requested but matplotlib is not installed; skipping.")
+        return []
+    if "sweep_results" not in result or not result["sweep_results"]:
+        return []
+    configs = result.get("sweep_configs", [])
+    results = result["sweep_results"]
+    if not configs:
+        return []
+    files: list[Path] = []
+
+    # Find a numeric varying parameter for the x-axis
+    varying: str | None = None
+    xvals: list[float] | None = None
+    for key in configs[0].keys():
+        vals = [_numeric_or_none(c.get(key)) for c in configs]
+        if all(v is not None for v in vals):
+            varying = key
+            xvals = vals
+            break
+
+    def _plot_metric(metric_key: str, label: str) -> None:
+        fig, ax = _plt.subplots(figsize=(7, 4))
+        yvals = [float(r["precision_cosmology"][metric_key]) for r in results]
+        if xvals:
+            ax.plot(xvals, yvals, marker="o")
+            ax.set_xlabel(varying)
+        else:
+            labels = [str(c) for c in configs]
+            ax.bar(range(len(labels)), yvals)
+            ax.set_xticks(range(len(labels)))
+            ax.set_xticklabels(labels, rotation=45, ha="right")
+            ax.set_xlabel("sweep index")
+        ax.set_ylabel(label)
+        ax.set_title(f"{label} across sweep configurations")
+        fig.tight_layout()
+        p = prefix.parent / (prefix.name + f"_{metric_key}.png")
+        fig.savefig(p)
+        files.append(p)
+        _plt.close(fig)
+
+    _plot_metric("h0_local_km_s_mpc", "H0 local [km s^-1 Mpc^-1]")
+    _plot_metric("A_H_km_s_mpc", "A_H [km s^-1 Mpc^-1]")
     return files
 
 
@@ -723,6 +885,79 @@ def _add_repro_metadata(result: dict[str, Any]) -> None:
     })
 
 
+def run_precision_cosmology(config: dict[str, Any]) -> dict[str, Any]:
+    """Run the Section 9 precision-cosmology audit and return a serialisable result.
+
+    Config keys:
+      - h0_cmb: CMB Hubble anchor (default from precision_cosmology.DEFAULT_H0_CMB)
+      - delta_mod: entropy-debt uplift (default from precision_cosmology.DELTA_MOD_FRACTION)
+      - omega_m: matter density fraction (default 0.315)
+      - omega_r0: radiation density fraction (default 9.2e-5)
+      - z_samples: sequence of redshift samples
+      - precision: Decimal/mpmath precision (default 80)
+    """
+    if not _HAS_PC:
+        raise RuntimeError(
+            "precision_cosmology module is not available. "
+            "Install its dependencies (mpmath) and ensure precision_cosmology.py is on PYTHONPATH."
+        )
+    h0_cmb = config.get("h0_cmb", _pc.DEFAULT_H0_CMB)
+    delta_mod = config.get("delta_mod", _pc.DELTA_MOD_FRACTION)
+    omega_m = config.get("omega_m", _pc.DEFAULT_OMEGA_M)
+    omega_r0 = config.get("omega_r0", _pc.DEFAULT_OMEGA_R0)
+    z_samples = config.get("z_samples", _pc.DEFAULT_Z_SAMPLES)
+    precision = int(config.get("precision", _pc.DEFAULT_PRECISION))
+    report = _pc.build_precision_cosmology_report(
+        h0_cmb,
+        delta_mod,
+        omega_m,
+        tuple(z_samples),
+        omega_r0=omega_r0,
+        precision=precision,
+    )
+    result: dict[str, Any] = {
+        "config": {
+            "h0_cmb": str(h0_cmb),
+            "delta_mod": str(delta_mod),
+            "omega_m": str(omega_m),
+            "omega_r0": str(omega_r0),
+            "z_samples": [str(z) for z in z_samples],
+            "precision": precision,
+        },
+        "precision_cosmology": report,
+    }
+    _add_repro_metadata(result)
+    return result
+
+
+_COSMOLOGY_SWEEP_KEYS = {
+    "h0_cmb", "omega_m", "omega_r0", "delta_mod", "z_samples", "precision", "sigma8"
+}
+
+
+def _is_cosmology_sweep(sweep_config: dict[str, Any]) -> bool:
+    """Return True if *sweep_config* is a precision-cosmology parameter scan."""
+    return sweep_config.get("mode") == "cosmology" or any(
+        k in _COSMOLOGY_SWEEP_KEYS for k in sweep_config
+    )
+
+
+def run_cosmology_sweep(sweep_config: dict[str, Any]) -> dict[str, Any]:
+    """Run :func:`run_precision_cosmology` for every combination in *sweep_config*."""
+    if not _HAS_PC:
+        raise RuntimeError("precision_cosmology module is not available.")
+    configs = list(_sweep_combinations(sweep_config))
+    results: list[dict[str, Any]] = []
+    total = len(configs)
+    for i, cfg in enumerate(configs, 1):
+        _LOGGER.info("Cosmology sweep run %d/%d with config %s", i, total, cfg)
+        results.append(run_precision_cosmology(cfg))
+    sweep_result: dict[str, Any] = {"sweep_configs": configs, "sweep_results": results}
+    _add_repro_metadata(sweep_result)
+    _log_event("cosmology_sweep_complete", sweep_runs=total)
+    return sweep_result
+
+
 def run_sweep(sweep_config: dict[str, Any]) -> dict[str, Any]:
     """Run ``simulate`` for every Cartesian product of parameter lists in *sweep_config*.
 
@@ -770,6 +1005,13 @@ def _summarise(result: dict[str, Any]) -> dict[str, Any]:
 
     if "history" in result:
         summary["history_entries"] = len(result["history"])
+
+    if "precision_cosmology" in result:
+        pc = result["precision_cosmology"]
+        summary["h0_local"] = str(pc.get("h0_local_km_s_mpc"))
+        summary["A_H"] = str(pc.get("A_H_km_s_mpc"))
+        summary["cosmic_age_gyr"] = str(pc.get("cosmic_age_gyr"))
+        summary["overall_precision_audit"] = pc.get("summary_table_17", {}).get("overall_precision_audit")
 
     if "sweep_results" in result:
         summary["sweep_runs"] = len(result["sweep_results"])
@@ -824,7 +1066,7 @@ def _build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--mode",
         "-m",
-        choices=["audit", "cosmology", "baryogenesis", "history", "all"],
+        choices=["audit", "cosmology", "cosmology-test", "baryogenesis", "history", "all"],
         default=DEFAULT_CONFIG["mode"],
         help="simulation mode (default: all)",
     )
@@ -870,6 +1112,43 @@ def _build_arg_parser() -> argparse.ArgumentParser:
         type=int,
         default=DEFAULT_CONFIG["seed"],
         help="random seed for causal-point collapse selection (default: 0)",
+    )
+    parser.add_argument(
+        "--h0-cmb",
+        type=str,
+        default=None,
+        help="CMB Hubble anchor for the precision cosmology audit (default: 67.4)",
+    )
+    parser.add_argument(
+        "--omega-m",
+        type=str,
+        default=None,
+        help="present matter density fraction for the precision cosmology audit (default: 0.315)",
+    )
+    parser.add_argument(
+        "--omega-r0",
+        type=str,
+        default=None,
+        help="present radiation density fraction for the precision cosmology audit (default: 9.2e-5)",
+    )
+    parser.add_argument(
+        "--delta-mod",
+        type=str,
+        default=None,
+        help="entropy-debt Delta_mod for the precision cosmology audit (default: c_dark^comp/24)",
+    )
+    parser.add_argument(
+        "--z-samples",
+        nargs="*",
+        type=str,
+        default=None,
+        help="redshift samples for the precision cosmology audit (default: 0 0.5 1 2 10 1100)",
+    )
+    parser.add_argument(
+        "--precision",
+        type=int,
+        default=None,
+        help="Decimal/mpmath precision for the precision cosmology audit (default: 80)",
     )
     parser.add_argument(
         "--output",
@@ -985,10 +1264,22 @@ def main(argv: list[str] | None = None) -> int:
     parser = _build_arg_parser()
     args = parser.parse_args(argv)
 
-    # Sweep mode is triggered by the dedicated CLI flag for now.
+    # Dedicated precision-cosmology test mode.
+    if args.mode == "cosmology-test":
+        if not _HAS_PC:
+            _shbt_print("precision_cosmology module is not available", quiet=False)
+            return 1
+        return _pc._run_unit_tests()
+
+    # Sweep mode is triggered by the dedicated CLI flag.
     if args.sweep:
         sweep_config = json.loads(Path(args.sweep).read_text(encoding="utf-8"))
-        result = run_sweep(sweep_config)
+        if args.mode == "cosmology":
+            sweep_config.setdefault("mode", "cosmology")
+        if _is_cosmology_sweep(sweep_config):
+            result = run_cosmology_sweep(sweep_config)
+        else:
+            result = run_sweep(sweep_config)
         export_formats = [args.format] if args.format else ["json"]
         output_path = args.output or f"sweep_{_timestamp_dir()}.json"
         paths = export_result(result, output_path, fmt=export_formats[0])
@@ -996,7 +1287,10 @@ def main(argv: list[str] | None = None) -> int:
             _shbt_print(f"Wrote SHBT sweep output to {p}", quiet=args.quiet)
         if args.plot:
             prefix = Path(output_path).with_name(Path(output_path).stem)
-            plot_paths = _plot_result(result, prefix, sweep=True)
+            if _is_cosmology_sweep(sweep_config):
+                plot_paths = _plot_cosmology_sweep(result, prefix)
+            else:
+                plot_paths = _plot_result(result, prefix, sweep=True)
             for p in plot_paths:
                 _shbt_print(f"Wrote plot to {p}", quiet=args.quiet)
         return 0
@@ -1017,6 +1311,23 @@ def main(argv: list[str] | None = None) -> int:
     duration = time.time() - start
     result["metadata"]["duration_s"] = duration
     _log_event("simulation_complete", mode=config.get("mode"), duration_s=duration)
+
+    # Attach the Section 9 precision-cosmology report for cosmology and all modes.
+    if config.get("mode") in ("cosmology", "all") and _HAS_PC:
+        _LOGGER.info("Running precision cosmology report")
+        pc_start = time.time()
+        pc_result = run_precision_cosmology(config)
+        result["precision_cosmology"] = pc_result["precision_cosmology"]
+        result["metadata"]["precision_cosmology_duration_s"] = time.time() - pc_start
+        _log_event(
+            "precision_cosmology_complete",
+            h0_local=pc_result["precision_cosmology"].get("h0_local_km_s_mpc"),
+            A_H=pc_result["precision_cosmology"].get("A_H_km_s_mpc"),
+            cosmic_age_gyr=pc_result["precision_cosmology"].get("cosmic_age_gyr"),
+            overall_precision_audit=pc_result["precision_cosmology"]
+            .get("summary_table_17", {})
+            .get("overall_precision_audit"),
+        )
 
     # Determine where to write results
     explicit_output = args.output
@@ -1053,6 +1364,9 @@ def main(argv: list[str] | None = None) -> int:
         plot_paths = _plot_result(result, prefix, sweep=False)
         for p in plot_paths:
             _shbt_print(f"Wrote plot to {p}", quiet=config.get("quiet", False))
+        if "precision_cosmology" in result:
+            for p in _plot_cosmology_result(result, prefix):
+                _shbt_print(f"Wrote plot to {p}", quiet=config.get("quiet", False))
 
     if config.get("mode") in ("audit", "all"):
         _log_event(
@@ -1065,6 +1379,9 @@ def main(argv: list[str] | None = None) -> int:
             history_entries=len(result["audit"].get("history_entries", [])),
         )
         print_summary(result)
+
+    if config.get("mode") in ("cosmology", "all") and "precision_cosmology" in result:
+        print("\n" + _pc.render_report(result["precision_cosmology"]))
 
     return 0
 
