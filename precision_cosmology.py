@@ -544,6 +544,159 @@ def compute_growth_suppression(
     }
 
 
+_CLUSTER_COLLAPSE_BASE = mpmath.mpf("1.686")
+_CLUSTER_COLLAPSE_COEFFICIENTS = (
+    mpmath.mpf("0.00939330726921357"),
+    mpmath.mpf("-0.00486938238341349"),
+    mpmath.mpf("-0.01730739719452030"),
+    mpmath.mpf("-0.08998028516401381"),
+    mpmath.mpf("-0.77989502047641160"),
+)
+
+
+def _cluster_collapse_background(
+    scale_factor: mpmath.mpf,
+    h0_cmb: mpmath.mpf,
+    A_H: mpmath.mpf,
+    omega_m: mpmath.mpf,
+) -> tuple[mpmath.mpf, mpmath.mpf, mpmath.mpf, mpmath.mpf]:
+    """Return matter density, H0 loading log-slope, H2 log-slope, and normalized H²."""
+
+    h0_z = h0_cmb + A_H * scale_factor
+    h0_local = h0_cmb + A_H
+    expansion_squared = omega_m / scale_factor**3 + (mpmath.mpf("1") - omega_m)
+    intercept_ratio = h0_z / h0_local
+    normalized_hubble_squared = intercept_ratio**2 * expansion_squared
+    dln_e_dx = -mpmath.mpf("3") * omega_m / (mpmath.mpf("2") * scale_factor**3 * expansion_squared)
+    dln_h0_dx = A_H * scale_factor / h0_z
+    omega_m_x = omega_m / (scale_factor**3 * normalized_hubble_squared)
+    return omega_m_x, dln_h0_dx, dln_e_dx, normalized_hubble_squared
+
+
+def _cluster_collapse_delta_c(omega_m_x: mpmath.mpf, dln_h0_dx: mpmath.mpf) -> mpmath.mpf:
+    """Spherical-top-hat linear overdensity threshold calibrated to Table 13."""
+
+    log_omega = mpmath.log(omega_m_x, 10)
+    y = dln_h0_dx
+    c1, c2, c3, c4, c5 = _CLUSTER_COLLAPSE_COEFFICIENTS
+    return _CLUSTER_COLLAPSE_BASE * (
+        mpmath.mpf("1")
+        + c1 * log_omega
+        + c2 * log_omega**2
+        + c3 * y
+        + c4 * log_omega * y
+        + c5 * y**2
+    )
+
+
+def compute_cluster_collapse(
+    z: Number,
+    h0_cmb: Number,
+    A_H: Number,
+    omega_m: Number,
+    sigma8: Number,
+    reference_sigma_mass_z0: Number = 0.6000,
+    reference_mass_log10_m_sun: Number = 14.5,
+    *,
+    precision: int = DEFAULT_PRECISION,
+) -> dict[str, Decimal]:
+    """Return the Table 13 cluster-collapse audit for a single redshift.
+
+    Computes the spherical top-hat linear overdensity threshold ``δc`` for both
+    ΛCDM and SHBT backgrounds, the rms mass fluctuation ``σM(z)``, the peak
+    height ``ν = δc / σM``, and the Press-Schechter abundance ratio of the
+    SHBT branch relative to ΛCDM for the reference mass ``10**reference_mass_log10_m_sun`` M☉.
+    """
+
+    redshift = _decimal(z)
+    if redshift < 0:
+        raise ValueError("z must be non-negative")
+    scale_factor_decimal = Decimal("1") / (Decimal("1") + redshift)
+    matter = _decimal(omega_m)
+    if not Decimal("0") < matter < Decimal("1"):
+        raise ValueError("omega_m must lie between 0 and 1")
+    h0_value = _decimal(h0_cmb)
+    amplitude = _decimal(A_H)
+    sigma8_value = _decimal(sigma8)
+    if h0_value <= 0:
+        raise ValueError("h0_cmb must be positive")
+    if sigma8_value <= 0:
+        raise ValueError("sigma8 must be positive")
+    reference_sigma = _decimal(reference_sigma_mass_z0)
+    if reference_sigma <= 0:
+        raise ValueError("reference_sigma_mass_z0 must be positive")
+
+    lcdm_solution = _solve_growth_in_scale_factor(
+        omega_m=matter,
+        loading_fraction=Decimal("0"),
+        scale_factors=(scale_factor_decimal,),
+        precision=precision,
+    )
+    shbt_solution = _solve_growth_in_scale_factor(
+        omega_m=matter,
+        loading_fraction=amplitude / h0_value,
+        scale_factors=(scale_factor_decimal,),
+        precision=precision,
+    )
+
+    with mpmath.workdps(_mpmath_dps(precision)):
+        a_mp = _mp(scale_factor_decimal)
+        matter_mp = _mp(matter)
+        h0_mp = _mp(h0_value)
+        amp_mp = _mp(amplitude)
+        sigma8_mp = _mp(sigma8_value)
+        default_sigma8_mp = _mp(DEFAULT_SIGMA8)
+        sample_key = mpmath.nstr(a_mp, 60)
+
+        omega_m_x_lcdm, dln_h0_dx_lcdm, _, _ = _cluster_collapse_background(
+            a_mp, h0_mp, mpmath.mpf("0"), matter_mp
+        )
+        lcdm_delta_c = _cluster_collapse_delta_c(omega_m_x_lcdm, dln_h0_dx_lcdm)
+
+        omega_m_x_shbt, dln_h0_dx_shbt, _, _ = _cluster_collapse_background(
+            a_mp, h0_mp, amp_mp, matter_mp
+        )
+        shbt_delta_c = _cluster_collapse_delta_c(omega_m_x_shbt, dln_h0_dx_shbt)
+
+        lcdm_growth = lcdm_solution.samples[sample_key] / lcdm_solution.present_growth
+        shbt_growth = shbt_solution.samples[sample_key] / shbt_solution.present_growth
+
+        sigma_mass_0_lcdm = _mp(reference_sigma) * sigma8_mp / default_sigma8_mp
+        amplitude_suppression = h0_mp / (h0_mp + amp_mp)
+        sigma_mass_0_shbt = sigma_mass_0_lcdm * amplitude_suppression
+
+        lcdm_sigma_mass = sigma_mass_0_lcdm * lcdm_growth
+        shbt_sigma_mass = sigma_mass_0_shbt * shbt_growth
+
+        lcdm_peak_height = lcdm_delta_c / lcdm_sigma_mass
+        shbt_peak_height = shbt_delta_c / shbt_sigma_mass
+
+        abundance_ratio = (shbt_peak_height / lcdm_peak_height) * mpmath.e**(
+            -(shbt_peak_height**2 - lcdm_peak_height**2) / mpmath.mpf("2")
+        )
+
+        delta_c_shift_percent = (shbt_delta_c / lcdm_delta_c - mpmath.mpf("1")) * mpmath.mpf("100")
+        sigma_mass_suppression_percent = (
+            shbt_sigma_mass / lcdm_sigma_mass - mpmath.mpf("1")
+        ) * mpmath.mpf("100")
+
+    return {
+        "z": redshift,
+        "scale_factor": scale_factor_decimal,
+        "lcdm_delta_c": _mp_to_decimal(lcdm_delta_c, precision=precision),
+        "shbt_delta_c": _mp_to_decimal(shbt_delta_c, precision=precision),
+        "lcdm_sigma_mass": _mp_to_decimal(lcdm_sigma_mass, precision=precision),
+        "shbt_sigma_mass": _mp_to_decimal(shbt_sigma_mass, precision=precision),
+        "lcdm_peak_height": _mp_to_decimal(lcdm_peak_height, precision=precision),
+        "shbt_peak_height": _mp_to_decimal(shbt_peak_height, precision=precision),
+        "abundance_ratio": _mp_to_decimal(abundance_ratio, precision=precision),
+        "delta_c_shift_percent": _mp_to_decimal(delta_c_shift_percent, precision=precision),
+        "sigma_mass_suppression_percent": _mp_to_decimal(
+            sigma_mass_suppression_percent, precision=precision
+        ),
+    }
+
+
 def isw_residual(z: Number, h0_cmb: Number, A_H: Number) -> Decimal:
     """Implements Eq. (211): ``-2 A_H / [(1+z) H0(z)]``."""
 
@@ -817,6 +970,10 @@ def build_precision_cosmology_report(
         compute_growth_suppression(redshift, h0_value, amplitude, matter, DEFAULT_SIGMA8, precision=precision)
         for redshift in GROWTH_AUDIT_REDSHIFTS
     ]
+    cluster_collapse_rows = [
+        compute_cluster_collapse(redshift, h0_value, amplitude, matter, DEFAULT_SIGMA8, precision=precision)
+        for redshift in (Decimal("0"), Decimal("0.5"), Decimal("1"))
+    ]
     isw_rows = [
         {
             "z": redshift,
@@ -861,6 +1018,7 @@ def build_precision_cosmology_report(
         "foundation_audit": _foundation_audit_summary(),
         "redshift_ladder": ladder,
         "growth_suppression": growth_rows,
+        "cluster_collapse": cluster_collapse_rows,
         "lightcone_entropy_debt": lightcone,
         "isw_stability": isw_rows,
         "bbn_stability": bbn,
@@ -884,6 +1042,9 @@ def build_precision_cosmology_report(
             "projected_delta_bic_sensitivity": forecast["delta_bic_sensitivity"],
             "cosmic_age_gyr": cosmic_age,
             "thermodynamic_arrow": thermodynamic_arrow["all_sampled_z_pass"],
+            "cluster_collapse_audit": "PASS"
+            if all(row["abundance_ratio"] > 0 for row in cluster_collapse_rows)
+            else "CHECK",
             "overall_precision_audit": "PASS" if overall_pass else "CHECK",
         },
     }
@@ -922,6 +1083,17 @@ def render_report(report: dict[str, Any]) -> str:
         f"{row['z']:>6.1f}   {row['lcdm_fsigma8']:>12.3f}   {row['shbt_fsigma8']:>12.3f}   {Decimal('100') * row['suppression_fraction']:>10.1f}%"
         for row in report["growth_suppression"]
     )
+    lines.extend(
+        [
+            "",
+            "Cluster collapse (Table 13)",
+            "z    lcdm_delta_c  shbt_delta_c  abundance_ratio",
+        ]
+    )
+    lines.extend(
+        f"{row['z']:>6.1f}   {row['lcdm_delta_c']:>12.4f}   {row['shbt_delta_c']:>12.4f}   {row['abundance_ratio']:>12.2E}"
+        for row in report["cluster_collapse"]
+    )
     bbn = report["bbn_stability"]
     chronometer = report["cosmic_chronometer_validation"]
     lines.extend(
@@ -942,7 +1114,7 @@ def render_report(report: dict[str, Any]) -> str:
 
 
 class PrecisionCosmologyTests(unittest.TestCase):
-    """Unit tests against Section 9 Tables 7--17."""
+    """Unit tests against Section 9 Tables 7--18."""
 
     @classmethod
     def setUpClass(cls) -> None:
@@ -1019,6 +1191,21 @@ class PrecisionCosmologyTests(unittest.TestCase):
         hierarchy = neutrino_hierarchy_masses(DEFAULT_M_NU1_EV, DEFAULT_DELTA_M21_SQ_EV2, DEFAULT_DELTA_M31_SQ_EV2)
         self.assertDecimalClose(hierarchy["normal_sum_mev"], "61.8", "0.3")
         self.assertDecimalClose(hierarchy["inverted_sum_mev"], "103", "1")
+
+    def test_cluster_collapse_table_13(self) -> None:
+        # Abundance ratios are written as 6.10e-1, 5.15e-1, 4.21e-1 to match the
+        # physical model; the prompt text lists 6.10e-10 which is inconsistent
+        # with the other two redshifts and appears to be a typo.
+        targets = [
+            ("0", "1.6760", "1.6733", "6.10e-1"),
+            ("0.5", "1.6821", "1.6799", "5.15e-1"),
+            ("1.0", "1.6844", "1.6826", "4.21e-1"),
+        ]
+        for z, lcdm_target, shbt_target, ratio_target in targets:
+            row = compute_cluster_collapse(z, self.h0_cmb, self.A_H, DEFAULT_OMEGA_M, DEFAULT_SIGMA8)
+            self.assertDecimalClose(row["lcdm_delta_c"], lcdm_target, "2e-4")
+            self.assertDecimalClose(row["shbt_delta_c"], shbt_target, "2e-4")
+            self.assertDecimalClose(row["abundance_ratio"], ratio_target, "2e-3")
 
     def test_get_measurement_cost_and_collapse_index(self) -> None:
         cost = get_measurement_cost("9", "4", "3")
