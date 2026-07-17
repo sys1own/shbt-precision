@@ -164,13 +164,13 @@ def load_default_constants() -> SimulatorConstants:
     )
     lambda_holo = _first_attr(
         objects,
-        ("Lambda_holo", "lambda_holo", "LAMBDA_HOLO", "PLANCK2018_LAMBDA_SI_M2"),
+        ("lambda_holo_si_m2", "Lambda_holo", "lambda_holo", "LAMBDA_HOLO", "PLANCK2018_LAMBDA_SI_M2"),
     )
     n_sat = _first_attr(
         objects,
         ("N_sat", "n_sat", "horizon_register_bits", "HORIZON_REGISTER_BITS", "bit_budget"),
     )
-    c_dark_residual = _first_attr(objects, ("c_dark", "C_DARK", "c_dark_residual"))
+    c_dark_residual = _first_attr(objects, ("c_dark_residual", "C_DARK_RESIDUAL", "c_dark", "C_DARK"))
     return SimulatorConstants(
         h0_cmb=_decimal(h0_cmb) if h0_cmb is not None else DEFAULT_H0_CMB,
         lambda_holo_si_m2=_decimal(lambda_holo) if lambda_holo is not None else DEFAULT_LAMBDA_HOLO_SI_M2,
