@@ -347,15 +347,15 @@ For `audit` and `all` modes, a clean ASCII summary table is printed at the end:
 +------------------------------------------------------+
 | SHBT Audit Summary                                   |
 +------------------------------------------------------+
-| Branch                       | (26, 8, 312)           |
-| Framing defect (delta_fr)    | 0.0                    |
-| Modular invariant            | True                   |
-| Zero energy locked           | True                   |
-| Projection dimension 26 -> 4 | True                   |
-| eta_b                        | 6.449923359416131e-10  |
-| Stress energy preserved      | True                   |
-| Metric slices                | 9                      |
-| History entries              | 9                      |
+| Branch                       | (26, 8, 312)          |
+| Framing defect (delta_fr)    | 0.0                   |
+| Modular invariant            | True                  |
+| Zero energy locked           | True                  |
+| Projection dimension 26 -> 4 | True                  |
+| eta_b                        | 6.449923359416131e-10 |
+| Stress energy preserved      | True                  |
+| Metric slices                | 9                     |
+| History entries              | 9                     |
 +------------------------------------------------------+
 ```
 
