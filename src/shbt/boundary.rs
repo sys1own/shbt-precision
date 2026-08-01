@@ -4,6 +4,7 @@ use pyo3::prelude::*;
 use pyo3::types::PyDict;
 use rug::float::Constant;
 use rug::{Complex, Float, Rational};
+use std::collections::HashMap;
 
 pub(crate) const PREC: u32 = 512;
 
@@ -342,7 +343,7 @@ impl StaticBoundary {
         diff.abs() <= tol.clone()
     }
 
-    fn distance_to_integer(x: &Float) -> Float {
+    pub(crate) fn distance_to_integer(x: &Float) -> Float {
         let nearest = x.to_i32_saturating().unwrap_or(0);
         let nearest_f = Float::with_val(PREC, nearest);
         let mut d = x.clone();
@@ -1101,6 +1102,119 @@ fn frobenius_norm_9x9(m: &[[Complex; 9]; 9]) -> Float {
         }
     }
     sum.sqrt()
+}
+
+// ------------------------------------------------------------------
+// Supplementary material: quantum dimensions, exact ledgers, framing
+// ------------------------------------------------------------------
+
+/// $d_a^{SU(2)} = \sin((a+1)\pi/(k_l+2)) / \sin(\pi/(k_l+2))$
+pub fn su2_quantum_dimension(a: usize, k_l: usize) -> f64 {
+    let pi = Float::with_val(PREC, Constant::Pi);
+    let level = Float::with_val(PREC, k_l as u64 + 2);
+
+    let mut num_arg = Float::with_val(PREC, a as u64 + 1);
+    num_arg *= &pi;
+    num_arg /= &level;
+
+    let mut den_arg = Float::with_val(PREC, &pi);
+    den_arg /= &level;
+
+    let num = num_arg.sin();
+    let den = den_arg.sin();
+    (num / den).to_f64()
+}
+
+/// $d_{(p,q)}^{SU(3)}$ via the product-of-sines Verlinde formula.
+pub fn su3_quantum_dimension(p: usize, q: usize, k_q: usize) -> f64 {
+    let pi = Float::with_val(PREC, Constant::Pi);
+    let level = Float::with_val(PREC, k_q as u64 + 3);
+
+    let sin = |x: u64| {
+        let mut arg = Float::with_val(PREC, x);
+        arg *= &pi;
+        arg /= &level;
+        arg.sin()
+    };
+
+    let p1 = p as u64 + 1;
+    let q1 = q as u64 + 1;
+    let s = p as u64 + q as u64 + 2;
+
+    let unit = sin(1);
+    let unit_sq = unit.clone() * &unit;
+    let d = (sin(p1) * sin(q1) * sin(s)) / (unit_sq * sin(2));
+    d.to_f64()
+}
+
+/// Exact rational central-charge ledger used in the supplementary proof.
+pub fn exact_central_charge_ledger() -> HashMap<String, (u64, u64)> {
+    let c_su2_26 = Rational::from((3u64 * 26, 26u64 + 2)); // 39/14
+    let c_su3_8 = Rational::from((8u64 * 8, 8u64 + 3));   // 64/11
+    let c_vis = c_su2_26.clone() + c_su3_8.clone();
+    let c_dark_res = Rational::from((834433u64, 362670u64));
+    let c_dark_comp = Rational::from((1197103u64, 362670u64));
+    let c_tot_res = c_vis.clone() + c_dark_res.clone();
+    let c_tot_comp = c_vis.clone() + c_dark_comp.clone();
+
+    let mut map = HashMap::new();
+    map.insert("c_su2_26".to_string(), (c_su2_26.numer().to_u64().unwrap(), c_su2_26.denom().to_u64().unwrap()));
+    map.insert("c_su3_8".to_string(), (c_su3_8.numer().to_u64().unwrap(), c_su3_8.denom().to_u64().unwrap()));
+    map.insert("c_dark_res".to_string(), (c_dark_res.numer().to_u64().unwrap(), c_dark_res.denom().to_u64().unwrap()));
+    map.insert("c_dark_comp".to_string(), (c_dark_comp.numer().to_u64().unwrap(), c_dark_comp.denom().to_u64().unwrap()));
+    map.insert("c_vis".to_string(), (c_vis.numer().to_u64().unwrap(), c_vis.denom().to_u64().unwrap()));
+    map.insert("c_tot_res".to_string(), (c_tot_res.numer().to_u64().unwrap(), c_tot_res.denom().to_u64().unwrap()));
+    map.insert("c_tot_comp".to_string(), (c_tot_comp.numer().to_u64().unwrap(), c_tot_comp.denom().to_u64().unwrap()));
+    map
+}
+
+fn prime_factorization(mut n: u64) -> Vec<(u64, u32)> {
+    let mut factors = Vec::new();
+    let mut p = 2u64;
+    while p * p <= n {
+        if n % p == 0 {
+            let mut exp = 0u32;
+            while n % p == 0 {
+                n /= p;
+                exp += 1;
+            }
+            factors.push((p, exp));
+        }
+        p += 1;
+    }
+    if n > 1 {
+        factors.push((n, 1));
+    }
+    factors
+}
+
+pub fn denominator_factorization_362670() -> Vec<(u64, u32)> {
+    prime_factorization(362670)
+}
+
+pub fn denominator_factorization_16485() -> Vec<(u64, u32)> {
+    prime_factorization(16485)
+}
+
+/// Verify $362670 = 2 \cdot 3 \cdot 5 \cdot 7 \cdot 11 \cdot 157$ and
+/// $16485 = 3 \cdot 5 \cdot 7 \cdot 157$.
+pub fn verify_denominator_prime_factorization() -> bool {
+    let expected_362670: Vec<(u64, u32)> = vec![(2, 1), (3, 1), (5, 1), (7, 1), (11, 1), (157, 1)];
+    let expected_16485: Vec<(u64, u32)> = vec![(3, 1), (5, 1), (7, 1), (157, 1)];
+    denominator_factorization_362670() == expected_362670
+        && denominator_factorization_16485() == expected_16485
+}
+
+/// $\Delta_{\text{fr}}(K, k_l, k_q) = \max(\|K/(2k_l)\|_\mathbb{Z}, \|K/(3k_q)\|_\mathbb{Z})$.
+pub fn verify_framing_defect(k_l: usize, k_q: usize, K: usize) -> f64 {
+    let mut i_l = Float::with_val(PREC, K as u64);
+    i_l /= (2 * k_l) as u64;
+    let mut i_q = Float::with_val(PREC, K as u64);
+    i_q /= (3 * k_q) as u64;
+    let d_l = StaticBoundary::distance_to_integer(&i_l);
+    let d_q = StaticBoundary::distance_to_integer(&i_q);
+    let max = if d_l > d_q { d_l } else { d_q };
+    max.to_f64()
 }
 
 #[cfg(test)]
