@@ -1407,6 +1407,26 @@ fn get_framing_defect(k_l: usize, k_q: usize, K: usize) -> PyResult<f64> {
     Ok(verify_framing_defect(k_l, k_q, K))
 }
 
+#[pyfunction]
+fn get_denominator_prime_factorization(py: Python<'_>) -> PyResult<Bound<'_, PyDict>> {
+    let d = PyDict::new_bound(py);
+    d.set_item("valid", verify_denominator_prime_factorization())?;
+
+    let f362670 = PyDict::new_bound(py);
+    for (p, e) in denominator_factorization_362670() {
+        f362670.set_item(p.to_string(), e)?;
+    }
+    d.set_item("362670", f362670)?;
+
+    let f16485 = PyDict::new_bound(py);
+    for (p, e) in denominator_factorization_16485() {
+        f16485.set_item(p.to_string(), e)?;
+    }
+    d.set_item("16485", f16485)?;
+
+    Ok(d)
+}
+
 // ===========================================================================
 // HIGH-PRECISION IN-PLACE 4x4 MATRIX MATH TOOLS
 // ===========================================================================
@@ -3573,6 +3593,9 @@ mod shbt_simulator {
 
     #[pymodule_export]
     use super::get_framing_defect;
+
+    #[pymodule_export]
+    use super::get_denominator_prime_factorization;
 
     #[pymodule_export]
     use super::AnyonBraidingEngine;
