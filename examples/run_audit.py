@@ -6,10 +6,14 @@ import json
 import sys
 from pathlib import Path
 
-# Make the repo-root `shbt_simulate.py` importable when running from examples/.
+# Make the repo-root `shbt_simulate.py` and compiled extension importable
+# when running from examples/.
 ROOT = Path(__file__).resolve().parent.parent
+TARGET = ROOT / "target" / "release"
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
+if str(TARGET) not in sys.path:
+    sys.path.insert(0, str(TARGET))
 
 import shbt_simulate
 

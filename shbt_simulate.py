@@ -1467,6 +1467,8 @@ def main(argv: list[str] | None = None) -> int:
     if args.build:
         _build_rust_extension()
         sys.stdout.flush()
+        # PyO3 extension shutdown can segfault during interpreter teardown on
+        # this build-only invocation; exit immediately after the build succeeds.
         os._exit(0)
 
     # Dedicated precision-cosmology test mode.
