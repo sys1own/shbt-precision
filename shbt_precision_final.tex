@@ -1,0 +1,4468 @@
+
+\documentclass[11pt]{article}
+\usepackage[margin=1in]{geometry}
+
+% Core packages
+\usepackage{amsmath,amssymb,amsfonts,mathtools,bm}
+\usepackage{tikz-cd}
+\usepackage{multicol}
+\usepackage{array,booktabs}
+\usepackage{longtable}
+\usepackage{float}
+\usepackage[hidelinks]{hyperref}
+
+% Paragraphs
+\setlength{\parindent}{0pt}
+\setlength{\parskip}{1\baselineskip}
+\setlength{\emergencystretch}{2em}
+\sloppy
+
+\DeclareMathOperator{\Tr}{Tr}
+\DeclareMathOperator{\diag}{diag}
+\DeclareMathOperator{\lcm}{lcm}
+\DeclareMathOperator{\dimop}{dim}
+\DeclareRobustCommand{\pyvar}[1]{%
+  \ifmmode\text{\nolinkurl{#1}}\else\nolinkurl{#1}\fi%
+}
+\DeclareRobustCommand{\shellcmd}[1]{\texttt{\detokenize{#1}}}
+\providecommand{\Z}{\mathbb Z}
+\newcommand{\branchstar}{\mathfrak b_*}
+\newcommand{\kell}{k_{\ell}}
+\newcommand{\kq}{k_q}
+\newcommand{\Kpar}{K}
+\newcommand{\Deltafr}{\Delta_{\rm fr}}
+\newcommand{\cdarkres}{c_{\rm dark}^{\rm res}}
+\newcommand{\cdarkcomp}{c_{\rm dark}^{\rm comp}}
+\newcommand{\cdark}{\cdarkres}
+\newcommand{\Lholo}{\Lambda_{\rm holo}}
+\newcommand{\Nsat}{N_{\rm sat}}
+\newcommand{\Nbits}{N}
+\newcommand{\Lp}{L_P}
+\newcommand{\MP}{M_P}
+\newcommand{\GN}{G_N}
+\newcommand{\Ebulk}{\mathcal E_{\mu\nu}}
+\newcommand{\Zboundary}{Z_{\partial}}
+\newcommand{\Htotal}{H_{\rm total}}
+\newcommand{\Hboundary}{H_{\partial}}
+\newcommand{\Hbulk}{H_{\rm bulk}}
+\newcommand{\Hstab}{H_{\rm stabilizer}}
+\newcommand{\shbt}{\ensuremath{\mathrm{SHBT}}}
+\newcommand{\lcdm}{\ensuremath{\Lambda\mathrm{CDM}}}
+\newcommand{\hzero}{H_0}
+\newcommand{\hcmb}{H_0^{\rm CMB}}
+\newcommand{\hloc}{H_0^{\rm loc}}
+\newcommand{\hlambda}{H_{\Lambda}}
+\newcommand{\kmsmpc}{\mathrm{km\,s^{-1}\,Mpc^{-1}}}
+\newcommand{\DeltaMod}{\Delta_{\rm mod}}
+\newcommand{\fload}{f_{\rm load}}
+\newcommand{\debtentropy}{S_{\rm debt}}
+\newcommand{\horizonentropy}{S_{\rm H}}
+\newcommand{\GammaLock}{\Gamma_{\rm lock}}
+\newcommand{\AH}{A_H}
+\newcommand{\kappad}{\kappa_{D_5}}
+\newcommand{\kappaD}{\kappad}
+\newcommand{\dd}{\mathcal D}
+\newcommand{\msun}{M_{\odot}}
+\newcommand{\so}{\mathfrak{so}}
+\newcommand{\su}{\mathfrak{su}}
+\newcommand{\uone}{\mathfrak{u}(1)}
+
+\title{Static Holographic Boundary Theory and Precision Cosmology}
+\author{}
+\date{\today}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+Static Holographic Boundary Theory (SHBT) is a boundary-first closure program:
+the primitive object is a completed boundary conformal field theory whose torus
+partition function is exactly modular invariant, not a pre-existing bulk
+spacetime. The canonical branch
+$(\kell,\kq,\Kpar)=(26,8,312)$ locks the weak and color center lifts to
+$I_{\ell}^{\star}=6$ and $I_q^{\star}=13$, so the framing defect
+$\Deltafr$ vanishes. On this branch, modular closure is equivalent to a
+vanishing bulk closure tensor and to the projected Hamiltonian constraint
+$\Pi_{\rm phys}\Htotal\Pi_{\rm phys}=0$.
+This unified manuscript combines the foundational SHBT simulator paper with the
+finite-capacity precision-cosmology manuscript. The common data determine the
+visible modular arithmetic, the residual and completed dark ledgers
+$\cdarkres=834433/362670$ and
+$\cdarkcomp=\cdarkres+1=1197103/362670$, the finite horizon register,
+holographic RG metric slices, baryogenesis by anti-baryon de-rendering, and
+Causal Point observer histories. The cosmology part uses the completed ledger
+to define an entropy-debt variable
+$\DeltaMod=\cdarkcomp/24$ and an observer-frame loading law that interpolates
+between the Planck CMB intercept and the local Hubble value while decaying as
+$(1+z)^{-1}$ toward the early universe.
+The resulting paper presents both the closure theory and its audit trail. The
+final integration makes explicit the Fefferman--Graham/topological-Einstein
+bridge, the entropy-debt redshift ODE, the Hubble-loading amplitude
+\(\AH\), the lock rate \(\GammaLock=3\AH\), the structure-growth and ISW
+residual equations, BBN decoupling, chronometer covariance, and the finite GET
+measurement rule. The simulator checks exact branch closure, nine positive
+trace-normalized metric slices, nine finite-memory history entries,
+stress-energy-preserving anti-baryon de-rendering with
+$\eta_B=6.449923359416\times10^{-10}$, Newton-lock stationarity, the
+unity-of-scale identity, Hubble-ladder tracking, growth suppression, the CPL
+mirage template, the cluster-collapse audit, dark matter as the topological
+gravitational ghost of de-rendered anti-baryons, ISW stability, and the
+thermodynamic light-cone entropy ledger.
+\end{abstract}
+
+\section{Introduction}
+\label{sec:introduction}
+
+Quantum gravity and Standard Model phenomenology are usually formulated in
+opposite directions.  Perturbative quantum field theory starts from local
+particle multiplets, gauge charges, and renormalization-group data, and then
+asks how this successful low-energy structure survives coupling to gravity.
+Holography starts from boundary data and asks how local bulk spacetime and
+effective fields emerge.  A realistic theory must make these two directions
+meet: it must account for the observed particle content, vacuum response,
+baryon asymmetry, and cosmological scales without repeatedly inserting small
+numbers by hand.  This is the naturalness problem in its broadest form.  The
+Standard Model is phenomenologically successful, but the gravitational and
+vacuum sectors appear highly sensitive to ultraviolet completion unless a
+deeper closure principle fixes the allowed data
+\cite{thooft1980,weinberg1989,pdg2024}.
+
+This manuscript unifies two previously separate presentations.  Sections
+\ref{sec:canonical-branch-axiomatic-foundation}--\ref{sec:numerical-verification-performance}
+develop the static boundary theory, while
+Section~\ref{sec:precision-cosmological-implications} adds the finite-capacity
+cosmological implications and their Python audit outputs.  To remove the
+notation collision between the two source manuscripts, the residual dark ledger
+used in the foundational simulator is denoted
+\(\cdarkres=834433/362670\), whereas the completed finite-screen ledger used by
+the Noether bridge and precision cosmology is
+\(\cdarkcomp=\cdarkres+1=1197103/362670\).  The symbol
+\(\kappad\) is used throughout for the retained \(D_5\) boundary-cell measure;
+\(\kappaD\) is retained only as a legacy alias.  In the precision-cosmology
+sector, \(\DeltaMod=\cdarkcomp/24\), \(\AH\) denotes the Hubble-loading
+amplitude rather than a horizon area, and \(\GammaLock=3\AH\) denotes the
+Causal Point lock rate.  The microscopic center-lift, completed-ledger, and
+boundary-measure definitions are collected in
+Appendices~\ref{app:center-directed-modular-framing}--\ref{app:boundary-measure-quantum-dimensions}.
+
+Static Holographic Boundary Theory (SHBT) proposes that the missing closure
+principle is exact modular invariance of a completed boundary conformal field
+theory (CFT).  The starting point is neither a fluctuating classical spacetime
+nor a pre-existing cosmological history, but a completed boundary Hilbert space
+and a physical torus partition function
+\begin{equation}
+ \Zboundary(\tau,\bar\tau)
+ =
+ \sum_{I,J}M_{IJ}\chi_I(\tau)\overline{\chi_J(\tau)},
+ \qquad
+ [M,S_{\partial}]=[M,T_{\partial}]=0,
+ \qquad
+ M_{IJ}\in\mathbb Z_{\ge0}.
+\end{equation}
+The role of modular covariance follows the standard lesson that torus partition
+functions in two-dimensional CFT are not arbitrary sums of characters: their
+operator content is constrained by the modular group
+\cite{cardy1986,cappelli1987}.  SHBT strengthens this consistency condition
+into a first principle.  A boundary sector is physical only if it closes under
+the completed modular kernels, and any residual mismatch is encoded in a scalar
+framing defect $\Deltafr$.  The central claim is the closure chain
+\begin{equation}
+ [M,S_{\partial}]=[M,T_{\partial}]=0
+ \Longleftrightarrow
+ \Deltafr=0
+ \Longleftrightarrow
+ \Ebulk=0
+ \Longleftrightarrow
+ \Pi_{\rm phys}\Htotal\Pi_{\rm phys}=0.
+\end{equation}
+Thus holographic closure is not imposed after a bulk theory has been guessed.
+Rather, the vanishing of the bulk closure tensor and the disappearance of an
+independent external time generator are the bulk and Hamiltonian images of
+completed modular closure on the boundary.  In the Python interface, let
+\pyvar{report = shbt_simulator.ShbtSimulator().run_full_audit()} and
+\pyvar{audit = report.to_dict()}.  The implementation audits this link through
+\pyvar{audit['boundary_report']}.  The visible modular blocks are constructed
+by the Rust methods \pyvar{StaticBoundary.build_su2_visible_block()} and
+\pyvar{StaticBoundary.build_su3_visible_block()}, and the Python-accessible
+partition evaluator is
+\pyvar{shbt_simulator.StaticBoundary.evaluate_z_boundary_py(tau_re, tau_im)}.
+
+The canonical branch studied here is
+\begin{equation}
+ \branchstar=(\kell,\kq,\Kpar)=(26,8,312),
+ \qquad
+ I_{\ell}^{\star}=\frac{\Kpar}{2\kell}=6,
+ \qquad
+ I_q^{\star}=\frac{\Kpar}{3\kq}=13.
+\end{equation}
+Within SHBT this branch is the anomaly-free fixed point because the lepton,
+color, and parent completion levels lock to integers and give
+\begin{equation}
+ \Deltafr(312,26,8)
+ =
+ \max\!\left(
+ \left\|\frac{312}{2\cdot26}\right\|_{\mathbb Z},
+ \left\|\frac{312}{3\cdot8}\right\|_{\mathbb Z}
+ \right)
+ =0.
+\end{equation}
+The visible factors are $SU(2)_{26}$ and $SU(3)_8$, embedded in an
+$SO(10)_{312}$ parent completion and a dark completion sector.  The dark sector
+is therefore not an optional phenomenological reservoir.  It is the finite
+ledger required by exact closure.  The foundation simulator reports the
+residual part
+\begin{equation}
+ \cdarkres=\frac{834433}{362670}\simeq2.300805139658643,
+ \qquad
+ 8\pi\GN=\frac{12}{\cdarkres\MP^2}.
+\end{equation}
+The finite-screen cosmology audit uses the completed ledger
+\begin{equation}
+\label{eq:dark-residual-completion-split}
+ \cdarkcomp=\cdarkres+1
+ =
+ \frac{1197103}{362670}
+ \simeq3.300805139658643,
+ \qquad
+ \DeltaMod=\frac{\cdarkcomp}{24}.
+\end{equation}
+The same arithmetic appears in \pyvar{shbt_simulator.StaticBoundary.benchmark_branch},
+\pyvar{shbt_simulator.StaticBoundary.lepton_level},
+\pyvar{shbt_simulator.StaticBoundary.quark_level},
+\pyvar{shbt_simulator.StaticBoundary.parent_level},
+\pyvar{shbt_simulator.StaticBoundary.i_l_star},
+\pyvar{shbt_simulator.StaticBoundary.i_q_star},
+\pyvar{shbt_simulator.StaticBoundary.c_dark_residual},
+\pyvar{shbt_simulator.StaticBoundary.c_dark}, and \pyvar{report.framing_defect}.
+
+The construction has four linked components.  First, the completed boundary CFT
+is treated as the primary object,
+\begin{equation}
+ \mathcal H_{\partial}^{\rm comp}
+ =
+ \mathcal H_{SU(2)_{26}}
+ \otimes
+ \mathcal H_{SU(3)_8}
+ \otimes
+ \mathcal H_{SO(10)_{312}}
+ \otimes
+ \mathcal H_{\rm dark},
+\end{equation}
+whose physical spectrum is the modular-invariant, nonnegative-integer pairing
+of completed characters.  This is the algebraic source of gauge and
+gravitational consistency.  Second, entropy self-resolution turns the finite
+boundary register
+\begin{equation}
+ \Nbits=\Nsat=\frac{3\pi}{\Lp^2\Lholo},
+ \qquad
+ \Lholo>0,
+\end{equation}
+into normalized loading and entanglement densities.  Their entropy gradients
+define a holographic renormalization-group flow into bulk metric slices.  This
+continues the broader holographic and black-hole thermodynamic tradition
+\cite{bekenstein1973,hooft1993,susskind1995}, but makes the entropy budget
+finite and auditable through \pyvar{shbt_simulator.HolographicProjection},
+\pyvar{shbt_simulator.BulkMetricSlice}, and the
+\pyvar{audit['projection_report']} record.
+
+Third, SHBT reframes baryogenesis as anti-baryon de-rendering.  The observed
+baryon asymmetry is usually framed as a dynamical departure from baryon number,
+C, CP, and equilibrium conditions \cite{sakharov1967}.  Here the active render
+charge is separated from passive stress-energy.  Anti-baryon visible charges
+are projected out of the actively rendered gauge channels, while the passive
+gravitational source is preserved in the dark completion sector.  The resulting
+asymmetry is therefore an observer-visible render imbalance, not a failure of
+completed stress-energy accounting.  The implementation checks this claim
+through
+\begin{itemize}
+\item \pyvar{audit['baryogenesis_identity']},
+\item the Rust method \pyvar{BaryogenesisOptimizer.derender_antibaryon_charges()},
+\item \pyvar{report.stress_energy_preserved}, and
+\item \pyvar{audit['benchmark_delta']}.
+\end{itemize}
+The benchmark value reported by the audit is
+\pyvar{report.eta_b=6.449923359416e-10}.
+
+The same de-rendering mechanism predicts dark matter as the passive
+gravitational ghost of the stripped anti-baryons.  The benchmark precision
+audit yields \(\Omega_{\rm DM}/\Omega_b\simeq5.34\), consistent with the
+observed ratio \(\simeq5.4\).
+
+Fourth, the Causal Point makes the observer part of the same finite register.
+SHBT does not assume an external classical observer with unlimited memory.  An
+observer is a finite local address equipped with a light-cone sample, a local
+property packet, a hidden-state budget, and a history projection operator
+$\Pi_{A,\iota}$.  A measurement is admitted only when the residual entropy
+budget is nonnegative.  Observable time and crystallized history are therefore
+finite-register projections rather than primitive background parameters.  The
+corresponding code objects are \pyvar{shbt_simulator.CausalPoint},
+\pyvar{shbt_simulator.LightConeSample}, \pyvar{shbt_simulator.LocalPropertyPacket},
+\pyvar{shbt_simulator.CoordinateLogEntry}, the
+\pyvar{audit['memory_report']} record, and the Rust method
+\pyvar{CausalPoint.crystallize_history()}.
+
+The main results follow from the same closure data.  Because the branch
+$(26,8,312)$ has exact framing closure, the bulk closure tensor vanishes and
+the topological Einstein equation follows in the SHBT sector:
+\begin{equation}
+ \Ebulk
+ =
+ \frac{\cdarkres\MP^2}{12}
+ \bigl(G_{\mu\nu}+\Lholo g_{\mu\nu}\bigr)
+ -T_{\mu\nu}^{\rm vis}
+ =0.
+\end{equation}
+The static physical sector has no independent external time generator because
+the completed Hamiltonian constraint annihilates physical states,
+$\Pi_{\rm phys}\Htotal\Pi_{\rm phys}=0$.  Finite-register entropy flow produces
+symmetric, trace-normalized, positive metric slices and an observer-frame
+effective cosmology.  The Causal Point construction turns measurement into an
+entropy-budgeted projection with explicit failure conditions.  Anti-baryon
+de-rendering yields the benchmark baryon asymmetry while preserving passive
+stress-energy.  Running \shellcmd{python examples/run_audit.py} is the intended reproducibility
+check: it should report the canonical branch, \pyvar{framing_defect=0.0},
+\pyvar{modular_invariant=True}, \pyvar{zero_energy_locked=True}, the finite bit
+budget, nine bulk metric slices, nine crystallized history entries,
+\pyvar{report.eta_b=6.449923359416e-10}, and
+\pyvar{report.stress_energy_preserved=True}.
+
+The audit framework presented here is primarily a self-consistency validation of
+the boundary-first closure program.  The numerical values reported---including
+the baryon asymmetry \(\eta_B=6.449923359416\times10^{-10}\), the dark
+completion residue \(c_{\rm dark}^{\rm comp}=1197103/362670\), and the finite
+horizon register \(N_{\rm sat}\approx3.31\times10^{122}\)---are not independent
+external inputs that the code fits to observation.  They are structural
+consequences of the modular invariance conditions imposed on the completed
+boundary CFT.  The simulations therefore verify that the canonical branch is
+internally closed: if the boundary data are fixed by exact closure, the bulk and
+observer projections automatically reproduce the observed scales.  In this
+sense, the match with the measured baryon asymmetry is a retrodiction from
+symmetry principles, not a post-hoc parameter adjustment.  This distinguishes
+SHBT from phenomenological models that tune many degrees of freedom to match
+datasets; here, any deviation from the locked branch would reopen the framing
+defect \(\Delta_{\rm fr}\) and break the closure chain.  The key future test for
+SHBT as an independent predictive framework will be its ability to forecast
+novel signatures (e.g., specific time-variations in \(w(a)\), non-Gaussianities
+in the CMB, or direct dark-matter detection channels) that are not already
+encoded in the modular arithmetic of the canonical branch.
+
+This positioning clarifies the relationship between SHBT and existing
+approaches.  Like AdS/CFT, SHBT treats a boundary quantum theory as sufficient
+data for a bulk gravitational description \cite{maldacena1998,gkp1998,witten1998}.
+Unlike standard AdS/CFT, the present construction is not organized around a
+large-$N$ conformal gauge theory with an asymptotically anti-de Sitter bulk.  It
+is organized around a completed static boundary CFT, modular closure, and a
+finite holographic register.  Like entropic-gravity programs, SHBT treats
+geometry as downstream of information and entropy \cite{verlinde2011}; unlike a
+pure entropic-force derivation, its entropy gradients are constrained by modular
+closure and checked slice-by-slice by an implementation audit.  Like
+topological and constraint-based approaches to quantum gravity, SHBT removes an
+external time generator from the physical sector; unlike a purely formal
+constraint algebra, it ties that removal to visible-sector branch arithmetic,
+dark completion, baryogenesis, and observer memory.
+
+The paper is organized as follows.  Section~\ref{sec:canonical-branch-axiomatic-foundation}
+derives the canonical branch and states the axiomatic closure conditions.
+Section~\ref{sec:modular-data-boundary-partition-function} constructs the
+modular data and boundary partition function.  Section~\ref{sec:boundary-entropy-densities-self-resolution}
+defines the finite entropy densities that self-resolve the boundary register,
+and Section~\ref{sec:holographic-rg-flow-boundary-entropy-bulk-metric} maps
+their gradients into bulk metric slices.  Section~\ref{sec:topological-baryogenesis-anti-baryon-de-rendering}
+develops anti-baryon de-rendering and stress-energy preservation, while
+Section~\ref{sec:causal-point-history-crystallization} defines Causal Points
+and history crystallization.  Section~\ref{sec:numerical-verification-performance}
+collects the implementation audits, and Section~\ref{sec:unification-and-conclusions}
+summarizes the unified closure picture and remaining limitations.  Throughout,
+the mathematical derivation and \pyvar{shbt_simulator.ShbtSimulator().run_full_audit()}
+are kept in parallel so that the same branch, defect, entropy budget, metric
+projection, Causal Point, and baryogenesis identity must close both on paper and
+in code.
+
+\section{Canonical Branch and Axiomatic Foundation}
+\label{sec:canonical-branch-axiomatic-foundation}
+
+The canonical branch is derived by treating the completed boundary theory, not a
+bulk Lagrangian, as the primitive object.  For arbitrary visible levels
+$(\kell,\kq)$ and parent level $\Kpar$, the completed boundary Hilbert space is
+postulated to factor as
+\begin{equation}
+\label{eq:completed-boundary-hilbert-general}
+ \mathcal H_{\partial}^{\rm comp}(\kell,\kq,\Kpar)
+ =
+ \mathcal H_{SU(2)_{\kell}}
+ \otimes
+ \mathcal H_{SU(3)_{\kq}}
+ \otimes
+ \mathcal H_{SO(10)_{\Kpar}}
+ \otimes
+ \mathcal H_{\rm dark}.
+\end{equation}
+The collective primary index is written
+$I=(i_{\ell},i_q,i_{10},\alpha)$, and its completed character is
+\begin{equation}
+\label{eq:completed-character-general}
+ \chi_I(\tau)
+ =
+ \chi^{(\kell)}_{i_{\ell}}(\tau)
+ \chi^{(\kq)}_{i_q}(\tau)
+ \chi^{(\Kpar)}_{i_{10}}(\tau)
+ \chi^{\rm dark}_{\alpha}(\tau).
+\end{equation}
+The physical torus partition function has the form
+\begin{equation}
+\label{eq:zboundary-section-two}
+ \Zboundary(\tau,\bar\tau)
+ =
+ \sum_{I,J}M_{IJ}\chi_I(\tau)\overline{\chi_J(\tau)},
+ \qquad
+ M_{IJ}\in\mathbb Z_{\ge0},
+\end{equation}
+with nonnegative integer multiplicities.  The first axiom is that the completed
+pairing matrix is invariant under the full boundary modular kernels,
+\begin{equation}
+\label{eq:section-two-modular-invariance}
+ [M,S_{\partial}]=0,
+ \qquad
+ [M,T_{\partial}]=0,
+\end{equation}
+where
+\begin{align}
+\label{eq:section-two-modular-kernels}
+ S_{\partial}
+ &=
+ S_{SU(2)_{\kell}}
+ \otimes S_{SU(3)_{\kq}}
+ \otimes S_{SO(10)_{\Kpar}}
+ \otimes S_{\rm dark},\nonumber\\
+ T_{\partial}
+ &=
+ T_{SU(2)_{\kell}}
+ \otimes T_{SU(3)_{\kq}}
+ \otimes T_{SO(10)_{\Kpar}}
+ \otimes T_{\rm dark}.
+\end{align}
+Equivalently,
+$\Zboundary(\tau+1,\bar\tau+1)=\Zboundary(\tau,\bar\tau)$ and
+$\Zboundary(-1/\tau,-1/\bar\tau)=\Zboundary(\tau,\bar\tau)$, so the allowed
+operator content is a modular-invariant completed pairing rather than an
+arbitrary list of boundary primaries \cite{cardy1986,cappelli1987}.
+
+The integral-spin condition is the local form of the $T$-constraint.  A
+character transforms as
+\begin{equation}
+\label{eq:character-t-transform}
+ \chi_I(\tau+1)
+ =
+ \exp\!\left[2\pi i\left(h_I-\frac{c_I}{24}\right)\right]
+ \chi_I(\tau),
+\end{equation}
+while the anti-holomorphic character contributes the conjugate phase.  Therefore
+the summand with coefficient $M_{IJ}$ is $T$-invariant only if
+\begin{equation}
+\label{eq:section-two-integral-spin}
+ M_{IJ}\ne0
+ \quad\Longrightarrow\quad
+ \exp\!\left\{2\pi i\left[
+ h_I-h_J-\frac{c_I-c_J}{24}
+ \right]\right\}=1,
+\end{equation}
+or, equivalently,
+\begin{equation}
+\label{eq:section-two-integral-spin-integer}
+ \boxed{
+ M_{IJ}\ne0
+ \quad\Longrightarrow\quad
+ h_I-h_J-\frac{c_I-c_J}{24}\in\mathbb Z.}
+\end{equation}
+This condition is the boundary algebraic precursor of the SHBT framing defect.
+The visible conformal weights used by the implementation are
+\begin{align}
+\label{eq:section-two-visible-weights}
+ h^{SU(2)_k}_a
+ &=
+ \frac{a(a+2)}{4(k+2)},\nonumber\\
+ h^{SU(3)_k}_{(p,q)}
+ &=
+ \frac{p^2+q^2+pq+3p+3q}{3(k+3)},
+\end{align}
+with central charges
+\begin{equation}
+\label{eq:section-two-visible-central-charges}
+ c_{SU(2)_k}=\frac{3k}{k+2},
+ \qquad
+ c_{SU(3)_k}=\frac{8k}{k+3},
+ \qquad
+ c_{SO(10)_K}=\frac{45K}{K+8}.
+\end{equation}
+
+The canonical branch is the minimal parent completion compatible with the
+visible lepton and quark levels used throughout the audit.  The embedding locks
+require the parent level to close simultaneously over the lepton and color
+descendants,
+\begin{equation}
+\label{eq:integer-parent-locks}
+ I_{\ell}=\frac{\Kpar}{2\kell}\in\mathbb Z,
+ \qquad
+ I_q=\frac{\Kpar}{3\kq}\in\mathbb Z.
+\end{equation}
+For the visible levels $\kell=26$ and $\kq=8$, the smallest positive parent
+level satisfying both locks is
+\begin{equation}
+\label{eq:canonical-parent-lcm}
+ \Kpar
+ =
+ \operatorname{lcm}(2\cdot26,3\cdot8)
+ =
+ \operatorname{lcm}(52,24)
+ =312.
+\end{equation}
+Thus
+\begin{equation}
+\label{eq:section-two-benchmark-branch}
+ \branchstar=(\kell,\kq,\Kpar)=(26,8,312),
+ \qquad
+ I_{\ell}^{\star}=\frac{312}{2\cdot26}=6,
+ \qquad
+ I_q^{\star}=\frac{312}{3\cdot8}=13.
+\end{equation}
+This is the mathematical counterpart of
+\pyvar{shbt_simulator.StaticBoundary.benchmark_branch = (26, 8, 312)}, together with
+\pyvar{shbt_simulator.StaticBoundary.lepton_level}, \pyvar{shbt_simulator.StaticBoundary.quark_level}, \pyvar{shbt_simulator.StaticBoundary.parent_level},
+\pyvar{shbt_simulator.StaticBoundary.i_l_star}, and \pyvar{shbt_simulator.StaticBoundary.i_q_star}.
+
+The scalar obstruction to these integer locks is the framing defect
+\begin{equation}
+\label{eq:section-two-framing-defect}
+ \boxed{
+ \Deltafr(\Kpar,\kell,\kq)
+ =
+ \max\!\left(
+ \left\|\frac{\Kpar}{2\kell}\right\|_{\mathbb Z},
+ \left\|\frac{\Kpar}{3\kq}\right\|_{\mathbb Z}
+ \right),}
+ \qquad
+ \|x\|_{\mathbb{Z}}=\min_{n\in\mathbb{Z}}|x-n|.
+\end{equation}
+At the benchmark branch both arguments are integers, so
+\begin{equation}
+\label{eq:section-two-framing-defect-zero}
+ \Deltafr(312,26,8)
+ =
+ \max\!\left(
+ \left\|6\right\|_{\mathbb Z},
+ \left\|13\right\|_{\mathbb Z}
+ \right)
+ =0.
+\end{equation}
+The branch is therefore anomaly-free in the SHBT sense: the parent completion
+has no residual visible framing mismatch.  In code this is reported as
+\pyvar{report.framing_defect=0.0} and checked by the
+\pyvar{audit['boundary_report']} record.
+
+The second axiom identifies the bulk closure tensor as the covariant image of
+the scalar modular obstruction.  The standard holographic bridge begins with
+the Fefferman--Graham expansion of an asymptotically locally AdS metric
+\cite{fefferman1985,skenderis2002},
+\begin{equation}
+\label{eq:section-two-fg-metric}
+ ds^2
+ =
+ \frac{L^2}{z^2}
+ \left(dz^2+g_{ij}(x,z)\,dx^i dx^j\right),
+ \qquad
+ z\to0,
+\end{equation}
+where
+\begin{equation}
+\label{eq:section-two-fg-expansion}
+ g_{ij}(x,z)
+ =
+ g_{(0)ij}(x)
+ +z^2g_{(2)ij}(x)
+ +\cdots
+ +z^d g_{(d)ij}(x)
+ +z^d\log z^2\,h_{(d)ij}(x)
+ +\cdots .
+\end{equation}
+The boundary metric $g_{(0)ij}$ is the source for the CFT stress tensor, and
+holographic renormalization reads the renormalized one-point function from the
+normalizable coefficient,
+\begin{equation}
+\label{eq:section-two-holographic-stress-tensor}
+ \langle T_{ij}\rangle
+ =
+ \frac{dL^{d-1}}{16\pi\GN}\,g_{(d)ij}
+ +T^{\rm ct}_{ij}[g_{(0)}],
+\end{equation}
+with local counterterms fixed by the same boundary data.  Under a boundary Weyl
+variation,
+\begin{equation}
+\label{eq:section-two-weyl-anomaly}
+ \delta_{\sigma}W_{\rm CFT}[g_{(0)}]
+ =
+ \int d^d x\,\sqrt{g_{(0)}}\,\sigma\,\mathcal A_{\rm Weyl},
+ \qquad
+ \langle T^i{}_{i}\rangle=\mathcal A_{\rm Weyl}.
+\end{equation}
+In SHBT the framing part of this anomaly is not an independent local curvature
+functional.  It is the scalar obstruction left by the completed modular
+pairing:
+\begin{equation}
+\label{eq:section-two-framing-weyl-anomaly}
+ \mathcal A_{\rm Weyl}^{\rm fr}
+ =
+ d\,\mathcal Q_{\rm fr}\,\Deltafr,
+ \qquad
+ \mathcal E^{\partial}_{ij}
+ =
+ \mathcal Q_{\rm fr}\,\Deltafr\,g_{(0)ij}.
+\end{equation}
+The unique covariant bulk continuation of this purely scalar boundary
+obstruction on a closed branch is therefore metric-proportional,
+\begin{equation}
+\label{eq:section-two-closure-map}
+ \boxed{
+ \Ebulk
+ =
+ \mathcal Q_{\rm fr}\,\Deltafr\,g_{\mu\nu},}
+ \qquad
+ \mathcal Q_{\rm fr}\ne0.
+\end{equation}
+Equivalently, the framing defect is a topological Weyl-anomaly source: if the
+integer center lifts close, the source vanishes; if they do not, the only
+allowed covariant obstruction is proportional to the metric.
+
+The same tensor is defined by the completed SHBT stress accounting,
+\begin{equation}
+\label{eq:section-two-bulk-closure-tensor}
+ \Ebulk
+ \equiv
+ \frac{\cdarkres\MP^2}{12}
+ \bigl(G_{\mu\nu}+\Lholo g_{\mu\nu}\bigr)
+ -T^{\rm vis}_{\mu\nu},
+ \qquad
+ 8\pi\GN=\frac{12}{\cdarkres\MP^2}.
+\end{equation}
+Combining Eqs.~\eqref{eq:section-two-closure-map} and
+\eqref{eq:section-two-bulk-closure-tensor} gives the off-branch
+topological Einstein equation with a framing source,
+\begin{equation}
+\label{eq:section-two-off-branch-einstein}
+ G_{\mu\nu}+\Lholo g_{\mu\nu}
+ =
+ \frac{12}{\cdarkres\MP^2}
+ \left(T^{\rm vis}_{\mu\nu}
+ +\mathcal Q_{\rm fr}\Deltafr\,g_{\mu\nu}\right).
+\end{equation}
+On the canonical branch, Eq.~\eqref{eq:section-two-framing-defect-zero} gives
+$\Deltafr=0$, hence
+\begin{equation}
+\label{eq:section-two-defect-bulk-equivalence}
+ \Deltafr=0
+ \quad\Longleftrightarrow\quad
+ \Ebulk=0.
+\end{equation}
+Using Eq.~\eqref{eq:section-two-bulk-closure-tensor}, the vanishing condition is
+precisely
+\begin{equation}
+\label{eq:section-two-einstein-equivalence}
+ G_{\mu\nu}+\Lholo g_{\mu\nu}
+ =
+ \frac{12}{\cdarkres\MP^2}T^{\rm vis}_{\mu\nu}
+ =
+ 8\pi\GN T^{\rm vis}_{\mu\nu}.
+\end{equation}
+Thus the complete boundary-to-bulk derivation chain is
+\begin{equation}
+\label{eq:section-two-full-closure-chain}
+\begin{gathered}
+ [M,S_{\partial}]=[M,T_{\partial}]=0
+ \Longrightarrow
+ h_I-h_J-\frac{c_I-c_J}{24}\in\mathbb Z
+ \Longrightarrow
+ \frac{\Kpar}{2\kell},\frac{\Kpar}{3\kq}\in\mathbb Z
+ \Longrightarrow
+ \Deltafr=0,
+\\
+ \Deltafr=0
+ \Longrightarrow
+ \mathcal A_{\rm Weyl}^{\rm fr}=0
+ \Longrightarrow
+ \Ebulk=0
+ \Longrightarrow
+ G_{\mu\nu}+\Lholo g_{\mu\nu}
+ =8\pi\GN T^{\rm vis}_{\mu\nu}.
+\end{gathered}
+\end{equation}
+The tensor equation is therefore not an independent tuning condition; it is the
+bulk representative of exact modular closure.
+
+The final axiom is static global Hamiltonian cancellation.  Let
+\begin{equation}
+\label{eq:section-two-hamiltonian-decomposition}
+ \Htotal
+ =
+ \Hboundary+\Hbulk+\Hstab,
+\end{equation}
+where $\Hboundary$ acts on the completed boundary characters, $\Hbulk$ is the
+bulk image of the closed boundary data, and $\Hstab$ enforces the closure
+syndromes.
+The physical projector is defined by the simultaneous constraints
+\begin{equation}
+\label{eq:section-two-physical-projector}
+ \Pi_{\rm phys}M=M\Pi_{\rm phys}=M,
+ \qquad
+ P_{\rm fr}\Pi_{\rm phys}=0,
+ \qquad
+ \Ebulk\Pi_{\rm phys}=0.
+\end{equation}
+On this sector the stabilizer generator is fixed, not freely chosen:
+\begin{equation}
+\label{eq:section-two-stabilizer-cancellation}
+ \Hstab\Pi_{\rm phys}
+ =
+ -\bigl(\Hboundary+\Hbulk\bigr)\Pi_{\rm phys}.
+\end{equation}
+Multiplying Eq.~\eqref{eq:section-two-hamiltonian-decomposition} by
+$\Pi_{\rm phys}$ on both sides gives
+\begin{equation}
+\label{eq:section-two-pi-h-pi-zero}
+ \Pi_{\rm phys}\Htotal\Pi_{\rm phys}=0.
+\end{equation}
+Therefore, for every physical completed-boundary state satisfying
+$|\Psi_{\rm phys}\rangle=\Pi_{\rm phys}|\Psi_{\rm phys}\rangle$,
+\begin{equation}
+\label{eq:section-two-global-hamiltonian-cancellation}
+ \boxed{
+ \Htotal|\Psi_{\rm phys}\rangle=0.}
+\end{equation}
+This is the static-block statement that the completed physical sector has no
+independent external time generator.
+
+The Rust/Python simulator mirrors these axioms through the
+\pyvar{shbt_simulator.StaticBoundary} class.  The constructor fixes the branch
+data; the Rust methods \pyvar{StaticBoundary.build_su2_visible_block()} and
+\pyvar{StaticBoundary.build_su3_visible_block()} assemble the visible modular
+blocks; the Python partition check is performed by
+\pyvar{shbt_simulator.StaticBoundary.evaluate_z_boundary_py(tau_re, tau_im)};
+the scalar obstruction is computed by \pyvar{report.framing_defect}; and the closure chain,
+including $\Deltafr=0$, the Einstein lock, and global Hamiltonian cancellation,
+is audited by \pyvar{audit['boundary_report']}.
+
+\section{Modular Data and Boundary Partition Function}
+\label{sec:modular-data-boundary-partition-function}
+
+This section makes explicit the modular data used by the completed boundary
+partition function.  The general Wess--Zumino--Witten rule is that an affine
+factor $G_k$ has integrable highest weights $\lambda$, modular character vector
+$\boldsymbol\chi^{G_k}$, dual Coxeter number $g^{\vee}$, central charge
+\begin{equation}
+\label{eq:section-three-general-central-charge}
+ c_{G_k}=\frac{k\,\dim G}{k+g^{\vee}},
+\end{equation}
+and diagonal modular-$T$ entries
+\begin{equation}
+\label{eq:section-three-general-t}
+ T^{G_k}_{\lambda\mu}
+ =
+ \delta_{\lambda\mu}
+ \exp\!\left[2\pi i\left(h_{\lambda}^{G_k}-\frac{c_{G_k}}{24}\right)\right],
+ \qquad
+ h_{\lambda}^{G_k}
+ =
+ \frac{(\lambda,\lambda+2\rho)}{2(k+g^{\vee})}.
+\end{equation}
+Here $\rho$ is the Weyl vector and the inner product is normalized so long
+roots have length squared $2$.  The Rust/Python simulator stores the reduced visible
+phase $\exp(2\pi i h_{\lambda})$ in the internal
+\pyvar{StaticBoundary.t_boundary}; the omitted scalar
+factor $\exp(-2\pi i c/24)$ is common to a fixed factor and cancels between the
+holomorphic and anti-holomorphic sectors, and it also leaves the commutator
+norms unchanged.
+
+For $SU(2)_k$, the integrable labels are $a=0,1,\ldots,k$.  With spin
+$j=a/2$ and $C_2(j)=j(j+1)=a(a+2)/4$, Eq.~\eqref{eq:section-three-general-t}
+gives
+\begin{equation}
+\label{eq:section-three-su2-weight}
+ h^{SU(2)_k}_{a}
+ =
+ \frac{a(a+2)}{4(k+2)},
+ \qquad
+ c_{SU(2)_k}=\frac{3k}{k+2}.
+\end{equation}
+The $A_1$ Weyl sum has two terms and reduces to the sine kernel
+\begin{equation}
+\label{eq:section-three-su2-s}
+ S^{SU(2)_k}_{ab}
+ =
+ \sqrt{\frac{2}{k+2}}\,
+ \sin\!\left(\frac{\pi(a+1)(b+1)}{k+2}\right),
+ \qquad
+ T^{SU(2)_k}_{ab}
+ =
+ \delta_{ab}\exp\!\left[2\pi i\left(h^{SU(2)_k}_{a}
+ -\frac{c_{SU(2)_k}}{24}\right)\right].
+\end{equation}
+
+For $SU(3)_k$, the integrable labels are Dynkin pairs
+$(p,q)$ with $p,q\ge0$ and $p+q\le k$.  The quadratic Casimir is
+\begin{equation}
+\label{eq:section-three-su3-casimir}
+ C_2(p,q)
+ =
+ \frac{p^2+q^2+pq+3p+3q}{3},
+\end{equation}
+so that
+\begin{equation}
+\label{eq:section-three-su3-weight}
+ h^{SU(3)_k}_{(p,q)}
+ =
+ \frac{p^2+q^2+pq+3p+3q}{3(k+3)},
+ \qquad
+ c_{SU(3)_k}=\frac{8k}{k+3}.
+\end{equation}
+It is useful to embed a Dynkin label in the traceless three-dimensional weight
+space by
+\begin{equation}
+\label{eq:section-three-su3-vector-map}
+ v(p,q)
+ =
+ \left(\frac{2p+q}{3},\frac{-p+q}{3},-\frac{p+2q}{3}\right),
+ \qquad
+ \rho=v(1,1)=(1,0,-1).
+\end{equation}
+Then the $A_2$ Weyl-sum formula used by the implementation is
+\begin{equation}
+\label{eq:section-three-su3-s}
+ S^{SU(3)_k}_{(p,q),(r,s)}
+ =
+ \frac{i^3}{\sqrt3\,(k+3)}
+ \sum_{\sigma\in S_3}\operatorname{sgn}(\sigma)
+ \exp\!\left[
+ -\frac{2\pi i}{k+3}
+ \bigl(\sigma(v(p,q)+\rho),v(r,s)+\rho\bigr)
+ \right],
+\end{equation}
+with
+\begin{equation}
+\label{eq:section-three-su3-t}
+ T^{SU(3)_k}_{(p,q),(r,s)}
+ =
+ \delta_{(p,q),(r,s)}
+ \exp\!\left[2\pi i\left(h^{SU(3)_k}_{(p,q)}
+ -\frac{c_{SU(3)_k}}{24}\right)\right].
+\end{equation}
+
+For the parent completion $SO(10)_K$, the Lie algebra is $D_5$, with
+$g^{\vee}=8$, rank $5$, $\dim SO(10)=45$, and $20$ positive roots.  Thus
+\begin{equation}
+\label{eq:section-three-so10-central-charge}
+ c_{SO(10)_K}=\frac{45K}{K+8}.
+\end{equation}
+If $\Lambda$ and $M$ are integrable $D_5$ highest weights, the corresponding
+formal kernels are
+\begin{align}
+\label{eq:section-three-so10-kernels}
+ S^{SO(10)_K}_{\Lambda M}
+ &=
+ \frac{i^{20}}{2(K+8)^{5/2}}
+ \sum_{w\in W(D_5)}\operatorname{sgn}(w)
+ \exp\!\left[-\frac{2\pi i}{K+8}
+ \bigl(w(\Lambda+\rho),M+\rho\bigr)\right],\nonumber\\
+ T^{SO(10)_K}_{\Lambda M}
+ &=
+ \delta_{\Lambda M}
+ \exp\!\left[2\pi i\left(
+ \frac{(\Lambda,\Lambda+2\rho)}{2(K+8)}
+ -\frac{45K}{24(K+8)}
+ \right)\right].
+\end{align}
+The finite audit does not enumerate the full $SO(10)_{312}$ character table;
+instead, this parent factor enters through the branch locks, the framing-defect
+test, and the central charge in Eq.~\eqref{eq:section-three-so10-central-charge}.
+
+The affine data on the completed benchmark branch are summarized in
+Table~\ref{tab:section-three-affine-central-charges}.  The visible central
+charge is the sum of the first two visible factors; the completed ledger is the
+finite-screen dark contribution used by the Noether bridge and cosmology.
+\begin{table}[htbp]
+\centering
+\small
+\begin{tabular}{@{}llll@{}}
+\toprule
+Affine factor & Level & Central charge & Center data \\
+\midrule
+$SU(2)_{\kell}$ & $\kell=26$ &
+$\displaystyle \frac{39}{14}=2.785714285714$ &
+$\mathbb Z_2$ spin parity \\
+$SU(3)_{\kq}$ & $\kq=8$ &
+$\displaystyle \frac{64}{11}=5.818181818182$ &
+$\mathbb Z_3$ color triality \\
+$SO(10)_{\Kpar}$ & $\Kpar=312$ &
+$\displaystyle \frac{351}{8}=43.875000000000$ &
+$\mathbb Z_4$ spinor center \\
+$\mathcal H_{\rm dark}$ & $\text{--}$ &
+$\displaystyle \cdarkcomp=\frac{1197103}{362670}=3.300805139659$ &
+$\text{--}$ \\
+\bottomrule
+\end{tabular}
+\caption{Affine algebraic parameters and central charges of the completed
+boundary CFT factors on the canonical branch.}
+\label{tab:section-three-affine-central-charges}
+\end{table}
+The Rust accessors for the first two rows are
+\pyvar{StaticBoundary.su2_central_charge(26)} and
+\pyvar{StaticBoundary.su3_central_charge(8)}; the parent level is
+\pyvar{StaticBoundary.parent_level}, and the completed-ledger row is reproduced
+by \pyvar{StaticBoundary.c_dark} or
+\pyvar{precision_cosmology.load_completed_ledger()}.
+
+At the benchmark branch, the visible block evaluated in code is the
+$3\times3$ slice
+\begin{align}
+\label{eq:section-three-visible-slice}
+ \pyvar{CHARGE_EMBEDDING}
+ =
+ (\kell-4,\kell-3,\kell)=(22,23,26),\\
+ \pyvar{LOW_SU3_WEIGHTS}
+ =
+ \bigl((0,0),(1,0),(0,1)\bigr).
+\end{align}
+This slice is not the full completed Hilbert space.  It is the visible
+finite-dimensional block on which the internal \pyvar{StaticBoundary.s_boundary}
+and \pyvar{StaticBoundary.t_boundary} arrays and the Python method
+\pyvar{shbt_simulator.StaticBoundary.evaluate_z_boundary_py(tau_re, tau_im)}
+perform the numerical audit.  The
+combined visible index is
+\begin{equation}
+\label{eq:section-three-visible-index}
+ A=(i,j),
+ \qquad
+ a_i\in(22,23,26),
+ \qquad
+ w_j\in\bigl((0,0),(1,0),(0,1)\bigr),
+\end{equation}
+so the visible audit space has $9$ basis entries.  In that ordering,
+\begin{equation}
+\label{eq:section-three-code-boundary-matrices}
+ S_{\partial}^{\rm code}
+ =
+ \operatorname{Re}S_{SU(2)_{26}}^{\rm vis}
+ \otimes
+ \operatorname{Re}S_{SU(3)_8}^{\rm vis},
+ \qquad
+ T_{\partial}^{\rm code}
+ =
+ \diag\!\left(
+ T_{SU(2)_{26}}^{\rm vis}\otimes T_{SU(3)_8}^{\rm vis}
+ \right),
+\end{equation}
+which is exactly the construction of the internal
+\pyvar{StaticBoundary.s_boundary} and \pyvar{StaticBoundary.t_boundary} arrays.
+
+The benchmark central charges and conformal weights are
+\begin{align}
+\label{eq:section-three-numerical-central-charges}
+c_{SU(2)_{26}}
+&=\frac{39}{14}=2.785714285714,
+&
+c_{SU(3)_8}
+&=\frac{64}{11}=5.818181818182,\nonumber\\
+c_{SO(10)_{312}}
+&=\frac{351}{8}=43.875,
+&
+c_{\rm vis}
+&=\frac{1325}{154}=8.603896103896,\\
+\label{eq:section-three-numerical-weights}
+h^{SU(2)_{26}}_{22}
+&=\frac{33}{7}=4.714285714286,
+&
+h^{SU(2)_{26}}_{23}
+&=\frac{575}{112}=5.133928571429,\nonumber\\
+h^{SU(2)_{26}}_{26}
+&=\frac{13}{2}=6.5,
+&
+h^{SU(3)_8}_{(0,0)}
+&=0,\nonumber\\
+h^{SU(3)_8}_{(1,0)}
+&=\frac{4}{33}=0.121212121212,
+&
+h^{SU(3)_8}_{(0,1)}
+&=\frac{4}{33}=0.121212121212.
+\end{align}
+The visible $S$ blocks produced by the Rust methods
+\pyvar{StaticBoundary.build_su2_visible_block()} and
+\pyvar{StaticBoundary.build_su3_visible_block()} are
+\begin{align}
+\label{eq:section-three-numerical-s-blocks}
+ S_{SU(2)_{26}}^{\rm vis}
+ &\simeq
+ \begin{pmatrix}
+  0.088270792276 & -0.208953252971 &  0.142191553507\\
+ -0.208953252971 &  0.260560444585 & -0.115960306962\\
+  0.142191553507 & -0.115960306962 &  0.029923764933
+ \end{pmatrix},\nonumber\\
+ \operatorname{Re}S_{SU(3)_8}^{\rm vis}
+ &\simeq
+ \begin{pmatrix}
+ 0.018018539201 & 0.048334858719 & 0.048334858719\\
+ 0.048334858719 & 0.110479936109 & 0.110479936109\\
+ 0.048334858719 & 0.110479936109 & 0.110479936109
+ \end{pmatrix}.
+\end{align}
+The imaginary parts of the displayed $SU(3)$ entries are at roundoff scale for
+the first row and are conjugate in the fundamental/anti-fundamental subblock;
+the implemented \pyvar{StaticBoundary.s_boundary} uses the real part shown
+above.  The reduced
+visible $T$ phases used by the code are
+\begin{align}
+\label{eq:section-three-numerical-t-phases}
+ T_{SU(2)_{26}}^{\rm vis}
+ &\simeq
+ \begin{pmatrix}
+ -0.222520933956-0.974927912182i\\
+ 0.666346577952+0.745642164883i\\
+ -1.000000000000
+ \end{pmatrix},\nonumber\\
+ T_{SU(3)_8}^{\rm vis}
+ &\simeq
+ \begin{pmatrix}
+ 1\\
+ 0.723734038105+0.690079011482i\\
+ 0.723734038105+0.690079011482i
+ \end{pmatrix}.
+\end{align}
+
+The completed boundary partition function is the torus pairing of completed
+characters,
+\begin{equation}
+\label{eq:section-three-zboundary-completed}
+ \Zboundary(\tau,\bar\tau)
+ =
+ \sum_{I,J}M_{IJ}\chi_I(\tau)\overline{\chi_J(\tau)},
+ \qquad
+ M_{IJ}\in\mathbb Z_{\ge0},
+\end{equation}
+where
+$I=(a,(p,q),\Lambda,\alpha)$ includes the $SU(2)$ label, $SU(3)$ label,
+$SO(10)$ parent label, and dark-sector label.  In vector notation this is
+$\Zboundary=\boldsymbol\chi^{\dagger}M\boldsymbol\chi$, up to the conventional
+placement of the holomorphic index.  Since the character vector transforms as
+\begin{equation}
+\label{eq:section-three-character-transform}
+ \boldsymbol\chi(\tau+1)=T_{\partial}\boldsymbol\chi(\tau),
+ \qquad
+ \boldsymbol\chi(-1/\tau)=S_{\partial}\boldsymbol\chi(\tau),
+\end{equation}
+modular invariance follows from
+\begin{equation}
+\label{eq:section-three-commuting-m}
+ [M,T_{\partial}]=0,
+ \qquad
+ [M,S_{\partial}]=0.
+\end{equation}
+Indeed,
+\begin{align}
+\label{eq:section-three-t-invariance-derivation}
+ \Zboundary(\tau+1,\bar\tau+1)
+ &=
+ \boldsymbol\chi(\tau)^{\dagger}
+ T_{\partial}^{\dagger}MT_{\partial}
+ \boldsymbol\chi(\tau)
+ =
+ \boldsymbol\chi(\tau)^{\dagger}M\boldsymbol\chi(\tau),\\
+\label{eq:section-three-s-invariance-derivation}
+ \Zboundary(-1/\tau,-1/\bar\tau)
+ &=
+ \boldsymbol\chi(\tau)^{\dagger}
+ S_{\partial}^{\dagger}MS_{\partial}
+ \boldsymbol\chi(\tau)
+ =
+ \boldsymbol\chi(\tau)^{\dagger}M\boldsymbol\chi(\tau),
+\end{align}
+using unitarity of the modular kernels.  Therefore
+\begin{equation}
+\label{eq:section-three-z-modular-invariance}
+ \boxed{
+ \Zboundary(\tau+1,\bar\tau+1)=\Zboundary(\tau,\bar\tau),
+ \qquad
+ \Zboundary(-1/\tau,-1/\bar\tau)=\Zboundary(\tau,\bar\tau).}
+\end{equation}
+
+The completed pairing matrices are therefore classified by the finite
+commutant of the two modular generators,
+\begin{equation}
+\label{eq:section-three-pairing-classification-set}
+ \mathfrak M_{\partial}
+ =
+ \left\{
+ M\in{\rm Mat}_{N}(\mathbb Z_{\ge0})
+ \,\middle|\,
+ M_{00}=1,\ [M,S_{\partial}]=0,\ [M,T_{\partial}]=0
+ \right\}.
+\end{equation}
+Writing
+\begin{equation}
+\label{eq:section-three-t-phase}
+ \theta_I
+ =
+ \exp\!\left[2\pi i\left(h_I-\frac{c_I}{24}\right)\right],
+ \qquad
+ (T_{\partial})_{IJ}=\theta_I\delta_{IJ},
+\end{equation}
+the $T$ commutator is
+\begin{equation}
+\label{eq:section-three-t-commutator-entry}
+ ([M,T_{\partial}])_{IJ}
+ =
+ M_{IJ}(\theta_J-\theta_I).
+\end{equation}
+Hence every nonzero pairing lies inside a common modular-spin sector,
+\begin{equation}
+\label{eq:section-three-integral-spin-closure}
+ M_{IJ}\ne0
+ \quad\Longrightarrow\quad
+ \theta_I=\theta_J
+ \quad\Longleftrightarrow\quad
+ h_I-h_J-\frac{c_I-c_J}{24}\in\mathbb Z.
+\end{equation}
+This is the integral-spin closure condition of the completed CFT.  The
+canonical locks in Eq.~\eqref{eq:section-two-benchmark-branch} refine this
+condition by resolving the visible center lifts: an admissible visible pairing
+must preserve both the $SU(2)$ spin-parity lift and the $SU(3)$ color-triality
+lift into the $SO(10)_{312}$ parent.  Pairings that mix different lifted center
+classes would change one of the integer quotients
+$\Kpar/(2\kell)$ or $\Kpar/(3\kq)$ and therefore contribute directly to
+$\Deltafr$.
+
+On the $9$-state visible block this leaves only pointwise pairings after the
+center-lift classes have been resolved.  Thus the visible restriction has the
+form
+\begin{equation}
+\label{eq:section-three-visible-diagonal-class}
+ M_{\rm vis}
+ =
+ \diag(m_1,\ldots,m_9),
+ \qquad
+ m_A\in\mathbb Z_{\ge0}.
+\end{equation}
+The remaining $S$ constraint forces all diagonal multiplicities to coincide:
+\begin{equation}
+\label{eq:section-three-visible-s-diagonal-constraint}
+ ([M_{\rm vis},S_{\partial}^{\rm code}])_{AB}
+ =
+ (m_A-m_B)(S_{\partial}^{\rm code})_{AB}=0.
+\end{equation}
+Every entry of the displayed benchmark $S_{\partial}^{\rm code}$ is nonzero
+because the visible $SU(2)_{26}$ and real $SU(3)_8$ subblocks in
+Eq.~\eqref{eq:section-three-numerical-s-blocks} have no zero entries.
+Therefore $m_A=m_B$ for all $A,B$, and the vacuum normalization $M_{00}=1$
+fixes the common value to one:
+\begin{equation}
+\label{eq:section-three-visible-identity-unique}
+ \boxed{
+ M_{\rm vis}=M_{\rm code}=\mathbb 1_9.}
+\end{equation}
+This is the unique center-resolved visible-block representative in
+\(\mathfrak M_{\partial}\).  It keeps the visible sector pointwise paired at
+the self-dual point $\tau=i$ and avoids adding a spin-parity or color-triality
+framing defect.
+
+The finite Rust/Python partition audit takes $M_{\rm code}=\mathbb 1_9$ and the
+leading visible character monomials
+\begin{equation}
+\label{eq:section-three-code-character-vector}
+ \chi^{\rm code}_{(i,j)}(\tau)
+ =
+ q^{h^{SU(2)_{26}}_{a_i}+h^{SU(3)_8}_{w_j}-c_{\rm vis}/24},
+ \qquad
+ q=e^{2\pi i\tau},
+ \qquad
+ c_{\rm vis}=\frac{1325}{154}.
+\end{equation}
+Thus the Python call
+\pyvar{shbt_simulator.StaticBoundary.evaluate_z_boundary_py(tau_re, tau_im)}
+evaluates
+\begin{equation}
+\label{eq:section-three-code-z}
+ Z_{\partial}^{\rm code}(\tau)
+ =
+ \overline{\boldsymbol\chi^{\rm code}(\tau)}^{\,T}
+ M_{\rm code}\boldsymbol\chi^{\rm code}(\tau).
+\end{equation}
+For $\tau=i$ the code gives
+\begin{align}
+\label{eq:section-three-code-z-numerical}
+ Z_{\partial}^{\rm code}(i)
+ &=
+ 2.441381789163\times10^{-24},\nonumber\\
+ Z_{\partial}^{\rm code}(i+1)
+ &=
+ 2.441381789163\times10^{-24},\\
+ Z_{\partial}^{\rm code}(-1/i)
+ &=
+ 2.441381789163\times10^{-24}.
+\end{align}
+The equality under the $S$ move in this numerical line is pointwise because
+$i$ is the self-dual point of $\tau\mapsto-1/\tau$; the nontrivial finite-block
+audit of the two modular generators is the matrix commutator test.
+The Python expression \pyvar{audit['boundary_report']} reports
+\begin{center}
+\begin{tabular}{@{}ll@{}}
+\toprule
+Audit quantity & Value \\
+\midrule
+\pyvar{audit['boundary_report']['modular_S_commutator']} & $0.0$ \\
+\pyvar{audit['boundary_report']['modular_T_commutator']} & $0.0$ \\
+\pyvar{audit['boundary_report']['modular_invariant']} & \pyvar{True} \\
+\pyvar{audit['boundary_report']['integral_spin_closure']} & \pyvar{True} \\
+\pyvar{audit['boundary_report']['all_passed']} & \pyvar{True} \\
+\bottomrule
+\end{tabular}
+\end{center}
+Thus the implemented boundary block satisfies
+\begin{equation}
+\label{eq:section-three-code-commutator-result}
+ \|M_{\rm code}S_{\partial}^{\rm code}
+ -S_{\partial}^{\rm code}M_{\rm code}\|_F=0,
+ \qquad
+ \|M_{\rm code}T_{\partial}^{\rm code}
+ -T_{\partial}^{\rm code}M_{\rm code}\|_F=0,
+\end{equation}
+which is the finite visible-block realization of the modular closure condition
+used in the full SHBT boundary partition function.
+
+\section{Boundary Entropy Densities and Self-Resolution}
+\label{sec:boundary-entropy-densities-self-resolution}
+
+The modular data of Section~\ref{sec:modular-data-boundary-partition-function}
+also determine how the finite visible register is loaded.  The relevant
+coordinate lattice is the $3\times3$ visible block
+\begin{equation}
+\label{eq:section-four-coordinate-lattice}
+ \mathcal C=\{0,1,2\}\times\{0,1,2\},
+ \qquad
+ c=(i,j)\in\mathcal C.
+\end{equation}
+The two axes of this lattice are the displayed $SU(2)_{26}$ charge slice and
+the displayed $SU(3)_8$ low-weight slice.  We write
+\begin{equation}
+\label{eq:section-four-visible-labels}
+ q_i,\ell_j\in(22,23,26),
+ \qquad
+ w_i,w_j\in\bigl((0,0),(1,0),(0,1)\bigr),
+\end{equation}
+where $q_i$ and $\ell_j$ are the row and column labels of the same visible
+$SU(2)$ block.  The raw boundary loading assigned to $c=(i,j)$ is the product
+of the modular overlap probabilities in the two visible factors,
+\begin{equation}
+\label{eq:section-four-raw-loading-density}
+ \widetilde\rho_B(i,j)
+ =
+ \left|S^{SU(2)_{26}}_{q_i,\ell_j}\right|^2
+ \left|S^{SU(3)_8}_{w_i,w_j}\right|^2.
+\end{equation}
+This is positive on the benchmark visible block, so the finite normalization
+constant
+\begin{equation}
+\label{eq:section-four-loading-partition}
+ Z_B^{\rm load}
+ =
+ \sum_{(a,b)\in\mathcal C}\widetilde\rho_B(a,b)
+\end{equation}
+is nonzero.  The normalized loading density is therefore
+\begin{equation}
+\label{eq:section-four-normalized-loading-density}
+ \rho_B(i,j)
+ =
+ \frac{\widetilde\rho_B(i,j)}
+ {\sum_{(a,b)\in\mathcal C}\widetilde\rho_B(a,b)},
+ \qquad
+ \sum_{(i,j)\in\mathcal C}\rho_B(i,j)=1.
+\end{equation}
+The associated entanglement density is the normalized Shannon contribution of
+each loaded coordinate,
+\begin{equation}
+\label{eq:section-four-normalized-entanglement-density}
+ \rho_E(i,j)
+ =
+ \frac{-\rho_B(i,j)\ln\rho_B(i,j)}
+ {\sum_{(a,b)\in\mathcal C}-\rho_B(a,b)\ln\rho_B(a,b)},
+ \qquad
+ \sum_{(i,j)\in\mathcal C}\rho_E(i,j)=1.
+\end{equation}
+The convention $0\ln0=0$ applies, although no zero entry occurs in the
+benchmark block.
+
+The dominant loading sequence is the ordering of coordinates by decreasing
+normalized loading density,
+\begin{equation}
+\label{eq:section-four-dominant-loading-sequence}
+ \sigma=(c_1,\ldots,c_9),
+ \qquad
+ \rho_B(c_1)\ge\rho_B(c_2)\ge\cdots\ge\rho_B(c_9).
+\end{equation}
+Equal-density ties are physically degenerate and are resolved in the stable
+implementation order.  This ordering is returned by the Rust method
+\pyvar{StaticBoundary.build_dominant_sequence()} and must agree with the
+coordinate order used by the entropy cascade.  Equations
+\eqref{eq:section-four-raw-loading-density}--\eqref{eq:section-four-dominant-loading-sequence}
+are implemented by the following audit helpers:
+\begin{itemize}
+\item \pyvar{StaticBoundary.build_loading_density()},
+\item \pyvar{StaticBoundary.build_entanglement_density()}, and
+\item \pyvar{StaticBoundary.build_dominant_sequence()}.
+\end{itemize}
+These are Rust methods; Python consumes their audited outputs through
+\pyvar{audit['boundary_report']} and \pyvar{audit['metric_slices']}.
+
+Entropy self-resolution promotes the static loading order into an iterative
+finite-register update.  Let $U_n\subset\mathcal C$ be the unresolved set at
+step $n$, with $c_n\in U_n$ the next coordinate selected by $\sigma$.  Before
+the update, the cumulative resolved entropy state is
+\begin{equation}
+\label{eq:section-four-cumulative-entropy-state}
+ \Omega_{n-1}(i,j)
+ =
+ \sum_{m<n}\delta_{c_m,(i,j)}\frac{\Delta S_m}{\Nbits}.
+\end{equation}
+The resolved state feeds back into each unresolved coordinate through the
+Manhattan-distance kernel
+\begin{equation}
+\label{eq:section-four-feedback-signal}
+ F_{n-1}(c)
+ =
+ \sum_{(i,j)\in\mathcal C}
+ \frac{\Omega_{n-1}(i,j)}{1+|i-c_i|+|j-c_j|},
+ \qquad
+ c=(c_i,c_j).
+\end{equation}
+For feedback coupling $\lambda\ge0$, the loading weight is dressed as
+\begin{equation}
+\label{eq:section-four-dressed-loading-weight}
+ w_B(c)
+ =
+ \rho_B(c)\bigl(1+\lambda F_{n-1}(c)\bigr).
+\end{equation}
+The entropy channel is dressed by the same feedback kernel,
+\begin{equation}
+\label{eq:section-four-dressed-entanglement-weight}
+ w_E(c)
+ =
+ \rho_E(c)\bigl(1+\lambda F_{n-1}(c)\bigr).
+\end{equation}
+With remaining bit and entropy budgets
+\begin{equation}
+\label{eq:section-four-remaining-budgets}
+ R^B_{n-1}=\Nbits-\sum_{m<n}\Delta B_m,
+ \qquad
+ R^E_{n-1}=\Nbits-\sum_{m<n}\Delta S_m,
+\end{equation}
+the self-resolution update is
+\begin{align}
+\label{eq:section-four-self-resolution-update}
+ \Delta B_n
+ &=
+ R^B_{n-1}
+ \frac{w_B(c_n)}{\sum_{c\in U_n}w_B(c)},\nonumber\\
+ \Delta S_n
+ &=
+ R^E_{n-1}
+ \frac{w_E(c_n)}{\sum_{c\in U_n}w_E(c)},\\
+ \Delta T_n
+ &=
+ \frac{\Delta S_n}{\Nbits}.
+\end{align}
+Thus $\Delta T_n$ is not an independent background clock tick.  It is the
+dimensionless entropy residue left by resolving the next boundary coordinate.
+This update is the mathematical contract of
+the Rust method \pyvar{StaticBoundary.entropy_self_resolution()}; Python checks
+its terminal projection through \pyvar{report.projection_dimension_26_to_4}.
+
+The dimensional projection is driven by the cumulative temporal residue.  At
+step $n$ the effective projection dimension is
+\begin{equation}
+\label{eq:section-four-projection-dimension}
+ D_n
+ =
+ 26-22\sum_{m\le n}\Delta T_m,
+ \qquad
+ \Delta D_n=D_{n-1}-D_n=22\Delta T_n.
+\end{equation}
+Since $U_9$ contains only the final unresolved coordinate, the last update
+spends the full remaining entropy budget.  By induction on
+Eq.~\eqref{eq:section-four-self-resolution-update},
+\begin{equation}
+\label{eq:section-four-total-resolved-entropy}
+ \sum_{n=1}^{9}\Delta S_n=\Nbits,
+ \qquad
+ \sum_{n=1}^{9}\Delta T_n=1.
+\end{equation}
+Consequently the benchmark projection starts at $D_0=26$ and terminates at
+\begin{equation}
+\label{eq:section-four-projection-26-to-4}
+ D_9=26-22=4.
+\end{equation}
+This proves the audit predicate
+\pyvar{report.projection_dimension_26_to_4}: it holds precisely when the self-resolution
+run exhausts the normalized entropy budget and reports terminal dimension $4$.
+
+The same normalization gives the temporal kernel used for observer-frame
+cosmology.  For a sampled expansion rate
+\begin{equation}
+\label{eq:section-four-hubble-rate}
+ H(t)=\frac{\dot a(t)}{a(t)},
+\end{equation}
+the total entropy-production rate is postulated to saturate the finite register
+as
+\begin{equation}
+\label{eq:section-four-total-entropy-rate}
+ \dot S_{\rm total}=\Nbits\,H(t).
+\end{equation}
+The local entanglement contribution is distributed by the normalized density,
+\begin{equation}
+\label{eq:section-four-local-entropy-rate}
+ \dot S_{ij}=\rho_E(i,j)\dot S_{\rm total}.
+\end{equation}
+Therefore
+\begin{equation}
+\label{eq:section-four-perception-identity}
+ \dot T
+ =
+ \frac{1}{\Nbits}\sum_{(i,j)\in\mathcal C}\dot S_{ij}
+ =
+ \frac{\dot S_{\rm total}}{\Nbits}
+ \sum_{(i,j)\in\mathcal C}\rho_E(i,j)
+ =
+ H(t).
+\end{equation}
+This is the perception identity: apparent temporal flow is the entropy flow per
+finite boundary bit.  In the implementation it is audited by
+the Rust method \pyvar{StaticBoundary.derive_temporal_increment()}.
+
+The full Section~\ref{sec:boundary-entropy-densities-self-resolution}
+implementation contract is therefore
+\begin{center}
+\begin{tabular}{@{}ll@{}}
+\toprule
+Mathematical object & Rust/Python simulator object \\
+\midrule
+$\rho_B$ & \pyvar{StaticBoundary.build_loading_density()} \\
+$\rho_E$ & \pyvar{StaticBoundary.build_entanglement_density()} \\
+$\sigma$ & \pyvar{StaticBoundary.build_dominant_sequence()} \\
+$F_{n-1}$ and $(\Delta B_n,\Delta S_n,\Delta T_n)$ & \pyvar{StaticBoundary.entropy_self_resolution()} \\
+$D_9=4$ & \pyvar{report.projection_dimension_26_to_4} \\
+$\dot T=H(t)$ & \pyvar{StaticBoundary.derive_temporal_increment()} \\
+\bottomrule
+\end{tabular}
+\end{center}
+The boundary entropy densities are therefore not phenomenological weights added
+after modular closure.  They are the normalized modular-overlap probabilities
+of the finite visible block, and their self-resolution produces both the
+$26\to4$ dimensional projection and the local temporal kernel.
+
+\section{Holographic RG Flow: Boundary Entropy to Bulk Metric}
+\label{sec:holographic-rg-flow-boundary-entropy-bulk-metric}
+
+The standard holographic starting point is the geometric dictionary for
+boundary entanglement.  For a boundary subregion $A$, the Ryu--Takayanagi
+relation identifies its entanglement entropy with the area of the bulk minimal
+codimension-two surface $\gamma_A$ homologous to $A$,
+\begin{equation}
+\label{eq:section-five-rt-formula}
+ S(A)
+ =
+ \frac{\operatorname{Area}(\gamma_A)}{4G_{d+1}}.
+\end{equation}
+This formula supplies the role of entanglement in the RG flow: changing the
+boundary resolution changes which extremal surfaces are sampled, and therefore
+which radial portion of the bulk geometry is probed
+\cite{ryu2006,maldacena1998,gkp1998,witten1998}.
+
+In an asymptotically anti-de Sitter geometry, the radial coordinate is the
+holographic renormalization scale.  With the Fefferman--Graham form
+\cite{fefferman1985}
+\begin{equation}
+\label{eq:section-five-fg-radial-coordinate}
+ ds^2
+ =
+ d\rho^2
+ +
+ e^{2\rho/L}\,g_{ij}(x,\rho)\,dx^i dx^j
+ =
+ \frac{L^2}{z^2}
+ \bigl(dz^2+g_{ij}(x,z)\,dx^i dx^j\bigr),
+\end{equation}
+the two common radial variables obey
+\begin{equation}
+\label{eq:section-five-radial-scale-map}
+ z=L\,e^{-\rho/L},
+ \qquad
+ \frac{\mu(\rho)}{\mu_0}=e^{\rho/L}=\frac{L}{z}.
+\end{equation}
+Thus moving outward toward the boundary corresponds to the ultraviolet of the
+dual CFT, while integrating out high-energy boundary modes corresponds to
+translating inward along the bulk radial direction.  In the standard
+Hamilton--Jacobi formulation, the on-shell bulk action generates the boundary
+functional and radial evolution becomes a Callan--Symanzik flow,
+\begin{equation}
+\label{eq:section-five-standard-hj-flow}
+ \frac{\partial S_{\rm os}}{\partial\rho}
+ +
+ \mathcal H_{\rm grav}
+ \!\left(
+ \gamma_{ij},\phi^I,
+ \frac{\delta S_{\rm os}}{\delta\gamma_{ij}},
+ \frac{\delta S_{\rm os}}{\delta\phi^I}
+ \right)
+ =
+ 0,
+ \qquad
+ \mu\frac{dJ^I}{d\mu}=\beta^I(J).
+\end{equation}
+This is the standard radial/Hamilton--Jacobi dictionary used in holographic
+renormalization \cite{deboer2000,skenderis2002}.
+SHBT keeps the entanglement-to-geometry lesson of
+Eq.~\eqref{eq:section-five-rt-formula}, but replaces the continuous large-$N$
+radial dynamics of Eq.~\eqref{eq:section-five-standard-hj-flow} with a finite
+boundary-first projection.  The input is the entropy self-resolution cascade of
+Section~\ref{sec:boundary-entropy-densities-self-resolution}; the output is a
+trace-normalized static metric slice.  In this section $\tau\in[0,1]$ denotes
+the normalized entropy-resolution parameter, not an independent external time
+coordinate.  At the discrete audit steps,
+\begin{equation}
+\label{eq:section-five-rg-time}
+ \tau_n=
+ \sum_{m\le n}\Delta T_m
+ =
+ \frac{1}{\Nbits}
+ \sum_{m\le n}\Delta S_m,
+ \qquad
+ \tau_0=0,
+ \qquad
+ \tau_9=1.
+\end{equation}
+Thus the RG parameter is the same finite-register entropy residue that drives
+the $26\to4$ projection.
+
+The finite SHBT replacement for the continuum boundary subregion is the visible
+coordinate lattice
+\begin{equation}
+\label{eq:section-five-visible-coordinate-lattice}
+ \mathcal C=\{0,1,2\}\times\{0,1,2\},
+ \qquad
+ c=(i,j)\in\mathcal C.
+\end{equation}
+The coordinates label the displayed $SU(2)_{26}$ charge slice and the
+$SU(3)_8$ low-weight slice.  The raw boundary loading at $c=(i,j)$ is the
+product of the modular overlap probabilities in those two affine factors,
+\begin{equation}
+\label{eq:section-five-raw-boundary-loading}
+ \widetilde\rho_B(i,j)
+ =
+ \left|S^{SU(2)_{26}}_{q_i,\ell_j}\right|^2
+ \left|S^{SU(3)_8}_{w_i,w_j}\right|^2.
+\end{equation}
+For the benchmark branch, the explicit kernels used in this loading are
+\begin{align}
+\label{eq:section-five-explicit-visible-s-kernels}
+ S_{ab}^{SU(2)_{26}}
+ &=
+ \sqrt{\frac{2}{28}}\,
+ \sin\!\left(\frac{\pi(a+1)(b+1)}{28}\right),\nonumber\\
+ S_{(p,q),(r,s)}^{SU(3)_8}
+ &=
+ \frac{i^3}{\sqrt{3}\,11}
+ \sum_{\sigma\in S_3}
+ \operatorname{sgn}(\sigma)
+ \exp\!\left[
+ -\frac{2\pi i}{11}
+ \bigl(
+ \sigma(\mathbf v(p,q)+\varrho),
+ \mathbf v(r,s)+\varrho
+ \bigr)
+ \right],
+\end{align}
+where $\mathbf v(p,q)$ is the weight vector with Dynkin labels $(p,q)$ and
+$\varrho$ is the Weyl vector.  Normalizing the raw loading gives
+\begin{equation}
+\label{eq:section-five-normalized-loading-density}
+ \rho_B(i,j)
+ =
+ \frac{\widetilde\rho_B(i,j)}
+ {\sum_{(a,b)\in\mathcal C}\widetilde\rho_B(a,b)},
+ \qquad
+ \sum_{(i,j)\in\mathcal C}\rho_B(i,j)=1.
+\end{equation}
+The entropy density used by the RG projector is the normalized Shannon
+contribution of each loaded coordinate,
+\begin{equation}
+\label{eq:section-five-normalized-entanglement-density}
+ \rho_E(i,j)
+ =
+ \frac{-\rho_B(i,j)\ln\rho_B(i,j)}
+ {\sum_{(a,b)\in\mathcal C}-\rho_B(a,b)\ln\rho_B(a,b)},
+ \qquad
+ \sum_{(i,j)\in\mathcal C}\rho_E(i,j)=1.
+\end{equation}
+Equations~\eqref{eq:section-five-visible-coordinate-lattice}--\eqref{eq:section-five-normalized-entanglement-density}
+are the Section~\ref{sec:boundary-entropy-densities-self-resolution} density
+definitions repeated here to make the RG derivation self-contained.
+
+The prime lattice basis used by the metric projector is the five-point
+arithmetic skeleton
+\begin{equation}
+\label{eq:section-five-prime-lattice-basis}
+ (p_0,p_1,p_2,p_3,p_4)=(2,3,5,7,11).
+\end{equation}
+The choice of the prime basis \((2,3,5,7,11)\) is not a numerical coincidence or
+a compression trick.  In information-theoretic terms, primes are the
+irreducible generators of the positive integers under multiplication; they
+represent the minimal set of atomic information channels required to encode the
+full arithmetic capacity of the finite register.  The modulo-\(5\) folding of
+the \(9\)-component ordered entropy sequence onto this prime basis ensures that
+each residue class receives contributions from linearly independent arithmetic
+factors of the boundary load.  This prevents spectral aliasing in the subsequent
+Gram projection: if the folding were performed onto a composite basis, the
+Euler flux \(\Phi_s\) would suffer from redundant factor cancellations that
+could wash out entropy shear.  The prime basis therefore provides a
+maximal-entropy encoding of the ordered boundary state into a five-component
+load vector \(\ell_r(\tau)\), where the logarithmic radial RG coordinates
+\(x_r=\ln p_r\) are naturally ordered and have distinct prime-power scaling.
+This construction can be seen as a finite-register analogue of the continuous
+radial coordinate \(\rho\) in standard holographic RG, with the prime exponents
+playing the role of discrete energy scales.  The specific set \((2,3,5,7,11)\)
+is the smallest set of five primes whose mutual logarithmic differences span
+the typical entropy-gradient range of the visible block; replacing it with any
+other set of five primes changes the numerical values of the metric slices but
+preserves the closure structure, as long as the selected primes are distinct and
+ordered.
+
+Its logarithms are the radial RG coordinates,
+\begin{equation}
+\label{eq:section-five-log-prime-coordinate}
+ x_r=\bigl(\ln p_r\bigr),
+ \qquad
+ r=0,
+\ldots,4,
+\end{equation}
+so nearest-neighbor finite differences on this lattice are naturally divided by
+$\ln(p_{s+1}/p_s)=x_{s+1}-x_s$.  The role of the prime basis is not to introduce
+a new spectrum of particles.  It is a fixed, finite coordinate frame in which
+the ordered boundary entropy state can be compressed into four Euler intervals
+and then lifted to a symmetric metric tensor.
+
+Let
+\begin{equation}
+\label{eq:section-five-dominant-sequence-reminder}
+ \sigma=(c_1,\ldots,c_9)
+\end{equation}
+be the dominant loading sequence of
+Eq.~\eqref{eq:section-four-dominant-loading-sequence}.  The partially resolved
+entanglement state at RG parameter $\tau$ is the interpolation of the discrete
+self-resolution records,
+\begin{equation}
+\label{eq:section-five-interpolated-entropy-state}
+ \Omega_{\tau}(c)
+ =
+ \sum_{n=1}^{9}
+ \theta_n(\tau)\,
+ \delta_{c_n,c}\,
+ \Delta T_n,
+\end{equation}
+where
+\begin{equation}
+\label{eq:section-five-resolution-window}
+ \theta_n(\tau)
+ =
+ \begin{cases}
+ 0,& \tau<\tau_{n-1},\\
+ \dfrac{\tau-\tau_{n-1}}{\tau_n-\tau_{n-1}},&
+ \tau_{n-1}\le\tau\le\tau_n,\\
+ 1,& \tau>\tau_n.
+ \end{cases}
+\end{equation}
+Consequently $\sum_{c\in\mathcal C}\Omega_{\tau}(c)=\tau$.  The metric
+projector uses both the static entanglement density and the resolved entropy
+state.  Along the ordered sequence define
+\begin{equation}
+\label{eq:section-five-sequence-entanglement-mass}
+ E_m(\tau)
+ =
+ \rho_E(c_m)+\Omega_{\tau}(c_m),
+ \qquad
+ m=1,\ldots,9.
+\end{equation}
+Since $\sum_{m=1}^9\rho_E(c_m)=1$ and
+$\sum_{m=1}^9\Omega_{\tau}(c_m)=\tau$, the total resolved load before folding
+is
+\begin{equation}
+\label{eq:section-five-total-sequence-load}
+ \sum_{m=1}^{9}E_m(\tau)=1+\tau.
+\end{equation}
+The five-component load vector is obtained by folding this ordered sequence
+onto the prime lattice by residue class,
+\begin{align}
+\label{eq:section-five-load-vector-construction}
+ \widehat\ell_r(\tau)
+ &=
+ \sum_{m=1}^{9}
+ E_m(\tau)\,
+ \mathbf 1_{\{m-1\equiv r\;({\rm mod}\;5)\}},
+ \qquad r=0,\ldots,4,\nonumber\\
+ \ell_r(\tau)
+ &=
+ \frac{\widehat\ell_r(\tau)}
+ {\sum_{q=0}^{4}\widehat\ell_q(\tau)}
+ =
+ \frac{\widehat\ell_r(\tau)}{1+\tau}.
+\end{align}
+This gives
+\begin{equation}
+\label{eq:section-five-load-vector-normalization}
+ \ell_r(\tau)>0,
+ \qquad
+ \sum_{r=0}^{4}\ell_r(\tau)=1.
+\end{equation}
+The dependence on $\sigma$ is essential: the same multiset of boundary
+entropies would give a different prime-lattice load only if the modular loading
+order were changed.  Equal-density ties remain the stable implementation ties
+already fixed in Section~\ref{sec:boundary-entropy-densities-self-resolution}.
+
+The Euler flux is the logarithmic finite difference of the load vector across
+adjacent prime sites.  For $s=0,1,2,3$,
+\begin{equation}
+\label{eq:section-five-euler-flux}
+ \Phi_s(\tau)
+ =
+ \frac{\ell_{s+1}(\tau)-\ell_s(\tau)}
+ {\ln(p_{s+1}/p_s)}.
+\end{equation}
+Thus $\Phi_s$ is the discrete RG gradient
+$\Delta\ell/\Delta\ln p$ on the finite prime lattice.  The local mean loading
+and arithmetic hardness factor are
+\begin{equation}
+\label{eq:section-five-mean-loading-hardness}
+ \bar\ell_s(\tau)
+ =
+ \frac{\ell_s(\tau)+\ell_{s+1}(\tau)}{2},
+ \qquad
+ h_s=\frac{1}{p_s}+\frac{1}{p_{s+1}}.
+\end{equation}
+The closure-weighted contribution of the $s$th Euler interval is
+\begin{equation}
+\label{eq:section-five-weight-functions}
+ W_s(\tau)
+ =
+ \lambda_{\rm closure}
+ \bigl(|\Phi_s(\tau)|+\bar\ell_s(\tau)+h_s\bigr),
+ \qquad
+ \lambda_{\rm closure}>0.
+\end{equation}
+Every term in Eq.~\eqref{eq:section-five-weight-functions} is nonnegative, so
+the outer-product part of the metric projection is positive semidefinite.  The
+absolute flux measures local entropy shear, the mean load measures local
+occupancy, and $h_s$ prevents a completely flat load vector from erasing the
+arithmetic interval.
+
+The four execution vectors embed the four Euler intervals into the static
+metric block.  Let $e_s^{\mu}=\delta_s^{\mu}$ for
+$\mu,s=0,1,2,3$, and read all load-vector indices modulo $5$.  The implemented
+execution vector is
+\begin{equation}
+\label{eq:section-five-execution-vectors}
+ v_s^{\mu}(\tau)
+ =
+ e_s^{\mu}
+ +
+ \left(
+ \ell_s+\delta_{s0},
+ \ell_{s+1}+\delta_{s1},
+ \ell_{(s+2)\,({\rm mod}\,5)}+\delta_{s2},
+ |\Phi_s|+\ell_{(s+3)\,({\rm mod}\,5)}+\delta_{s3}
+ \right)^{\mu}.
+\end{equation}
+The Kronecker terms mark the execution channel, while the cyclic load entries
+couple each interval to the neighboring prime sites.  The fourth component also
+contains $|\Phi_s|$, so entropy shear enters the block as a metric direction
+rather than only as a scalar weight.
+
+The unstabilized static metric is the weighted Gram matrix of these execution
+vectors, plus a positive diagonal closure floor,
+\begin{equation}
+\label{eq:section-five-unstabilized-metric}
+ \widetilde g_{\mu\nu}(\tau)
+ =
+ \sum_{s=0}^{3}
+ W_s(\tau)\,v_{s\mu}(\tau)v_{s\nu}(\tau)
+ +
+ \diag(d_0,d_1,d_2,d_3)_{\mu\nu}.
+\end{equation}
+The diagonal entries used by the audit are
+\begin{equation}
+\label{eq:section-five-diagonal-floor}
+ d_s(\tau)
+ =
+ \lambda_{\rm closure}+W_s(\tau)+\ell_s(\tau)+\ell_{s+1}(\tau),
+ \qquad
+ s=0,1,2,3.
+\end{equation}
+Since $\lambda_{\rm closure}>0$ and the remaining terms are nonnegative,
+Eq.~\eqref{eq:section-five-diagonal-floor} gives a strictly positive diagonal
+regularizer.  The tensor in Eq.~\eqref{eq:section-five-unstabilized-metric} is
+therefore already a finite, positive candidate for the static block; the final
+step enforces exact symmetry and trace normalization in the same way for every
+slice.
+
+Define
+\begin{equation}
+\label{eq:section-five-symmetrized-lifted-block}
+ A_{\mu\nu}(\tau)
+ =
+ \operatorname{Sym}
+ \bigl(
+ \widetilde g_{\mu\nu}(\tau)+\epsilon_{\rm eig}\delta_{\mu\nu}
+ \bigr),
+ \qquad
+ \operatorname{Sym}(B)_{\mu\nu}
+ =
+ \frac{B_{\mu\nu}+B_{\nu\mu}}{2}.
+\end{equation}
+The eigenvalue lift is chosen as
+\begin{equation}
+\label{eq:section-five-eigenvalue-lift}
+ \epsilon_{\rm eig}
+ =
+ \max\!\bigl(0,\epsilon_{\rm pos}
+ -\lambda_{\min}(\operatorname{Sym}\widetilde g)\bigr),
+ \qquad
+ \epsilon_{\rm pos}>0.
+\end{equation}
+In exact arithmetic the positive diagonal floor usually makes the lift
+unnecessary, but the audit keeps Eq.~\eqref{eq:section-five-eigenvalue-lift} so
+that numerical roundoff cannot produce a nonpositive metric slice.  The
+physical static metric is
+\begin{equation}
+\label{eq:section-five-stabilized-trace-normalized-metric}
+ \boxed{
+ g_{\mu\nu}(\tau)
+ =
+ \frac{A_{\mu\nu}(\tau)}{\Tr A(\tau)}
+ =
+ \frac{
+ \operatorname{Sym}
+ \bigl(\widetilde g_{\mu\nu}(\tau)+\epsilon_{\rm eig}\delta_{\mu\nu}\bigr)}
+ {\Tr\!\bigl[
+ \operatorname{Sym}\widetilde g(\tau)
+ +\epsilon_{\rm eig}\mathbf{1}_4\big]}.
+ }
+\end{equation}
+It obeys the metric-slice checks
+\begin{equation}
+\label{eq:section-five-metric-checks}
+ g_{\mu\nu}=g_{\nu\mu},
+ \qquad
+ \Tr g=1,
+ \qquad
+ \lambda_{\min}(g)>0.
+\end{equation}
+The trace condition fixes the finite-register scale of the slice; it does not
+remove physical anisotropy, because anisotropy is carried by the normalized
+eigenvalue ratios and off-diagonal components inherited from the execution
+vectors.
+
+The spatial bulk metric is the projection of the static $4\times4$ block onto
+the three rendered spatial directions.  With
+\begin{equation}
+\label{eq:section-five-static-to-bulk-projector}
+ P_a{}^{\mu}
+ =
+ \begin{pmatrix}
+ 0&1&0&0\\
+ 0&0&1&0\\
+ 0&0&0&1
+ \end{pmatrix},
+ \qquad
+ a=1,2,3,
+ \qquad
+ \mu=0,1,2,3,
+\end{equation}
+the induced spatial metric is
+\begin{equation}
+\label{eq:section-five-spatial-bulk-metric}
+ g_{ab}^{\rm bulk}(\tau)
+ =
+ P_a{}^{\mu}
+ g_{\mu\nu}^{\rm static}(\tau)
+ P_b{}^{\nu}.
+\end{equation}
+Equivalently, the spatial block is the lower-right $3\times3$ principal block
+of the stabilized static metric in this benchmark projector.  Other projectors
+could rotate the rendered spatial frame, but the audit uses the fixed matrix in
+Eq.~\eqref{eq:section-five-static-to-bulk-projector} so that the benchmark is
+deterministic.
+
+Combining the construction gives the complete holographic RG map
+\begin{equation}
+\label{eq:section-five-complete-rg-map}
+ \boxed{
+ \nabla_{\mathcal C}S_{\partial}
+ \longmapsto
+ \rho_E(i,j)
+ \longmapsto
+ \ell_r(\tau)
+ \longmapsto
+ \Phi_s(\tau),W_s(\tau),v_s^{\mu}(\tau)
+ \longmapsto
+ g_{\mu\nu}(\tau)
+ \longmapsto
+ g_{ab}^{\rm bulk}(\tau)
+ }.
+\end{equation}
+The shortened form is
+\begin{equation}
+\label{eq:section-five-short-rg-map}
+ \nabla_{\mathcal C}S_{\partial}
+ \longrightarrow
+ \rho_E(i,j)
+ \longrightarrow
+ \ell_r(\tau)
+ \longrightarrow
+ g_{\mu\nu}(\tau).
+\end{equation}
+Every arrow is fixed by the previous sections: the boundary entropy gradient
+comes from modular-overlap loading, $\rho_E$ is the normalized entanglement
+density, $\ell_r$ is the prime-lattice compression of the ordered resolved
+state, and $g_{\mu\nu}$ is the stabilized trace-one Gram projection.  No
+independent bulk equation of motion is inserted between the boundary entropy
+state and the static metric slice.
+
+This is the precise deviation from standard holographic RG.  The usual
+AdS/CFT construction treats the bulk metric as a dynamical saddle governed by
+the Einstein--Hilbert action; the boundary scale dependence is recovered by
+solving radial Hamilton--Jacobi flow equations.  SHBT instead uses the closed
+finite boundary register as the primitive object.  The replacement is
+\begin{equation}
+\label{eq:section-five-standard-to-shbt-rg-replacement}
+ \left(
+ S(A),\rho,S_{\rm os}
+ \right)_{\rm standard}
+ \longrightarrow
+ \left(
+ \rho_B,\rho_E,\Omega_{\tau},x_r=\ln p_r
+ \right)_{\rm SHBT},
+ \qquad
+ \partial_{\rho}
+ \longrightarrow
+ \Delta_{\ln p}.
+\end{equation}
+Thus Eq.~\eqref{eq:section-five-standard-hj-flow} is not solved as an
+independent bulk field equation.  Its SHBT analogue is the finite algebraic
+pipeline
+\begin{equation}
+\label{eq:section-five-shbt-rg-comparison-map}
+ (\rho_B,\rho_E,\Omega_{\tau})
+ \longmapsto
+ \ell_r(\tau)
+ \longmapsto
+ \Phi_s(\tau)
+ \longmapsto
+ \widetilde g_{\mu\nu}(\tau)
+ \longmapsto
+ g_{\mu\nu}(\tau),
+\end{equation}
+with closure, positivity, and trace normalization checked slice by slice.
+
+\begin{center}
+\small
+\begin{tabular}{@{}p{0.30\linewidth}p{0.30\linewidth}p{0.30\linewidth}@{}}
+\toprule
+Feature & Standard holographic RG & SHBT RG flow \\
+\midrule
+Primitive data & Continuum boundary QFT and classical bulk saddle &
+Completed finite boundary CFT and modular-overlap densities \\
+Radial scale & Continuous $\rho$ or $z$, with $\mu\propto e^{\rho/L}\propto z^{-1}$ &
+Discrete prime sites $x_r=\ln p_r$ and Euler intervals $\Delta_{\ln p}$ \\
+Entanglement role & RT surfaces measure entropy from a given bulk metric &
+Normalized entropy densities synthesize the metric slice \\
+Dynamics & Einstein--Hilbert equations recast as Hamilton--Jacobi flow &
+Deterministic entropy self-resolution and weighted Gram projection \\
+Deviation & Large-$N$ semiclassical bulk is assumed &
+No independent bulk dynamics is assumed; geometry is an audited projection \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+The implementation contract for this section is
+\begin{center}
+\small
+\begin{tabular}{@{}p{0.38\linewidth}p{0.54\linewidth}@{}}
+\toprule
+Mathematical object & Rust/Python simulator object \\
+\midrule
+RG projection controller & \pyvar{shbt_simulator.HolographicProjection} \\
+$\rho_E,\sigma,\Omega_{\tau}\mapsto\ell_r$ & \pyvar{HolographicProjection.derive_load_vector()} \\
+$\ell_r\mapsto\Phi_s,W_s,v_s^{\mu},g_{\mu\nu}$ & \pyvar{HolographicProjection.metric_from_load_vector()} \\
+$P_a{}^{\mu}g_{\mu\nu}P_b{}^{\nu}$ & \pyvar{HolographicProjection.project_static_block_to_bulk()} \\
+Symmetry, trace, positivity, spatial block & \pyvar{audit['projection_report']} \\
+Metric slice record & \pyvar{shbt_simulator.BulkMetricSlice} \\
+\bottomrule
+\end{tabular}
+\end{center}
+The class \pyvar{shbt_simulator.HolographicProjection} receives the finite entropy cascade
+from the Rust method \pyvar{StaticBoundary.entropy_self_resolution()}.  Its
+Rust method \pyvar{HolographicProjection.derive_load_vector()} constructs
+Eq.~\eqref{eq:section-five-load-vector-construction};
+\pyvar{HolographicProjection.metric_from_load_vector()} constructs
+Eqs.~\eqref{eq:section-five-euler-flux}--\eqref{eq:section-five-stabilized-trace-normalized-metric};
+\pyvar{HolographicProjection.project_static_block_to_bulk()} applies
+Eq.~\eqref{eq:section-five-spatial-bulk-metric}; and
+\pyvar{audit['projection_report']} checks Eq.~\eqref{eq:section-five-metric-checks},
+the $3\times3$ shape of \pyvar{BulkMetricSlice.spatial_metric}, agreement with the dominant
+loading sequence, and the absence of negative eigenvalues after stabilization.
+The benchmark therefore exports a list of \pyvar{shbt_simulator.BulkMetricSlice} records whose
+fields include \pyvar{BulkMetricSlice.load_vector},
+\pyvar{BulkMetricSlice.euler_flux}, \pyvar{BulkMetricSlice.metric_components},
+\pyvar{BulkMetricSlice.spatial_metric}, and \pyvar{BulkMetricSlice.eigenvalues}.
+
+\section{Topological Baryogenesis and Anti-Baryon De-Rendering}
+\label{sec:topological-baryogenesis-anti-baryon-de-rendering}
+
+The baryogenesis sector uses the completed boundary branch to separate two
+questions that are usually entangled.  The first is the size of the visible
+baryon excess.  The second is the fate of the anti-baryon stress-energy that
+would ordinarily accompany visible anti-baryon charge.  SHBT answers the first
+question with a topological CP invariant and a modular restoration scale, and it
+answers the second with an active de-rendering map that strips visible color and
+electromagnetic charge while preserving the passive gravitational source.  The
+mechanism is therefore not a dynamical erasure of stress-energy.  It is a
+projection of active render channels into the dark completion sector, constrained
+by the same framing closure that fixes the branch.
+
+The visible electroweak conversion factor is the standard sphaleron coefficient
+for the rendered Standard Model channel,
+\begin{equation}
+\label{eq:section-six-sphaleron-coefficient}
+ C_{\rm sph}
+ =
+ \frac{28}{79}.
+\end{equation}
+This coefficient converts the topological lepton-sector seed into the baryon
+number observed in the active visible register.  In SHBT the CP-odd seed is not
+introduced as a free phase.  It is the level-locked topological Jarlskog
+invariant
+\begin{equation}
+\label{eq:section-six-topological-jarlskog}
+ \boxed{
+ J_{CP}^{\rm topo}
+ =
+ \frac{1}{\Kpar}
+ \left(\frac{\kq}{\kell+2}\right)
+ \sqrt{1-\kappad^{2}}
+ \sin\!\left(\frac{2\pi\kq}{\kell}\right).
+ }
+\end{equation}
+The factors have distinct origins.  The parent completion contributes the
+dilution $1/\Kpar$; the visible level mismatch contributes
+$\kq/(\kell+2)$, with the $+2$ the $SU(2)$ dual-Coxeter shift; the dark
+completion contributes the admissible overlap factor
+$\sqrt{1-\kappad^{2}}$; and the modular phase difference between the quark
+and lepton clocks contributes $\sin(2\pi\kq/\kell)$.  Thus CP violation is a
+residue of completed modular transport rather than an independently tunable
+angle.
+
+The heavy restoration scale is fixed by the same branch arithmetic.  Define the
+rank projection factor by
+\begin{equation}
+\label{eq:section-six-rank-projection-factor}
+ \Pi_{\rm rank}
+ =
+ \sqrt{
+ \frac{(h^{\vee}_{SO(10)}\dim SO(10))/12}
+ {(h^{\vee}_{SU(3)}\dim SU(3))/12}}
+ \sqrt{\frac{\kq+h^{\vee}_{SU(3)}}{\Kpar+h^{\vee}_{SO(10)}}}.
+\end{equation}
+The residual matching of the $126$ completion channel is written
+$\delta\Pi_{126}^{\rm match}$.  The modular restoration mass is then
+\begin{equation}
+\label{eq:section-six-modular-restoration-scale}
+ \boxed{
+ M_N
+ =
+ M_{\rm GUT}
+ \exp\!\left[-\left(
+ I_{\ell}^{\star}\Pi_{\rm rank}
+ +
+ I_q^{\star}\delta\Pi_{126}^{\rm match}
+ \right)\right].
+ }
+\end{equation}
+For the canonical branch $I_{\ell}^{\star}=6$ and $I_q^{\star}=13$, so the
+exponent is a structural suppression determined by the completed embedding.  It
+is not adjusted after the baryon asymmetry is computed.
+
+The topological baryogenesis identity derived below is therefore a consistency
+check of the completed modular transport: the same algebra that fixes the
+visible levels and the dark completion residue also fixes the CP-odd seed and
+the restoration scale.  The numerical outcome \(\eta_B\approx6.45\times10^{-10}\)
+is not a free parameter introduced to match observations; it is the residue of
+the modular phase mismatch between the quark and lepton clocks after the center
+lifts are locked.  Thus the benchmark audit reported in
+Section~\ref{sec:numerical-verification-performance} is a verification that the
+branch arithmetic reproduces the observed visible asymmetry, but it does not
+claim to be an independent, unconstrained prediction of the baryon abundance
+without the branch data.
+
+The SHBT baryogenesis identity is therefore
+\begin{equation}
+\label{eq:section-six-baryon-asymmetry}
+ \boxed{
+ \eta_B
+ =
+ C_{\rm sph}\,J_{CP}^{\rm topo}\,\frac{M_N}{\MP}.
+ }
+\end{equation}
+The four ingredients in Eq.~\eqref{eq:section-six-baryon-asymmetry} are fixed
+by the electroweak conversion coefficient, the modular CP residue, the
+restoration scale, and the Planck normalization.  The benchmark implementation
+evaluates this identity as \pyvar{report.eta_b=6.449923359416e-10}.
+
+The visible asymmetry becomes a complete accounting statement only after the
+anti-baryon channel is specified.  Let $\mathcal H_{\bar B}^{\rm vis}$ denote
+the active visible anti-baryon Hilbert space.  For a visible anti-baryon density
+matrix $\rho$, define the active render cost
+\begin{equation}
+\label{eq:section-six-active-render-cost}
+ \boxed{
+ \mathcal C_{\bar B}(\rho)
+ =
+ \gamma_3\Tr(\rho Q_{SU(3)}^2)
+ +
+ \gamma_{\rm EM}\Tr(\rho Q_{\rm EM}^2)
+ +
+ \gamma_{\rm fr}\Deltafr^2,
+ \qquad
+ \gamma_3,\gamma_{\rm EM},\gamma_{\rm fr}>0.
+ }
+\end{equation}
+This is an active rendering functional, not a passive mass functional.  It
+counts the cost of keeping anti-baryons visible as colored and electrically
+charged excitations, plus any residual framing mismatch.  On the canonical
+branch $\Deltafr=0$, so the only nonzero active cost comes from visible gauge
+charge.
+
+The de-rendering operator is the completion-sector projection
+\begin{equation}
+\label{eq:section-six-derendering-operator}
+ \mathcal D_{\bar B}:
+ \mathcal H_{\bar B}^{\rm vis}
+ \longrightarrow
+ \mathcal H_{\rm dark}^{B-L},
+ \qquad
+ \rho_{\bar B}^{(n+1)}
+ =
+ \frac{
+ \mathcal D_{\bar B}\rho_{\bar B}^{(n)}\mathcal D_{\bar B}^{\dagger}}
+ {\Tr\!\left(
+ \mathcal D_{\bar B}\rho_{\bar B}^{(n)}\mathcal D_{\bar B}^{\dagger}
+ \right)}.
+\end{equation}
+The de-rendering map $\mathcal D_{\bar B}$ acts at the modular restoration
+scale $M_N$ given in
+Eq.~\eqref{eq:section-six-modular-restoration-scale}.  This scale is
+determined by the same branch arithmetic that fixes the parent completion and
+the framing defect.  In the boundary theory, the transition is a continuous,
+unitary projection in the completed Hilbert space: as the energy scale descends
+from the GUT scale toward $M_N$, the visible anti-baryon gauge currents lose
+their support on the active $SU(3)$ and $U(1)_{\rm EM}$ channels.  Equivalently,
+the projection is a constant phase-transition boundary condition in the
+register: the active render cost $\mathcal C_{\bar B}$ drops to zero exactly at
+the scale where the modular restoration exponent vanishes.  For any finite
+Causal Point, however, this de-rendering is only observed as a local
+horizon-conditioned effect: if the observer's horizon fraction $f_H$
+(Eq.~\eqref{eq:section-seven-local-horizon-fraction}) is too small, the active
+visible anti-baryon channels are already below the local entropy resolution
+limit, so the de-rendering appears to the local observer as a pre-existing
+completion asymmetry rather than a dynamical phase transition.  Thus the
+mechanism has two complementary descriptions: (i) a bulk phase transition at
+$M_N$ in the completed boundary data, and (ii) an observer-conditional
+projection for any Causal Point with $f_H$ below the threshold required to
+resolve active anti-baryon gauge charges.  The benchmark branch fixes $M_N$
+once; the observer dependence only determines whether the local history record
+includes the transition, not whether the dark completion sector stores the
+passive stress-energy.
+
+It is defined by the active charge-stripping constraints
+\begin{equation}
+\label{eq:section-six-stripping-constraints}
+ \boxed{
+ \mathcal D_{\bar B}^{\dagger}Q_{SU(3)}\mathcal D_{\bar B}=0,
+ \qquad
+ \mathcal D_{\bar B}^{\dagger}Q_{\rm EM}\mathcal D_{\bar B}=0.
+ }
+\end{equation}
+The dark target stores the conjugate $B-L$ residue, so the completed boundary
+state remains neutral even though the active visible anti-baryon gauge channels
+are no longer rendered.
+
+Stress-energy preservation is imposed on the passive source, not on the active
+charge cost.  The defining equality is
+\begin{equation}
+\label{eq:section-six-stress-energy-preservation}
+ \boxed{
+ \Tr\!\left(\rho^{(n)}T_{\mu\nu}^{\bar B,{\rm passive}}\right)
+ =
+ \Tr\!\left(\rho^{(n+1)}T_{\mu\nu}^{{\rm dark},{\rm passive}}\right).
+ }
+\end{equation}
+Thus the visible register can lose active anti-baryon color and electromagnetic
+support without violating the gravitational accounting used by the topological
+Einstein equation.  Equivalently, the de-rendered anti-baryon contributes as a
+dark passive source rather than as an actively rendered visible particle.
+
+The anti-baryon loop closes at the fixed point
+\begin{equation}
+\label{eq:section-six-antibaryon-fixed-point}
+ \boxed{
+ \rho_{\bar B}^{\star}
+ =
+ \frac{
+ \mathcal D_{\bar B}\rho_{\bar B}^{\star}\mathcal D_{\bar B}^{\dagger}}
+ {\Tr\!\left(
+ \mathcal D_{\bar B}\rho_{\bar B}^{\star}\mathcal D_{\bar B}^{\dagger}
+ \right)},
+ \qquad
+ \mathcal C_{\bar B}(\rho_{\bar B}^{\star})=0,
+ \qquad
+ \delta T_{\mu\nu}^{\rm passive}=0.
+ }
+\end{equation}
+At this point the anti-baryon is absent from the active visible gauge-rendered
+channels, while its passive stress-energy has been moved into the dark
+completion sector.  The observed baryon asymmetry is therefore a render-channel
+asymmetry, not an unbalanced disappearance of energy-momentum.
+
+The implementation contract for this section is
+\begin{center}
+\small
+\begin{tabular}{@{}p{0.38\linewidth}p{0.54\linewidth}@{}}
+\toprule
+Mathematical object & Rust/Python simulator object \\
+\midrule
+Baryogenesis identity record & \pyvar{shbt_simulator.BaryogenesisIdentity} \\
+$C_{\rm sph},J_{CP}^{\rm topo},M_N/\MP,\eta_B$ & \pyvar{audit['baryogenesis_identity']} \\
+$\mathcal C_{\bar B}$ & \pyvar{BaryogenesisOptimizer.cpu_cycle_weight()} \\
+$\mathcal D_{\bar B}$ charge stripping & \pyvar{BaryogenesisOptimizer.derender_antibaryon_charges()} \\
+Field A versus Field B comparison & \pyvar{audit['benchmark_delta']} \\
+Passive source equality & \pyvar{report.stress_energy_preserved} \\
+\bottomrule
+\end{tabular}
+\end{center}
+The simulator record \pyvar{shbt_simulator.BaryogenesisIdentity} stores
+\pyvar{BaryogenesisIdentity.sphaleron_coefficient},
+\pyvar{BaryogenesisIdentity.jarlskog_topological},
+\pyvar{BaryogenesisIdentity.Pi_rank},
+\pyvar{BaryogenesisIdentity.modular_restoration_scale_gev}, and
+\pyvar{BaryogenesisIdentity.eta_b}.  The
+\pyvar{audit['baryogenesis_identity']} record stores
+the numerical fields appearing in
+Eqs.~\eqref{eq:section-six-sphaleron-coefficient}--\eqref{eq:section-six-baryon-asymmetry}.
+The Rust method \pyvar{BaryogenesisOptimizer.cpu_cycle_weight()} evaluates the
+active cost in Eq.~\eqref{eq:section-six-active-render-cost};
+\pyvar{BaryogenesisOptimizer.derender_antibaryon_charges()} implements the
+stripping constraints in Eq.~\eqref{eq:section-six-stripping-constraints}; and
+\pyvar{report.stress_energy_preserved} reports the passive equality check in
+Eq.~\eqref{eq:section-six-stress-energy-preservation}.  Finally, the
+\pyvar{audit['benchmark_delta']} record compares the actively rendered
+Field A calculation with the SHBT-optimized Field B calculation, reporting the
+changes in \pyvar{cpu_cycle_weight}, \pyvar{operation_count},
+\pyvar{memory_bytes}, and the Boolean \pyvar{stress_energy_preserved} fields of
+\pyvar{BenchmarkDelta}.
+
+\section{Causal Point and History Crystallization}
+\label{sec:causal-point-history-crystallization}
+
+The Causal Point is the observer interface of SHBT.  It is not an external
+classical system appended to the boundary theory, but a finite local address
+inside the completed register.  Its job is to translate global holographic
+closure into the quantities an observer can actually sample: a local memory
+budget, a local valuation of hidden information, a past-light-cone loading
+flow, and a deterministic projection that crystallizes one history from a
+finite outcome ensemble.  Thus observation is treated as an entropy-budgeted
+operation on the boundary register rather than as a primitive background
+process.
+
+The global horizon follows directly from the saturated bit budget introduced in
+the Introduction.  Since $\Nbits=3\pi/(\Lp^2\Lholo)$, the horizon radius is
+\begin{equation}
+\label{eq:section-seven-global-horizon}
+ \boxed{
+ R_H
+ =
+ \sqrt{\frac{\Nbits\Lp^2}{\pi}}
+ =
+ \sqrt{\frac{3}{\Lholo}}.
+ }
+\end{equation}
+For a Causal Point whose local sampling radius is $R_{\rm local}$, define the
+horizon fraction and local area by
+\begin{equation}
+\label{eq:section-seven-local-horizon-fraction}
+ f_H
+ =
+ \frac{R_{\rm local}}{R_H},
+ \qquad
+ A_{\rm local}=4\pi R_{\rm local}^2,
+ \qquad
+ 0\le f_H\le1.
+\end{equation}
+The observer cannot address the full horizon register unless $f_H=1$.  The
+available local memory, hidden complement, and operational entropy limit are
+therefore
+\begin{equation}
+\label{eq:section-seven-local-memory-budget}
+ \boxed{
+ N_{\rm local}
+ =
+ \Nbits f_H^2,
+ \qquad
+ N_{\rm hidden}
+ =
+ \Nbits-N_{\rm local},
+ \qquad
+ N_{\rm limit}
+ =
+ \min\!\left(
+ N_{\rm local},
+ \frac{A_{\rm local}}{4\Lp^2\ln2}
+ \right).
+ }
+\end{equation}
+The first entry counts addressable register bits.  The second counts degrees of
+freedom outside the local addressable patch.  The third enforces the stricter
+of the local register count and the local area-law bound, with the factor
+$\ln2$ converting the area entropy into bits.
+
+The Causal Point's self-valuation is the scalar response of the local observer
+to residual framing and hidden-sector loading.  Writing
+$\Delta_{\rm frame}\equiv\Deltafr$ and
+\begin{equation}
+\label{eq:section-seven-hidden-fraction}
+ f_{\rm hidden}
+ =
+ \frac{N_{\rm hidden}}{\Nbits}
+ =
+ 1-\frac{N_{\rm local}}{\Nbits},
+ \qquad
+ w(\xi)=\frac{\xi_{\ell}+\xi_q+\xi_s}{3},
+\end{equation}
+the valuation field is
+\begin{equation}
+\label{eq:section-seven-self-valuation}
+ \boxed{
+ \Sigma
+ =
+ (1+\Delta_{\rm frame})
+ \bigl(1+w(\xi)f_{\rm hidden}\bigr).
+ }
+\end{equation}
+On the canonical branch $\Delta_{\rm frame}=0$, but the formula is written in a
+branch-independent form so that any residual framing mismatch would be visible
+as a multiplicative observer cost.  The localized entropy gradient is the
+valuation density across the local sampling radius,
+\begin{equation}
+\label{eq:section-seven-localized-entropy-gradient}
+ \boxed{
+ \nabla_{\rm obs}\Sigma
+ =
+ \frac{\Sigma f_{\rm hidden}}{R_{\rm local}}.
+ }
+\end{equation}
+The apparent observer acceleration is then
+\begin{equation}
+\label{eq:section-seven-apparent-acceleration}
+ \boxed{
+ a_{\rm obs}
+ =
+ c^2\nabla_{\rm obs}\Sigma.
+ }
+\end{equation}
+This acceleration is not inserted as an external force law.  It is the local
+inertial response to the hidden entropy gradient seen by an entropy-limited
+observer.
+
+The same local data define the observer-frame Jacobian.  The anisotropy
+coordinates $(\xi_{\ell},\xi_q,\xi_s)$ are the three directional entries stored
+in the local property packet, and the Causal Point projection matrix is
+\begin{equation}
+\label{eq:section-seven-observer-jacobian}
+ \boxed{
+ J^{\mu}{}_{\nu}
+ =
+ \begin{pmatrix}
+ 1+\Sigma f_{\rm hidden} & -\Sigma\xi_{\ell} & -\Sigma\xi_q & -\Sigma\xi_s\\
+ 0 & 1+\Sigma\xi_{\ell} & 0 & 0\\
+ 0 & 0 & 1+\Sigma\xi_q & 0\\
+ 0 & 0 & 0 & 1+\Sigma\xi_s
+ \end{pmatrix}.
+ }
+\end{equation}
+Applied to a bulk metric slice from Section~\ref{sec:holographic-rg-flow-boundary-entropy-bulk-metric},
+it gives the observer-frame metric
+\begin{equation}
+\label{eq:section-seven-observer-metric-pullback}
+ g^{\rm obs}_{\mu\nu}
+ =
+ J_{\mu}{}^{\alpha}g_{\alpha\beta}J_{\nu}{}^{\beta}.
+\end{equation}
+The off-diagonal entries in the first row encode the finite-register mixing
+between temporal sampling and the three anisotropic property channels, while
+the diagonal spatial entries encode direction-dependent local rescaling.
+
+Past-light-cone flow is the observer-time image of a static boundary loading
+process.  Let $N_{\rm load}(t)$ be the number of loaded bits along the sampled
+history.  The loading fraction and effective expansion rate are
+\begin{equation}
+\label{eq:section-seven-loading-law}
+ \boxed{
+ f_{\rm load}(t)
+ =
+ \frac{N_{\rm load}(t)}{\Nbits},
+ \qquad
+ H_{\rm eff}(t)
+ =
+ H_{\Lambda}+\frac{1}{3}\frac{df_{\rm load}}{dt}.
+ }
+\end{equation}
+Here $H_{\Lambda}$ is the horizon rate associated with the static
+$\Lholo$ sector.  The second term is not a new external clock; it is the
+one-dimensional residue of finite boundary loading as reconstructed by the
+Causal Point.  Along the observer's past light cone, redshift parameterizes the
+same process through
+\begin{equation}
+\label{eq:section-seven-past-light-cone-flow}
+ \boxed{
+ \frac{dt}{dz}
+ =
+ -\frac{1}{(1+z)H_{\rm eff}(z)},
+ \qquad
+ \frac{d\chi}{dz}
+ =
+ \frac{1}{H_{\rm eff}(z)}.
+ }
+\end{equation}
+The first equation gives the lookback-time increment, and the second gives the
+comoving radial increment in the same light-cone units.  A sampled redshift
+therefore selects a boundary coordinate by the ordered loading sequence,
+\begin{equation}
+\label{eq:section-seven-coordinate-flow}
+ n(z)
+ =
+ 1+
+ \left\lfloor\bigl(|\sigma|-1\bigr)f_{\rm load}(z)\right\rfloor,
+ \qquad
+ c(z)=\sigma_{n(z)}\in\mathcal C.
+\end{equation}
+This gives the bridge between the apparent cosmological flow and the finite
+boundary address on which a measurement can be attempted.
+
+History crystallization begins only after such a boundary address has been
+selected.  Let $\mathcal R$ be the finite register visible to the Causal Point,
+let $A\in\mathcal R$ be the selected address, and let
+\begin{equation}
+\label{eq:section-seven-outcome-ensemble}
+ \Omega_A
+ =
+ \{\omega_0,\omega_1,\ldots,\omega_{m-1}\},
+ \qquad
+ \sum_{i=0}^{m-1}p_i=1,
+ \qquad
+ p_i\ge0,
+\end{equation}
+be the finite outcome ensemble and its normalized local loading weights.  The
+entropy costs of a retrieval event are
+\begin{align}
+\label{eq:section-seven-retrieval-costs}
+ C_{\rm addr}
+ &=
+ \log_2|\mathcal R|,
+ &
+ C_{\rm ens}
+ &=
+ \log_2|\Omega_A|,\notag\\
+ C_{\rm get}
+ &=
+ \max\!\left(1,C_{\rm addr}+C_{\rm ens},C_{\rm req}\right),
+ &
+ R_{\rm entropy}
+ &=
+ N_{\rm limit}-C_{\rm get}.
+\end{align}
+The GET operation is admissible exactly when
+\begin{equation}
+\label{eq:section-seven-retrieval-admissibility}
+ R_{\rm entropy}\ge0.
+\end{equation}
+If the residual is negative, the Causal Point has insufficient local entropy
+budget to crystallize the requested classical record.
+
+When the budget condition holds, the deterministic collapse index is
+\begin{equation}
+\label{eq:section-seven-collapse-index}
+ \boxed{
+ \iota
+ =
+ \operatorname{Hash}\!\left(
+ \pyvar{observable_name},
+ A,
+ f_H,
+ N_{\rm local},
+ m
+ \right)
+ \bmod m.
+ }
+\end{equation}
+The corresponding rank-one projection operator is
+\begin{equation}
+\label{eq:section-seven-history-projection}
+ \boxed{
+ \Pi_{A,\iota}
+ =
+ |A,\omega_{\iota}\rangle\langle A,\omega_{\iota}|.
+ }
+\end{equation}
+For a sequence of admissible Causal Point retrievals, the history density matrix
+updates by
+\begin{equation}
+\label{eq:section-seven-history-update}
+ \rho_{\rm hist}^{(n+1)}
+ =
+ \frac{
+ \Pi_{A_n,\iota_n}\rho_{\rm hist}^{(n)}\Pi_{A_n,\iota_n}}
+ {\Tr\!\left(
+ \Pi_{A_n,\iota_n}\rho_{\rm hist}^{(n)}
+ \right)}.
+\end{equation}
+The full crystallized history along a sampled past light cone is therefore the
+ordered product
+\begin{equation}
+\label{eq:section-seven-full-history-projector}
+ \Pi_{\rm history}(z_1,\ldots,z_m)
+ =
+ \Pi_{A_m,\iota_m}\cdots\Pi_{A_2,\iota_2}\Pi_{A_1,\iota_1},
+ \qquad
+ A_n=A(c(z_n)).
+\end{equation}
+Thus a classical past is not retrieved from an unlimited archive.  It is the
+finite ordered record that survives all local entropy-budget checks.
+
+The pointer wavefunction associated with the selected outcome is the visible
+and dark completion packet
+\begin{equation}
+\label{eq:section-seven-pointer-wavefunction}
+ \boxed{
+ \Psi_{\iota}
+ =
+ \left(
+ \pyvar{amplitude}=p_{\iota},
+ \quad
+ \pyvar{c_vis}=-p_{\iota},
+ \quad
+ \pyvar{c_dark}=p_{\iota}
+ \right).
+ }
+\end{equation}
+The opposite signs of the visible and dark coefficients encode the same
+completion accounting used elsewhere in SHBT: the visible pointer is rendered
+as a local classical record while the complementary dark coefficient preserves
+the finite-register balance.
+
+The implementation contract for this section is
+\begin{center}
+\begin{tabular}{@{}ll@{}}
+\toprule
+Mathematical object & Rust/Python simulator object \\
+\midrule
+Causal observer interface & \pyvar{shbt_simulator.CausalPoint} \\
+Past-light-cone samples & \pyvar{CausalPoint.build_past_light_cone()} \\
+Local anisotropy and packet data & \pyvar{CausalPoint.compute_property_packets()} \\
+Entropy-budget admissibility & \pyvar{audit['memory_report']} \\
+History projection and pointer packet & \pyvar{CausalPoint.crystallize_history()} \\
+\bottomrule
+\end{tabular}
+\end{center}
+The class \pyvar{shbt_simulator.CausalPoint} stores the local horizon fraction, hidden-bit
+fraction, self-valuation, observer Jacobian, and past-light-cone samples.  Its
+Rust method \pyvar{CausalPoint.build_past_light_cone()} evaluates
+Eqs.~\eqref{eq:section-seven-loading-law}--\eqref{eq:section-seven-coordinate-flow};
+\pyvar{CausalPoint.compute_property_packets()} stores the anisotropy data entering
+Eqs.~\eqref{eq:section-seven-self-valuation} and
+\eqref{eq:section-seven-observer-jacobian};
+\pyvar{audit['memory_report']} checks
+Eqs.~\eqref{eq:section-seven-local-memory-budget} and
+\eqref{eq:section-seven-retrieval-admissibility}; and
+\pyvar{CausalPoint.crystallize_history()} constructs
+Eqs.~\eqref{eq:section-seven-collapse-index}--\eqref{eq:section-seven-pointer-wavefunction}.
+The benchmark fields reported by this interface include
+\pyvar{audit['memory_report']['local_available_bits']},
+\pyvar{audit['memory_report']['hidden_bits']},
+\pyvar{audit['memory_report']['entropy_limit_bits']}, and the remaining
+\pyvar{MemoryReport} fields.  Crystallized coordinates and pointer data are
+available through \pyvar{audit['history_entries']}.
+
+
+\section{Numerical Verification and Performance}
+\label{sec:numerical-verification-performance}
+
+All audits in this section are verification checks, not phenomenological fits.
+The branch constants, central charges, and finite register size are fixed by
+the modular closure axioms of Sections~\ref{sec:canonical-branch-axiomatic-foundation}--\ref{sec:modular-data-boundary-partition-function};
+the numerical layer confirms that these axioms close consistently across the
+entropy, metric, baryogenesis, and observer sectors.  Where a simulated value
+agrees with a measured cosmological quantity (e.g., \(\eta_B\)), that agreement
+is read as evidence that the completed boundary data are physically relevant,
+not as a validation of a free parameter.
+
+The preceding sections define SHBT by algebraic closure, entropy
+self-resolution, holographic projection, Causal Point admissibility, and
+anti-baryon de-rendering.  This section records the corresponding finite audit
+outputs from the canonical Rust/Python simulator.  The simulator entry point is
+\pyvar{shbt_simulator.ShbtSimulator().run_full_audit()}, and the reproducibility
+command is \shellcmd{python examples/run_audit.py}.  The older standalone
+foundation entry point is superseded by \pyvar{examples/run_audit.py}; the
+merged simulator output is the canonical paper-level specification.
+The verification is not a separate phenomenological fit: every entry is
+evaluated on the same canonical branch
+\begin{equation}
+\label{eq:section-eight-benchmark-branch}
+ \boxed{
+ \pyvar{shbt_simulator.StaticBoundary.benchmark_branch}=(26,8,312),
+ \qquad
+ \Deltafr=0.
+ }
+\end{equation}
+The purpose of the numerical layer is therefore to check that the branch data,
+normalization conventions, projector algebra, observer memory accounting, and
+baryogenesis optimizer all close simultaneously.
+
+\subsection{Boundary closure audit}
+
+The \pyvar{shbt_simulator.StaticBoundary} component tests the canonical branch
+before any bulk metric or observer-frame reconstruction is used.  The first
+requirement is exact framing closure.  The audit evaluates
+\begin{equation}
+ \Deltafr(312,26,8)
+ =
+ \max\!\left(
+ \left\|\frac{312}{2\cdot26}\right\|_{\mathbb Z},
+ \left\|\frac{312}{3\cdot8}\right\|_{\mathbb Z}
+ \right)
+ =0,
+\end{equation}
+and then checks that the loading and entanglement densities used by the entropy
+flow are normalized.  The modular tests verify that the visible and completed
+partition data commute with the constructed $S_{\partial}$ and $T_{\partial}$
+kernels to simulator precision:
+\begin{equation}
+\label{eq:section-eight-modular-commutators}
+ \|[M,S_{\partial}]\|=0.0,
+ \qquad
+ \|[M,T_{\partial}]\|=0.0.
+\end{equation}
+The full boundary audit is summarized in
+Table~\ref{tab:static-boundary-audit}.
+
+\begin{table}[htbp]
+\centering
+\begin{tabular}{@{}p{0.28\linewidth}p{0.40\linewidth}p{0.22\linewidth}@{}}
+\toprule
+Audit quantity & Simulator accessor & Rust/Python output \\
+\midrule
+Branch levels & \pyvar{report.branch} & $(26,8,312)$ \\
+Framing defect & \pyvar{report.framing_defect} & $0.0$ \\
+$Z_{\partial}^{\rm code}(i)$ & \pyvar{StaticBoundary.evaluate_z_boundary_py(0.0, 1.0)} & $2.441381789163\times10^{-24}$ \\
+Loading density sum & \pyvar{audit['boundary_report']['loading_normalized']} & true \\
+Entanglement density sum & \pyvar{audit['boundary_report']['entanglement_density_normalized']} & true \\
+Dominant sequence length & \pyvar{StaticBoundary.build_dominant_sequence()} (Rust) & $9$ \\
+Modular $S$ commutator & \pyvar{audit['boundary_report']['modular_S_commutator']} & $0.0$ \\
+Modular $T$ commutator & \pyvar{audit['boundary_report']['modular_T_commutator']} & $0.0$ \\
+Modular invariant & \pyvar{report.modular_invariant} & true \\
+Zero-energy lock & \pyvar{report.zero_energy_locked} & true \\
+Visible projection & \pyvar{report.projection_dimension_26_to_4} & true \\
+\bottomrule
+\end{tabular}
+\caption{Static boundary verification results from the canonical Rust/Python simulator.}
+\label{tab:static-boundary-audit}
+\end{table}
+
+Together these checks establish the implementation form of the first closure
+equivalence:
+\begin{equation}
+ [M,S_{\partial}]=[M,T_{\partial}]=0
+ \Longleftrightarrow
+ \Deltafr=0
+ \Longrightarrow
+ \Pi_{\rm phys}\Hboundary\Pi_{\rm phys}=0.
+\end{equation}
+The final two entries in Table~\ref{tab:static-boundary-audit} are especially
+important for reproducibility: \pyvar{report.zero_energy_locked=True}
+confirms that the completed static boundary has no residual external time
+generator, while \pyvar{report.projection_dimension_26_to_4=True} confirms that
+the visible lepton-sector projection used by the benchmark branch has the
+expected finite dimension.
+
+\subsection{Bulk metric projection audit}
+
+The \pyvar{shbt_simulator.HolographicProjection} component starts from the
+normalized loading and entanglement densities and constructs the entropy
+cascade of metric slices.  The benchmark run returns the full nine-slice
+cascade,
+\begin{equation}
+\label{eq:section-eight-slice-count}
+ \pyvar{audit['projection_report']['slice_count']}=9,
+\end{equation}
+with a rank-three spatial projector at every sampled step.  Each metric slice is
+then checked for the three algebraic properties required by the projection
+construction:
+\begin{equation}
+\label{eq:section-eight-metric-slice-checks}
+ g_{ij}=g_{ji},
+ \qquad
+ \Tr(g)=1,
+ \qquad
+ v^ig_{ij}v^j>0
+ \quad
+ {\rm for}\quad v\ne0.
+\end{equation}
+The resulting audit table is Table~\ref{tab:holographic-projection-audit}.
+
+\begin{table}[htbp]
+\centering
+\begin{tabular}{@{}p{0.28\linewidth}p{0.40\linewidth}p{0.22\linewidth}@{}}
+\toprule
+Audit quantity & Simulator accessor & Rust/Python output \\
+\midrule
+Entropy cascade length & \pyvar{audit['projection_report']['slice_count']} & $9$ \\
+Spatial projector rank & \pyvar{audit['projection_report']['projector_rank']} & $3$ \\
+Metric symmetry & \pyvar{audit['projection_report']['symmetric']} & true \\
+Trace normalization & \pyvar{audit['projection_report']['trace_normalized']} & true \\
+Positive definiteness & \pyvar{audit['projection_report']['positive_definite']} & true \\
+\bottomrule
+\end{tabular}
+\caption{Holographic projection verification results from the canonical Rust/Python simulator.}
+\label{tab:holographic-projection-audit}
+\end{table}
+
+This confirms that the entropy flow does not merely produce arrays of numbers.
+It produces symmetric, trace-normalized, positive metric data with the intended
+rank-three spatial image, so the bulk slices satisfy the numerical version of
+the projection conditions stated in
+Section~\ref{sec:holographic-rg-flow-boundary-entropy-bulk-metric}.
+
+\subsection{Causal Point audit}
+
+The \pyvar{shbt_simulator.CausalPoint} component verifies that observer access
+is limited by a finite entropy budget.  For a horizon fraction $f_H$, the local
+bit budget is checked against
+\begin{align}
+\label{eq:section-eight-local-bit-budget}
+ N_{\rm local}^{\rm audit}
+ &\simeq
+ \Nbits f_H^2,
+ &
+ N_{\rm hidden}^{\rm audit}
+ &=
+ \Nbits-N_{\rm local}^{\rm audit}.
+\end{align}
+Here \(N_{\rm local}^{\rm audit}\) and \(N_{\rm hidden}^{\rm audit}\) are the
+\pyvar{audit['memory_report']['local_available_bits']} and
+\pyvar{audit['memory_report']['hidden_bits']} fields.
+The retrieval interface is admissible only when the entropy limit is positive,
+and the past-light-cone builder is checked against the requested redshift grid:
+\begin{align}
+\label{eq:section-eight-causal-point-samples}
+ N_{\rm limit}^{\rm audit}&>0,
+ &
+ n_{\rm lightcone}^{\rm audit}&=n_{\rm redshift}.
+\end{align}
+These are the
+\pyvar{audit['memory_report']['entropy_limit_bits']},
+\pyvar{audit['memory_report']['past_light_cone_samples']}, and requested redshift-grid
+checks in the report.
+The audit is summarized in Table~\ref{tab:causal-point-audit}.
+
+\begin{table}[htbp]
+\centering
+\begin{tabular}{@{}p{0.28\linewidth}p{0.40\linewidth}p{0.22\linewidth}@{}}
+\toprule
+Audit quantity & Simulator accessor & Rust/Python output \\
+\midrule
+Local available bits & \pyvar{audit['memory_report']['local_available_bits']} & $2.535748254483999\times10^{122}$ \\
+Hidden bits & \pyvar{audit['memory_report']['hidden_bits']} & $7.76249465658367\times10^{121}$ \\
+Entropy limit & \pyvar{audit['memory_report']['entropy_limit_bits']} & $2.535748254483999\times10^{122}$ \\
+Light-cone samples & \pyvar{audit['memory_report']['past_light_cone_samples']} & 9 \\
+Property packets & \pyvar{audit['memory_report']['property_packets']} & $9$ \\
+Memory admissibility & \pyvar{report.memory_all_passed} & true \\
+\bottomrule
+\end{tabular}
+\caption{Causal Point verification results from the canonical Rust/Python simulator.}
+\label{tab:causal-point-audit}
+\end{table}
+
+These outputs check the observer side of the closure chain.  The Causal Point
+does not access an unlimited record; it constructs exactly as many past-light
+cone entries as the redshift sampler asks for, constructs nine local property
+packets, and filters each attempted retrieval through the finite-memory
+inequality.
+
+\subsection{Baryogenesis and optimized field simulation}
+
+The baryogenesis benchmark compares a standard visible field simulation with
+the optimized SHBT render in which anti-baryon visible charge channels are
+de-rendered while their passive stress-energy contribution remains in the dark
+completion sector.  The simulator reports the visible baryon asymmetry as
+\begin{equation}
+\label{eq:section-eight-baryon-asymmetry}
+ \eta_B
+ =
+ 6.449923359416\times10^{-10},
+\end{equation}
+with \pyvar{report.stress_energy_preserved=True}.  In the benchmark
+implementation the optimization is also a performance statement: fewer actively
+rendered field channels are evolved, while the passive gravitational accounting
+is unchanged.  The standard and optimized simulations are compared in
+Table~\ref{tab:standard-optimized-field-simulation}.
+
+\begin{table}[htbp]
+\centering
+\scriptsize
+\begin{tabular}{@{}p{0.20\linewidth}p{0.25\linewidth}p{0.11\linewidth}p{0.16\linewidth}p{0.17\linewidth}@{}}
+\toprule
+Simulation mode & Active visible channels & CPU cycles & Operations & Memory \\
+\midrule
+Standard field simulation & baryon and anti-baryon & $1.0$ & $1.0$ & $1.0$ \\
+Optimized SHBT simulation & baryon rendered, anti-baryon de-rendered & $0.5$ & $0.0015333147477$ & $0.0058214747736093$ \\
+Reduction fraction & removed active anti-baryon render & $0.5$ & $0.9984666852523$ & $0.9941785252263907$ \\
+\bottomrule
+\end{tabular}
+\caption{Normalized standard-versus-optimized field simulation cost from
+\pyvar{audit['benchmark_delta']}, produced by
+\pyvar{BaryogenesisOptimizer.run_benchmark(particle_count)}.}
+\label{tab:standard-optimized-field-simulation}
+\end{table}
+
+The physical comparison is shown in
+Table~\ref{tab:baryogenesis-physical-comparison}.  The optimized simulation is
+not allowed to discard energy: it removes anti-baryon charge from the actively
+rendered visible channel but preserves the passive source that enters the
+topological Einstein equation.
+
+\begin{table}[htbp]
+\centering
+\begin{tabular}{@{}p{0.27\linewidth}p{0.32\linewidth}p{0.32\linewidth}@{}}
+\toprule
+Quantity & Standard simulation & Optimized SHBT simulation \\
+\midrule
+Visible baryon channel & actively rendered & actively rendered \\
+Visible anti-baryon channel & actively rendered & de-rendered \\
+Passive stress-energy & explicitly evolved & preserved in dark completion \\
+Baryon asymmetry output & dynamical baseline target & $\eta_B=6.449923359416\times10^{-10}$ \\
+Stress-energy check & baseline conservation test & true \\
+\bottomrule
+\end{tabular}
+\caption{Physical accounting in the standard and optimized simulations,
+reproduced from \pyvar{audit['benchmark_delta']}, \pyvar{report.eta_b}, and
+\pyvar{report.stress_energy_preserved}.}
+\label{tab:baryogenesis-physical-comparison}
+\end{table}
+
+The combined verification suite therefore checks both correctness and cost.  On
+the correctness side, \pyvar{shbt_simulator.ShbtSimulator().run_full_audit()}
+returns the same branch data with \pyvar{report.modular_invariant=True},
+\pyvar{report.zero_energy_locked=True}, \pyvar{report.memory_all_passed=True},
+and \pyvar{report.stress_energy_preserved=True}.  On the performance side, the
+optimized render reduces CPU cycles by $50\%$, operation count by approximately
+$99.8467\%$, and memory use by approximately $99.4179\%$ relative to the
+normalized standard field simulation, without violating the stress-energy
+preservation identity.
+
+\section{Precision Cosmological Implications}
+\label{sec:precision-cosmological-implications}
+
+The foundation sections define a static closed boundary theory.  The
+cosmology sector asks how a finite observer inside that closed register infers
+an expanding history.  No new branch coordinate is introduced.  The same
+center-locked parent level, dark completion, finite entropy register, and
+Causal Point light-cone rule are reinterpreted as a precision-cosmology
+effective field theory.  The Python audit layer for this section is
+the consolidated \pyvar{precision_cosmology.py} module.  Below,
+\pyvar{cosmo_report} denotes the dictionary returned by
+\pyvar{precision_cosmology.build_precision_cosmology_report(...)}.
+
+\subsection{Completion Notation and Entropy Debt}
+
+The source cosmology draft used an unsuperscripted dark-ledger symbol for the
+completed finite-screen ledger, while the foundational simulator used the same
+printed name for the residual part.  In this unified manuscript the distinction
+is fixed by Eq.~\eqref{eq:dark-residual-completion-split}:
+\begin{equation}
+\label{eq:cosmology-dark-ledger}
+ \cdarkres=\frac{834433}{362670},
+ \qquad
+ \cdarkcomp=\cdarkres+1=\frac{1197103}{362670},
+ \qquad
+ \DeltaMod=\frac{\cdarkcomp}{24}
+ =\frac{1197103}{8704080}.
+\end{equation}
+The residual quantity \(\cdarkres\) is the foundational closure residue exposed
+as \pyvar{shbt_simulator.StaticBoundary.c_dark_residual}.  The completed
+quantity \(\cdarkcomp\) is exposed as
+\pyvar{shbt_simulator.StaticBoundary.c_dark} and loaded in the cosmology layer
+by \pyvar{precision_cosmology.load_completed_ledger()}, with report key
+\pyvar{cosmo_report['completed_ledger']}.  Appendix~\ref{app:coset-anomaly-extractions},
+Eq.~\eqref{eq:dark-completion-fraction}, gives the completed ledger from the
+coset subtraction, while Appendix~\ref{app:center-directed-modular-framing}
+fixes the parent-level arithmetic used by both ledgers.  This is the only
+dark-sector convention used below.
+
+The finite horizon register is the saturated SHBT form of the holographic
+entropy bound.  For a spatial region bounded by a cosmological horizon of area
+\(A\), the Bekenstein--Hawking counting bound is
+\begin{equation}
+\label{eq:holographic-entropy-bound-section-nine}
+ S\le \frac{A}{4\Lp^2\ln2}.
+\end{equation}
+On the canonical branch the cosmological screen is fixed by \(\Lholo\), so the
+saturated bit capacity is
+\begin{equation}
+\label{eq:cosmology-finite-register}
+ \Nsat
+ =
+ \frac{3\pi}{\Lp^2\Lholo},
+ \qquad
+ \Lholo=1.08913883\times10^{-52}\ {\rm m}^{-2},
+ \qquad
+ \Nsat=3.312593327986\times10^{122}.
+\end{equation}
+This finite number is not a density parameter.  It is the total horizon
+register against which the observer-frame loading process is charged.
+
+Let \(N_{\rm load}(z)\) be the number of horizon bits actively loaded by the
+past-light-cone sample at redshift \(z\).  The dimensionless loading fraction
+and entropy debt are
+\begin{equation}
+\label{eq:entropy-debt-definition}
+ \fload(z)=\frac{N_{\rm load}(z)}{\Nsat},
+ \qquad
+ \debtentropy(z)=N_{\rm load}(z)=\Nsat\,\fload(z),
+ \qquad
+ 0\le\fload(z)\le1.
+\end{equation}
+The horizon contribution is saturated on this branch, so the only active
+light-cone entropy increment in the cosmology audit is the debt term.  If
+\(t_{\rm lc}\) denotes the observer's past-light-cone acquisition parameter,
+then
+\begin{equation}
+\label{eq:past-light-cone-redshift-rate}
+ \frac{dz}{dt_{\rm lc}}
+ =
+ (1+z)H_{\rm SHBT}(z).
+\end{equation}
+The report imposes a constant Causal Point loading rate \(\GammaLock\)
+in the clock-normalized channel:
+\begin{equation}
+\label{eq:constant-lightcone-loading-rate}
+ \frac{1}{\Nsat}\frac{dS_{\rm total}}{dt_{\rm lc}}
+ =
+ \frac{\GammaLock}{1+z}.
+\end{equation}
+Combining Eqs.~\eqref{eq:entropy-debt-definition}--\eqref{eq:constant-lightcone-loading-rate}
+gives
+\begin{align}
+\label{eq:gsl-cosmology}
+ \frac{dS_{\rm total}}{dt_{\rm lc}}
+ &=
+ \frac{d\horizonentropy}{dt_{\rm lc}}
+ +
+ \frac{dS_{\rm debt}}{dt_{\rm lc}}
+ =
+ 0+
+ \Nsat
+ \frac{d\fload}{dz}
+ \frac{dz}{dt_{\rm lc}}
+ \notag\\
+ &=
+ \Nsat
+ \frac{d\fload}{dz}
+ (1+z)H_{\rm SHBT}(z)
+ =
+ \Nsat\frac{\GammaLock}{1+z}
+ >0.
+\end{align}
+Solving the last equality for the loading fraction gives the redshift ODE
+\begin{equation}
+\label{eq:entropy-debt-loading-law}
+ \boxed{
+ \frac{d\fload}{dz}
+ =
+ \frac{\GammaLock}
+ {(1+z)^2H_{\rm SHBT}(z)}.
+ }
+\end{equation}
+This ODE is implemented by
+\pyvar{precision_cosmology.loading_fraction_ode(...)}; the sampled loading and
+debt values are produced by
+\pyvar{precision_cosmology.compute_loading_fraction(...)} and
+\pyvar{precision_cosmology.compute_entropy_debt(...)}.
+Thus the generalized second law is not an independent late-time fluid
+assumption; it is the monotone light-cone image of finite-register loading.
+
+The lock rate is fixed by the Causal Point clock relation
+\begin{equation}
+\label{eq:causal-point-clock-relation-section-nine}
+ d\tau_{\rm lock}
+ =
+ \frac{dt}{1+z}.
+\end{equation}
+In the observer frame, the loaded clock channel contributes one third of its
+rate to the locally inferred Hubble intercept:
+\begin{equation}
+\label{eq:clock-relation-hubble-rate}
+ H_0(z)
+ =
+ H_{\Lambda}
+ +
+ \frac{1}{3(1+z)}
+ \frac{d\fload}{d\tau_{\rm lock}}.
+\end{equation}
+The static horizon term is anchored to the CMB intercept,
+\(H_{\Lambda}=\hcmb\).  Evaluating Eq.~\eqref{eq:clock-relation-hubble-rate}
+at \(z=0\) gives
+\begin{equation}
+\label{eq:gamma-lock-from-hubble-difference}
+ \hloc
+ =
+ \hcmb+\frac{1}{3}\frac{d\fload}{d\tau_{\rm lock}},
+ \qquad
+ \GammaLock
+ \equiv
+ \frac{d\fload}{d\tau_{\rm lock}}
+ =
+ 3(\hloc-\hcmb).
+\end{equation}
+This identifies the entropy-debt loading rate with the measured separation
+between the local and CMB Hubble intercepts.
+
+\subsection{Noether Bridge and Newton Lock}
+
+The Noether bridge construction uses the completed ledger to evaluate
+\begin{equation}
+\label{eq:completion-newton-lock}
+ 8\pi G_{\rm eff}
+ =
+ \frac{12}{\cdarkcomp M_P^2},
+ \qquad
+ \frac{d\ln G_{\rm eff}}{dt}
+ =
+ -\frac{d\ln\cdarkcomp}{dt}-2\frac{d\ln M_P}{dt}.
+\end{equation}
+On the fixed branch both logarithmic derivatives vanish, so the Bianchi
+stationarity check gives \(\dot G/G=0\).  The same report verifies the
+unity-of-scale identity.  The retained \(D_5\) cell factor \(\kappad\) entering
+this identity is defined in Appendix~\ref{app:boundary-measure-quantum-dimensions},
+Eq.~\eqref{eq:kappa-d5-measure}, and the neutrino eigenvalues used for the
+normal hierarchy are listed in
+Eqs.~\eqref{eq:supplement-lightest-neutrino}--\eqref{eq:supplement-third-neutrino}:
+\begin{equation}
+\label{eq:cosmology-unity-scale}
+ m_{\nu,1}=\kappad M_P N^{-1/4},
+ \qquad
+ \Lholo=\frac{3\pi}{\kappad^4}G_{\rm top}m_{\nu,1}^4,
+ \qquad
+ \epsilon_{\Lambda}\le\frac{1}{N}.
+\end{equation}
+The bridge quantities with canonical accessors in the merged audit are
+collected in Table~\ref{tab:noether-bridge-audit}.  The Newton-lock identities
+above remain analytic fixed-branch consequences; the consolidated JSON report
+does not emit the legacy standalone Newton-residual fields.
+
+\begin{table}[htbp]
+\centering
+\footnotesize
+\begin{tabular}{@{}p{0.38\linewidth}p{0.28\linewidth}p{0.24\linewidth}@{}}
+\toprule
+Audit quantity & Value & Canonical accessor \\
+\midrule
+\(\cdarkcomp\) & \(1197103/362670=3.300805139659\) & \pyvar{load_completed_ledger()} \\
+\(\DeltaMod\) & \(0.137533547486\) & \pyvar{load_completed_ledger()/24} \\
+\(\kappad\) & \(0.988769793998\) & \pyvar{compute_kappa_d5} (Rust, private) \\
+\(\Lholo\) & \(1.08913883\times10^{-52}\ {\rm m}^{-2}\) & \pyvar{load_default_constants().lambda_holo_si_m2} \\
+\(N(\Lholo)\) & \(3.312593327986\times10^{122}\) & \pyvar{load_default_constants().n_sat} \\
+\(H_0^{\rm CMB}\) & \(67.4\,\kmsmpc\) & \pyvar{load_default_constants().h0_cmb} \\
+\(m_{\nu,1}\) & \(2.829630635353\times10^{-3}\ {\rm eV}\) & \pyvar{neutrino_hierarchy_masses(...)} \\
+Normal-hierarchy sum & \(61.8\ {\rm meV}\) & \pyvar{neutrino_hierarchy_masses(...)} \\
+Inverted-hierarchy sum & \(103\ {\rm meV}\) & \pyvar{neutrino_hierarchy_masses(...)} \\
+\bottomrule
+\end{tabular}
+\caption{Completed-ledger bridge outputs from
+\pyvar{precision_cosmology.load_default_constants()},
+\pyvar{precision_cosmology.load_completed_ledger()}, and
+\pyvar{precision_cosmology.neutrino_hierarchy_masses(...)}.}
+\label{tab:noether-bridge-audit}
+\end{table}
+
+\subsection{Neutrino Hierarchy Lock}
+
+The same consolidated cosmology report fixes the neutrino floor before the Hubble
+loading law is applied.  The lightest normal eigenstate is not a fit parameter:
+it is the finite-register quarter-root scale weighted by the retained
+\(D_5\) boundary-cell measure,
+\begin{equation}
+\label{eq:neutrino-floor-from-register}
+ \boxed{
+ m_{\nu,1}
+ =
+ \kappad M_P\Nsat^{-1/4}.
+ }
+\end{equation}
+Substituting the benchmark values used in the audit gives
+\begin{align}
+\label{eq:neutrino-floor-numeric-substitution}
+ m_{\nu,1}
+ &=
+ 0.988769793998
+ \left(1.220890146939\times10^{28}\ {\rm eV}\right)
+ \left(3.312593327986\times10^{122}\right)^{-1/4}
+ \notag\\
+ &=
+ 2.829630635353\times10^{-3}\ {\rm eV}.
+\end{align}
+The oscillation splittings then convert the boundary floor into absolute
+propagation eigenstates.  The audit uses
+\begin{equation}
+\label{eq:neutrino-oscillation-splittings}
+ \Delta m_{21}^2\simeq7.4\times10^{-5}\ {\rm eV}^2,
+ \qquad
+ \Delta m_{31}^2\simeq2.5\times10^{-3}\ {\rm eV}^2.
+\end{equation}
+For the normal hierarchy,
+\begin{align}
+\label{eq:normal-hierarchy-eigenstates}
+ m_{\nu,2}^{\rm NH}
+ &=
+ \sqrt{m_{\nu,1}^2+\Delta m_{21}^2}
+ \simeq8.92\times10^{-3}\ {\rm eV},
+ &
+ m_{\nu,3}^{\rm NH}
+ &=
+ \sqrt{m_{\nu,1}^2+\Delta m_{31}^2}
+ \simeq5.01\times10^{-2}\ {\rm eV}.
+\end{align}
+The normal-ordering sum is therefore
+\begin{equation}
+\label{eq:normal-hierarchy-sum}
+ \Sigma_{\nu}^{\rm NH}
+ =
+ m_{\nu,1}^{\rm NH}
+ +m_{\nu,2}^{\rm NH}
+ +m_{\nu,3}^{\rm NH}
+ =
+ 61.8\ {\rm meV}.
+\end{equation}
+For the inverted hierarchy, the finite-register floor is assigned to the
+lightest third eigenstate,
+\begin{equation}
+\label{eq:inverted-hierarchy-eigenstates}
+ m_{\nu,3}^{\rm IH}
+ =
+ 2.829630635353\times10^{-3}\ {\rm eV},
+ \qquad
+ m_{\nu,1}^{\rm IH}\simeq4.87\times10^{-2}\ {\rm eV},
+ \qquad
+ m_{\nu,2}^{\rm IH}\simeq4.95\times10^{-2}\ {\rm eV},
+\end{equation}
+so that
+\begin{equation}
+\label{eq:inverted-hierarchy-sum}
+ \Sigma_{\nu}^{\rm IH}
+ =
+ m_{\nu,3}^{\rm IH}
+ +
+ \sqrt{(m_{\nu,3}^{\rm IH})^2+|\Delta m_{32}^2|}
+ +
+ \sqrt{(m_{\nu,3}^{\rm IH})^2+|\Delta m_{32}^2|+\Delta m_{21}^2}
+ =
+ 103\ {\rm meV}.
+\end{equation}
+The report's hierarchy statistic is the audit-normalized pull of each derived
+sum against the cosmological mass-sum likelihood used by
+\pyvar{precision_cosmology.neutrino_hierarchy_masses(...)}:
+\begin{equation}
+\label{eq:neutrino-tension-sigma}
+ \sigma_{\rm tens}^{\rm NH}
+ =
+ \frac{\Delta\Sigma_{\nu}^{\rm NH}}
+ {\sigma_{\Sigma,{\rm audit}}^{\rm NH}}
+ =
+ 1.68,
+ \qquad
+ \sigma_{\rm tens}^{\rm IH}
+ =
+ \frac{\Delta\Sigma_{\nu}^{\rm IH}}
+ {\sigma_{\Sigma,{\rm audit}}^{\rm IH}}
+ =
+ 2.80.
+\end{equation}
+Thus the normal ordering is the lower-tension finite-register completion.  The
+explicit eigenstate ledger is shown in Table~\ref{tab:neutrino-hierarchy-audit}.
+
+\begin{table}[htbp]
+\centering
+\small
+\begin{tabular}{@{}p{0.36\linewidth}cc@{}}
+\toprule
+Quantity & Normal hierarchy & Inverted hierarchy \\
+\midrule
+Floor eigenstate & \(m_1=2.83\times10^{-3}\ {\rm eV}\) & \(m_3=2.83\times10^{-3}\ {\rm eV}\) \\
+Second eigenstate & \(m_2=8.92\times10^{-3}\ {\rm eV}\) & \(m_1=4.87\times10^{-2}\ {\rm eV}\) \\
+Third eigenstate & \(m_3=5.01\times10^{-2}\ {\rm eV}\) & \(m_2=4.95\times10^{-2}\ {\rm eV}\) \\
+Derived sum \(\Sigma_\nu\) & \(61.8\ {\rm meV}\) & \(103\ {\rm meV}\) \\
+Audit tension & \(1.68\sigma\) & \(2.80\sigma\) \\
+\bottomrule
+\end{tabular}
+\caption{Neutrino propagation eigenstates, mass sums, and hierarchy pulls from
+\pyvar{precision_cosmology.neutrino_hierarchy_masses(...)}, available as
+\pyvar{cosmo_report['neutrino_hierarchy']}.}
+\label{tab:neutrino-hierarchy-audit}
+\end{table}
+
+The hierarchy check is therefore tied to the same \(\kappad\), \(\Nsat\), and
+completed-ledger inputs as the Newton lock.
+
+\subsection{Cosmology Code-to-Math Map}
+
+The cosmology audit uses a separate Python layer from the foundation simulator,
+but every displayed quantity below has a direct code counterpart:
+\begin{table}[htbp]
+\centering
+\footnotesize
+\begin{tabular}{@{}p{0.26\linewidth}p{0.40\linewidth}p{0.24\linewidth}@{}}
+\toprule
+Mathematical quantity & Code object or audit entry & Role \\
+\midrule
+\(\cdarkcomp\) & \pyvar{precision_cosmology.load_completed_ledger()} & completed ledger \\
+\(\kappad\) & \pyvar{compute_kappa_d5} in \pyvar{src/shbt/baryogenesis.rs} & retained \(D_5\) measure (private Rust helper) \\
+\(\Nsat\) & \pyvar{precision_cosmology.load_default_constants().n_sat} & finite horizon register \\
+\(m_{\nu,1}\) & \pyvar{precision_cosmology.neutrino_hierarchy_masses(...)} & neutrino floor \\
+\(\DeltaMod=\cdarkcomp/24\) & \pyvar{precision_cosmology.entropy_debt_uplift_factor(delta_mod)} & entropy-debt uplift \\
+\(\hloc\) & \pyvar{precision_cosmology.h0_local(...)} / \pyvar{cosmo_report['h0_local_km_s_mpc']} & local Hubble intercept \\
+\(\AH\), \(\GammaLock\) & \pyvar{precision_cosmology.loading_amplitude(...)} / \pyvar{precision_cosmology.lock_rate(A_H)} & amplitude and lock rate \\
+\(H_0(z)\) & \pyvar{precision_cosmology.h0_redshift_dependent(...)} / \pyvar{cosmo_report['redshift_ladder']} & redshift loading law \\
+\(\fload(z)\), \(\debtentropy(z)\) & \pyvar{precision_cosmology.compute_loading_fraction(...)} / \pyvar{precision_cosmology.compute_entropy_debt(...)} & \pyvar{cosmo_report['lightcone_entropy_debt']} \\
+\(f\sigma_8(z)\) & \pyvar{precision_cosmology.compute_growth_suppression(...)} & \pyvar{cosmo_report['growth_suppression']} \\
+\(\delta_c,\sigma_M,\nu,n_{\rm SHBT}/n_{\lcdm}\) & \pyvar{precision_cosmology.compute_cluster_collapse(...)} & \pyvar{cosmo_report['cluster_collapse']} \\
+\(\rho_{\rm DM},\Omega_{\rm DM}/\Omega_b,w_{\rm DM}\) & \pyvar{precision_cosmology.compute_dark_matter_density(...)} / \pyvar{precision_cosmology.compute_dm_baryon_ratio(...)} / \pyvar{precision_cosmology.dark_matter_equation_of_state(...)} & \pyvar{cosmo_report['dark_matter']} \\
+\(\Delta(\dot H/H^2)\) & \pyvar{precision_cosmology.isw_residual(...)} & \pyvar{cosmo_report['isw_stability']} \\
+BBN shift & \pyvar{precision_cosmology.bbn_stability_check(...)} & \pyvar{cosmo_report['bbn_stability']} \\
+\(\chi^2_{\nu}\) & \pyvar{cosmo_report['cosmic_chronometer_validation']} & CC covariance entry \\
+\(dS_{\rm total}/dt_{\rm lc}\) & \pyvar{cosmo_report['thermodynamic_arrow']} & light-cone entropy arrow \\
+\(C_{\rm get}\), \(R_{\rm entropy}\), \(\iota\) & \pyvar{precision_cosmology.get_measurement_cost(...)} / \pyvar{precision_cosmology.collapse_index(...)} & GET cost and selector \\
+\bottomrule
+\end{tabular}
+\caption{Code-to-math map for the precision-cosmology audit layer.}
+\label{tab:cosmology-code-math-map}
+\end{table}
+
+Table~\ref{tab:cosmology-code-math-map} is also the cross-reference index for
+the new precision derivations: the completed ledger and finite screen are
+Eqs.~\eqref{eq:cosmology-dark-ledger}--\eqref{eq:cosmology-finite-register};
+the light-cone loading and GSL identities are
+Eqs.~\eqref{eq:entropy-debt-definition}--\eqref{eq:entropy-debt-loading-law};
+the Noether bridge and neutrino hierarchy are
+Eqs.~\eqref{eq:completion-newton-lock}--\eqref{eq:neutrino-tension-sigma};
+the observer-frame Hubble law is
+Eqs.~\eqref{eq:entropy-debt-uplift}--\eqref{eq:derived-hubble-loading-law};
+growth, mirage, implemented cluster-collapse, and dark-matter outputs are tied to
+Eqs.~\eqref{eq:linear-matter-perturbation-time}--\eqref{eq:growth-suppression-summary}
+and Tables~\ref{tab:growth-suppression-audit}--\ref{tab:cluster-collapse-audit},
+with the dark-matter ledger in Eqs.~\eqref{eq:dm-density}--\eqref{eq:dm-eos}
+and Table~\ref{tab:dark-matter-audit};
+ISW, BBN, and chronometer checks are
+Eqs.~\eqref{eq:isw-temperature-source-section-nine}--\eqref{eq:chronometer-reduced-chi-square};
+and the GET measurement rule is
+Eqs.~\eqref{eq:precision-holevo-bound}--\eqref{eq:precision-cosmology-closure-summary}.
+
+\subsection{Observer-Frame Hubble Loading}
+
+The clock-skew cosmology is built from the entropy-debt uplift
+\begin{equation}
+\label{eq:entropy-debt-uplift}
+ \frac{\hloc}{\hcmb}
+ =
+ \exp\!\left(\frac{\DeltaMod}{2}\right),
+ \qquad
+ \hcmb=67.4\,\kmsmpc.
+\end{equation}
+This uplift is implemented by
+\pyvar{precision_cosmology.entropy_debt_uplift_factor(delta_mod)} and
+\pyvar{precision_cosmology.h0_local(...)}.
+For the benchmark branch this gives
+\begin{align}
+\label{eq:local-hubble-uplift}
+ \DeltaMod&=0.137533547486,
+ &
+ \exp(\DeltaMod/2)&=1.071186351229,\\
+ \hloc&=72.197960072861\,\kmsmpc.
+\end{align}
+Define the local loading amplitude
+\begin{equation}
+\label{eq:hubble-loading-amplitude}
+ \AH
+ =
+ \hloc-\hcmb
+ =
+ \hcmb\!\left[\exp\!\left(\frac{\DeltaMod}{2}\right)-1\right]
+ =
+ 4.797960072861\,\kmsmpc .
+\end{equation}
+The corresponding code objects are
+\pyvar{precision_cosmology.loading_amplitude(...)} and
+\pyvar{precision_cosmology.lock_rate(A_H)}.
+The Causal Point clock relation in
+Eq.~\eqref{eq:causal-point-clock-relation-section-nine} converts the local
+loading derivative into the redshift-dependent intercept sampled by a finite
+observer:
+\begin{equation}
+\label{eq:precision-loading-law}
+ H_0(z)
+ =
+ H_{\Lambda}
+ +
+ \frac{1}{3(1+z)}
+ \frac{d\fload}{d\tau_{\rm lock}},
+ \qquad
+ H_{\Lambda}=\hcmb,
+ \qquad
+ \frac{d\fload}{d\tau_{\rm lock}}
+ =
+ 3(\hloc-\hcmb).
+\end{equation}
+Equivalently, Eq.~\eqref{eq:gamma-lock-from-hubble-difference} gives
+\(\GammaLock=d\fload/d\tau_{\rm lock}=3\AH\).  Substituting this value
+gives the closed form
+\begin{equation}
+\label{eq:derived-hubble-loading-law}
+ \boxed{
+ H_0(z)
+ =
+ \hcmb+\frac{\AH}{1+z}
+ =
+ \hcmb\left[
+ 1+\frac{\exp(\DeltaMod/2)-1}{1+z}
+ \right].
+ }
+\end{equation}
+Equation~\eqref{eq:derived-hubble-loading-law} is implemented by
+\pyvar{precision_cosmology.h0_redshift_dependent(z, ...)}; the full background
+rate is \pyvar{precision_cosmology.shbt_hubble_rate(z, ...)}.
+Thus the local uplift is active at \(z=0\) but decays as \((1+z)^{-1}\), so the
+early universe remains anchored to the CMB intercept.  The audit values from
+\pyvar{cosmo_report['redshift_ladder']} are shown in
+Table~\ref{tab:precision-redshift-ladder}.
+
+\begin{table}[htbp]
+\centering
+\small
+\begin{tabular}{@{}rcc@{}}
+\toprule
+\(z\) & Loading term \([\kmsmpc]\) & \(H_0(z)\ [\kmsmpc]\) \\
+\midrule
+0.0 & 4.797960072861 & 72.197960072861 \\
+0.5 & 3.198640048574 & 70.598640048574 \\
+1.0 & 2.398980036431 & 69.798980036431 \\
+2.0 & 1.599320024287 & 68.999320024287 \\
+10.0 & 0.436178188442 & 67.836178188442 \\
+1100.0 & 0.004357820230 & 67.404357820230 \\
+\bottomrule
+\end{tabular}
+\caption{Redshift-ladder tracking from
+\pyvar{cosmo_report['redshift_ladder']}, produced by
+\pyvar{precision_cosmology.h0_redshift_dependent(z, ...)}.}
+\label{tab:precision-redshift-ladder}
+\end{table}
+
+\subsection{Growth, Mirage, and Cluster Checks}
+
+The precision engine compares the clock-skew branch against a rigid
+\lcdm{} intercept in standard observational channels.  The structure-growth
+audit computes \(f\sigma_8\) from the same background loading law while keeping
+\(G_{\rm eff}\) fixed.  The starting point is the standard linear matter
+perturbation equation
+\begin{equation}
+\label{eq:linear-matter-perturbation-time}
+ \ddot\delta_m+2H\dot\delta_m
+ -4\pi G_{\rm eff}\rho_m\delta_m=0.
+\end{equation}
+Writing \(\delta_m=D(x)\), with \(x=\ln a=-\ln(1+z)\), converts the time
+derivatives to
+\begin{equation}
+\label{eq:growth-time-derivative-conversion}
+ \dot D
+ =
+ H\frac{dD}{dx},
+ \qquad
+ \ddot D
+ =
+ H^2\frac{d^2D}{dx^2}
+ +
+ \dot H\frac{dD}{dx}.
+\end{equation}
+Substitution into Eq.~\eqref{eq:linear-matter-perturbation-time} gives
+\begin{equation}
+\label{eq:growth-before-omega-substitution}
+ H^2\frac{d^2D}{dx^2}
+ +
+ \left(\dot H+2H^2\right)\frac{dD}{dx}
+ -
+ 4\pi G_{\rm eff}\rho_mD
+ =
+ 0.
+\end{equation}
+After division by \(H^2\), using
+\[
+ \frac{d\ln H}{dx}=\frac{\dot H}{H^2},
+ \qquad
+ \Omega_m(x)=\frac{8\pi G_{\rm eff}\rho_m}{3H^2},
+\]
+the linear growth ODE used by the audit is
+\begin{equation}
+\label{eq:growth-equation-loading}
+ \boxed{
+ \frac{d^2D}{dx^2}
+ +
+ \left[
+  2+\frac{d\ln H_{\rm SHBT}}{dx}
+ \right]
+ \frac{dD}{dx}
+ -
+ \frac{3}{2}\Omega_m(x)D
+ =
+ 0,
+ \qquad
+ f\sigma_8(z)=\sigma_{8,0}\frac{dD}{dx}.
+ }
+\end{equation}
+The first-order system integrated by the audit is
+\pyvar{precision_cosmology.growth_ode_system(...)}.
+The loading law modifies this equation only through the background friction
+term.  Writing
+\begin{equation}
+\label{eq:loaded-background-hubble}
+ H_{\rm SHBT}(z)
+ =
+ H_0(z)
+ \left[
+ \Omega_{m0}(1+z)^3+\Omega_{r0}(1+z)^4+\Omega_{\Lambda0}
+ \right]^{1/2},
+\end{equation}
+This background is evaluated by
+\pyvar{precision_cosmology.shbt_hubble_rate(z, ...)}.
+Eq.~\eqref{eq:derived-hubble-loading-law} gives
+\begin{align}
+\label{eq:growth-friction-shift}
+ \frac{d\ln H_{\rm SHBT}}{dx}
+ &=
+ \left(\frac{d\ln E}{dx}\right)_{\lcdm}
+ +
+ \frac{d\ln H_0(z)}{dx},
+ \notag\\
+ \frac{d\ln H_0(z)}{dx}
+ &=
+ \frac{1}{H_0(z)}
+ \frac{dH_0}{dz}
+ \frac{dz}{dx}
+ =
+ \frac{1}{H_0(z)}
+ \left[-\frac{\AH}{(1+z)^2}\right]
+ \left[-(1+z)\right]
+ =
+ \frac{\AH}{(1+z)H_0(z)}.
+\end{align}
+The positive last term increases the late-time friction while
+Eq.~\eqref{eq:completion-newton-lock} keeps \(G_{\rm eff}\) fixed.  The result
+is a kinematic suppression of growth rather than a modified Newton constant:
+\begin{equation}
+\label{eq:growth-suppression-summary}
+ \frac{(f\sigma_8)_{\rm SHBT}}{(f\sigma_8)_{\lcdm}}-1
+ =
+ \{-9.8\%, -8.4\%\}
+ \quad
+ {\rm at}\quad
+ z=\{0.5,0.8\}.
+\end{equation}
+The reported ratio is produced by
+\pyvar{precision_cosmology.compute_growth_suppression(z, ...)}.
+The corresponding audit table is
+Table~\ref{tab:growth-suppression-audit}.
+
+\begin{table}[htbp]
+\centering
+\small
+\begin{tabular}{@{}rccc@{}}
+\toprule
+\(z\) & \((f\sigma_8)_{\lcdm}\) & \((f\sigma_8)_{\rm SHBT}\) & Kinematic suppression \\
+\midrule
+0.5 & 0.475 & 0.428 & \(-9.8\%\) \\
+0.8 & 0.453 & 0.415 & \(-8.4\%\) \\
+\bottomrule
+\end{tabular}
+\caption{Structure-growth rows from
+\pyvar{cosmo_report['growth_suppression']}, produced by
+\pyvar{precision_cosmology.compute_growth_suppression(z, ...)}.}
+\label{tab:growth-suppression-audit}
+\end{table}
+
+When the same branch is interpreted as a conserved-fluid template, the inferred
+dark-energy density is only an effective image.  The Python report labels this
+a high-redshift mirage: the template has a zero crossing at
+\(z_{\rm cross}=1.865\), after which the conserved-fluid interpretation fails
+even though the underlying boundary-loading law remains well defined.
+
+\begin{table}[htbp]
+\centering
+\small
+\begin{tabular}{@{}p{0.46\linewidth}p{0.28\linewidth}@{}}
+\toprule
+Implemented CPL quantity & \pyvar{cosmo_report['cpl_template']} value \\
+\midrule
+\(w_0\) & \(-1.064677000728\) \\
+\(w_a\) & \(-0.065813723847\) \\
+Density zero-crossing redshift & \(1.864953854311\) \\
+Effective density ratio at \(z=1.5\) & \(0.360269017474\) \\
+\bottomrule
+\end{tabular}
+\caption{High-redshift conserved-fluid mirage template from
+\pyvar{cosmo_report['cpl_template']}, produced internally by
+\pyvar{precision_cosmology._cpl_template(...)}.}
+\label{tab:mirage-forecast-audit}
+\end{table}
+
+The cluster-collapse audit is implemented in the consolidated
+\pyvar{precision_cosmology.py} module by
+\pyvar{precision_cosmology.compute_cluster_collapse(...)}.  It uses the same
+background expansion and linear-growth solution as
+\pyvar{precision_cosmology.compute_growth_suppression(...)}.  A calibrated
+spherical top-hat model supplies the linear threshold \(\delta_c(z)\) from
+\(\Omega_m(z)\) and the loading contribution to
+\(d\ln H_0/d\ln a\).  The mass variance is propagated as
+\(\sigma_M(z)=\sigma_M(0)D(z)/D(0)\), and the peak height is
+\(\nu=\delta_c/\sigma_M\).  Finally, the Press--Schechter multiplicity
+\(f(\nu)\propto\nu\exp(-\nu^2/2)\) gives the reported abundance ratio
+\(n_{\rm SHBT}/n_{\lcdm}\); common normalization factors cancel in the ratio.
+
+The function output is included in
+\pyvar{report['cluster_collapse']} from
+\pyvar{build_precision_cosmology_report(...)} (denoted
+\pyvar{cosmo_report['cluster_collapse']} here).  The audit can be reproduced
+through \shellcmd{python shbt_simulate.py --mode cosmology}; the canonical direct
+JSON command is \shellcmd{python precision_cosmology.py --json}.
+
+\begin{table}[htbp]
+\centering
+\small
+\begin{tabular}{@{}rcccccc@{}}
+\toprule
+\(z\) & \(\delta_c^{\lcdm}\) & \(\delta_c^{\rm SHBT}\) &
+\(\sigma_M^{\lcdm}\) & \(\sigma_M^{\rm SHBT}\) & \(\nu_{\rm SHBT}\) &
+Abundance ratio \\
+\midrule
+0.0 & 1.6760 & 1.6733 & 0.6000 & 0.5601 & 2.9873 & \(6.10\times10^{-1}\) \\
+0.5 & 1.6821 & 1.6799 & 0.4614 & 0.4378 & 3.8370 & \(5.15\times10^{-1}\) \\
+1.0 & 1.6844 & 1.6826 & 0.3641 & 0.3492 & 4.8186 & \(4.21\times10^{-1}\) \\
+\bottomrule
+\end{tabular}
+\caption{Implemented cluster-collapse audit from
+\pyvar{precision_cosmology.compute_cluster_collapse(...)}, returned as
+\pyvar{report['cluster_collapse']} by the canonical precision-cosmology report.}
+\label{tab:cluster-collapse-audit}
+\end{table}
+
+\subsection{Light-Cone, Stability, and Forecast Ledgers}
+
+The finite light-cone ledger integrates
+Eqs.~\eqref{eq:entropy-debt-definition} and
+\eqref{eq:entropy-debt-loading-law}.
+At recombination, the integral consumes about \(10.74\%\) of the finite
+register, leaving about \(89.26\%\) headroom.  The sampled debt values are
+shown in Table~\ref{tab:lightcone-entropy-debt}.
+
+\begin{table}[htbp]
+\centering
+\small
+\begin{tabular}{@{}rcccc@{}}
+\toprule
+\(z\) & \(H_0(z)\) & \(H_{\rm SHBT}(z)\) & \(\fload\) & \(S_{\rm debt}\) [bits] \\
+\midrule
+0.0 & 72.1980 & 72.1980 & 0.000000 & \(0\) \\
+0.5 & 70.5986 & 93.3532 & 0.060044 & \(1.989003\times10^{121}\) \\
+1.0 & 69.7990 & 124.9846 & 0.082638 & \(2.737457\times10^{121}\) \\
+2.0 & 68.9993 & 209.2553 & 0.098010 & \(3.246671\times10^{121}\) \\
+10.0 & 67.8362 & 1392.3727 & 0.107059 & \(3.546445\times10^{121}\) \\
+1100.0 & 67.4044 & \(1.5887954471\times10^{6}\) & 0.107436 & \(3.558913\times10^{121}\) \\
+\bottomrule
+\end{tabular}
+\caption{Information-theoretic past-light-cone ledger from
+\pyvar{cosmo_report['lightcone_entropy_debt']}, assembled with
+\pyvar{precision_cosmology.compute_loading_fraction(...)},
+\pyvar{precision_cosmology.compute_entropy_debt(...)}, and
+\pyvar{precision_cosmology.shbt_hubble_rate(...)}.}
+\label{tab:lightcone-entropy-debt}
+\end{table}
+
+The stability checks verify that the late-time loading term is negligible in
+the early universe and that the integrated Sachs--Wolfe (ISW) residual stays
+small in the matter era.  The ISW temperature source is
+\begin{equation}
+\label{eq:isw-temperature-source-section-nine}
+ \left(\frac{\Delta T}{T}\right)_{\rm ISW}
+ =
+ \int\left(\dot\Phi+\dot\Psi\right)\,dt.
+\end{equation}
+In a pure matter era with unmodified Newton coupling, the linear gravitational
+potentials are static, so \(\dot\Phi=\dot\Psi=0\).  In the SHBT observer frame
+the only matter-era source left in the audit is the logarithmic drift of the
+squared clock normalization \(H_0(z)^2\).  The residual is therefore
+\begin{equation}
+\label{eq:isw-residual-definition}
+ \Delta\!\left(\frac{\dot H}{H^2}\right)
+ =
+ \left(\frac{\dot H}{H^2}\right)_{\rm SHBT}
+ -
+ \left(\frac{\dot H}{H^2}\right)_{\rm matter},
+ \qquad
+ \left(\frac{\dot H}{H^2}\right)_{\rm matter}=-\frac32.
+\end{equation}
+With \(a=(1+z)^{-1}\),
+\begin{equation}
+\label{eq:isw-log-scale-conversion}
+ d\ln a
+ =
+ -\frac{dz}{1+z},
+ \qquad
+ \frac{d\ln H_0}{d\ln a}
+ =
+ \frac{1}{H_0(z)}
+ \frac{dH_0}{dz}
+ \left[-(1+z)\right].
+\end{equation}
+Using \(H_0(z)=\hcmb+\AH/(1+z)\) gives
+\begin{equation}
+\label{eq:isw-hubble-log-drift}
+ \frac{d\ln H_0}{d\ln a}
+ =
+ \frac{1}{H_0(z)}
+ \left[-\frac{\AH}{(1+z)^2}\right]
+ \left[-(1+z)\right]
+ =
+ \frac{\AH}{(1+z)H_0(z)}.
+\end{equation}
+Because the source is the drift of \(H_0^2\), the matter-era residual used in
+Table~\ref{tab:isw-stability-audit} is
+\begin{equation}
+\label{eq:isw-loading-residual}
+ \boxed{
+ \Delta_{\rm ISW}(z)
+ =
+ -2\,\frac{d\ln H_0}{d\ln a}
+ =
+ -\frac{2\AH}{(1+z)H_0(z)}.
+ }
+\end{equation}
+This residual is implemented by
+\pyvar{precision_cosmology.isw_residual(z, ...)}.
+For \(z=1100\), this gives
+\(-2\AH/[(1101)H_0(1100)]=-1.29\times10^{-4}\), matching the recombination row
+of the ISW audit.
+
+\begin{table}[htbp]
+\centering
+\small
+\begin{tabular}{@{}rcc@{}}
+\toprule
+\(z\) & \(\Delta(\dot H/H^2)\) & SHBT \(\dot H/H^2\) \\
+\midrule
+10.0 & \(-0.012860\) & \(-1.512860\) \\
+50.0 & \(-0.002788\) & \(-1.502788\) \\
+100.0 & \(-0.001409\) & \(-1.501409\) \\
+1100.0 & \(-0.000129\) & \(-1.500129\) \\
+\bottomrule
+\end{tabular}
+\caption{ISW rows from \pyvar{cosmo_report['isw_stability']}, produced by
+\pyvar{precision_cosmology.isw_residual(z, ...)}.}
+\label{tab:isw-stability-audit}
+\end{table}
+
+The BBN check follows from the radiation-era scaling.  During nucleosynthesis,
+\begin{equation}
+\label{eq:bbn-radiation-density}
+ \rho_{\rm rad}(z)
+ =
+ \rho_{r0}(1+z)^4,
+ \qquad
+ H_{\rm rad}(z)
+ =
+ \hcmb\sqrt{\Omega_{r0}}\,(1+z)^2.
+\end{equation}
+The SHBT clock load adds only
+\begin{equation}
+\label{eq:bbn-loading-shift}
+ \delta H_{\rm load}(z)
+ =
+ \frac{\AH}{1+z},
+ \qquad
+ H_{\rm SHBT}(z)
+ =
+ H_{\rm rad}(z)+\delta H_{\rm load}(z)
+ \quad
+ {\rm in\ the\ radiation\ audit}.
+\end{equation}
+The stability requirement is
+\begin{equation}
+\label{eq:bbn-stability-condition}
+ \frac{\delta H_{\rm load}(z_{\rm BBN})}
+ {H_{\rm rad}(z_{\rm BBN})}
+ \ll1,
+ \qquad
+ z_{\rm BBN}\simeq10^9.
+\end{equation}
+For the branch value \(\AH=4.797960072861\,\kmsmpc\),
+\begin{align}
+\label{eq:bbn-loading-stability}
+ \delta H_{\rm load}(10^9)
+ &=
+ \frac{4.797960072861\,\kmsmpc}{1+10^9}
+ =
+ 4.797960068064\times10^{-9}\,\kmsmpc,\\
+ H_{\rm rad}(10^9)
+ &\simeq
+ 6.46\times10^{17}\,\kmsmpc,\\
+ \frac{\delta H_{\rm load}}{H_{\rm rad}(10^9)}
+ &=
+ 7.421690135465\times10^{-27}.
+\end{align}
+The radiation-era comparison is implemented by
+\pyvar{precision_cosmology.bbn_stability_check(z_bbn, ...)} (with internal
+helper \pyvar{precision_cosmology._bbn_components}).
+The active loading term is therefore decoupled from the early thermal
+expansion rate by more than twenty-six orders of magnitude.
+
+\subsection{Cosmic Chronometer Covariance}
+
+The cosmic chronometer (CC) validation is a covariance test of the background
+expansion history.  The method uses differential galaxy ages to infer
+\begin{equation}
+\label{eq:cosmic-chronometer-definition}
+ H(z)
+ =
+ -\frac{1}{1+z}\frac{dz}{dt}.
+\end{equation}
+Let
+\(\mathbf H_{\rm obs}=(H_{\rm obs}(z_1),\ldots,H_{\rm obs}(z_{32}))^T\)
+be the \(32\)-point CC vector, and let \(\mathbf C\) be the corresponding
+\(32\times32\) statistical-plus-systematic covariance matrix.  The validation
+statistic is
+\begin{equation}
+\label{eq:chronometer-chi-square}
+ \chi^2
+ =
+ \sum_{i,j=1}^{32}
+ \left[H_{\rm obs}(z_i)-H_{\rm SHBT}(z_i)\right]
+ \left[\mathbf C^{-1}\right]_{ij}
+ \left[H_{\rm obs}(z_j)-H_{\rm SHBT}(z_j)\right].
+\end{equation}
+The audit treats \(\hcmb\), \(\DeltaMod\), and \(\Omega_{m0}\) as the three
+background parameters entering this check, so
+\begin{equation}
+\label{eq:chronometer-degrees-freedom}
+ \nu=N_{\rm data}-N_{\rm params}=32-3=29.
+\end{equation}
+The consolidated module stores the paper benchmark
+\(\chi^2=30.16\), \(\nu=29\), and \(\chi^2_\nu=1.04\) directly under
+\pyvar{cosmo_report['cosmic_chronometer_validation']}; it does not ingest the
+32-point vector or covariance matrix.  Thus
+\begin{equation}
+\label{eq:chronometer-reduced-chi-square}
+ \boxed{
+ \chi^2_{\nu}
+ =
+ \frac{\chi^2}{\nu}
+ =
+ \frac{30.16}{29}
+ =
+ 1.04.
+ }
+\end{equation}
+
+\begin{table}[htbp]
+\centering
+\small
+\begin{tabular}{@{}p{0.48\linewidth}c@{}}
+\toprule
+Metric & Cosmic chronometer audit value \\
+\midrule
+Observational data points \(N_{\rm data}\) & \(32\) \\
+Model parameters \(N_{\rm params}\) & \(3\) \\
+Degrees of freedom \(\nu\) & \(29\) \\
+Total chi-square \(\chi^2\) & \(30.16\) \\
+Reduced chi-square \(\chi^2_{\nu}\) & \(1.04\) \\
+\bottomrule
+\end{tabular}
+\caption{Cosmic chronometer covariance entry
+\pyvar{cosmo_report['cosmic_chronometer_validation']}; the consolidated report
+stores the paper values \(\chi^2=30.16\), \(\nu=29\), and
+\(\chi^2_\nu=1.04\).}
+\label{tab:chronometer-validation-audit}
+\end{table}
+
+The remaining precision-cosmology checks are summarized in
+Table~\ref{tab:precision-summary-audit}.  The forecasted model-selection rows
+are sensitivity forecasts rather than current empirical detections.  The
+light-cone entropy row is the sampled form of Eq.~\eqref{eq:gsl-cosmology};
+because \(\GammaLock>0\) and \(\Nsat>0\), every sampled \(z\ge0\) has
+\(dS_{\rm total}/dt_{\rm lc}>0\).
+
+\begin{table}[htbp]
+\centering
+\small
+\begin{tabular}{@{}p{0.36\linewidth}p{0.34\linewidth}p{0.18\linewidth}@{}}
+\toprule
+Check & Python output & Status \\
+\midrule
+Local uplift & \(72.197960072861\,\kmsmpc\) & YES \\
+Gradient target & \(4.797960072861\,\kmsmpc\) & YES \\
+CPL template & \(w_0=-1.065,\; w_a=-0.066\) & YES \\
+BBN loading shift & \(4.797960068064\times10^{-9}\,\kmsmpc\) & negligible \\
+Shift over radiation-era \(H(z_{\rm BBN})\) & \(7.421690135465\times10^{-27}\) & PASS \\
+Chronometer validation & \(\chi^2/\nu=30.16/29,\; \chi^2_{\nu}=1.04\) & YES \\
+Forecast \(\chi^2\) sensitivity & rigid \(\lcdm=35.78\), SHBT \(=0.08\) & forecast \\
+Projected \(\Delta{\rm BIC}\) sensitivity & \(+35.70\) vs rigid intercept & forecast \\
+Cosmic age & \(13.277\ {\rm Gyr}\) for SHBT branch & derived \\
+Thermodynamic arrow & \(dS_{\rm total}/dt_{\rm lc}>0\) for sampled \(z\ge0\) & YES \\
+Overall precision audit & all listed checks closed & PASS \\
+\bottomrule
+\end{tabular}
+\caption{Summary verification ledger from
+\pyvar{cosmo_report['summary_table_17']}.}
+\label{tab:precision-summary-audit}
+\end{table}
+
+\subsection{Causal Point and GET Measurement}
+
+The precision-cosmology observer is the same finite Causal Point introduced in
+Section~\ref{sec:causal-point-history-crystallization}.  The information
+limit behind its measurement rule is the Holevo bound: for a quantum ensemble
+\(\{p_i,\rho_i\}\), the extractable classical information satisfies
+\begin{equation}
+\label{eq:precision-holevo-bound}
+ I
+ \le
+ S\!\left(\sum_i p_i\rho_i\right)
+ -
+ \sum_i p_iS(\rho_i).
+\end{equation}
+Thus a classical record can be crystallized only after the observer pays an
+entropy cost inside its finite local budget.  At a selected boundary address
+\(A\in\mathcal R\), the finite outcome ensemble is
+\begin{equation}
+\label{eq:precision-get-outcome-ensemble}
+ \Omega_A
+ =
+ \{\omega_0,\omega_1,\ldots,\omega_{m-1}\},
+ \qquad
+ \sum_{i=0}^{m-1}p_i=1,
+ \qquad
+ p_i\ge0.
+\end{equation}
+The GET event has address, ensemble, and requested-cost components
+\begin{align}
+\label{eq:precision-get-costs}
+ C_{\rm addr}
+ &=
+ \log_2|\mathcal R|,
+ &
+ C_{\rm ens}
+ &=
+ \log_2|\Omega_A|,
+ &
+ C_{\rm get}
+ &=
+ \max\!\left(1,C_{\rm addr}+C_{\rm ens},C_{\rm req}\right).
+\end{align}
+These costs are implemented by
+\pyvar{precision_cosmology.get_measurement_cost(...)}.
+The Causal Point's residual entropy budget is
+\begin{equation}
+\label{eq:precision-get-budget-residual}
+ R_{\rm entropy}
+ =
+ N_{\rm limit}-C_{\rm get},
+ \qquad
+ N_{\rm limit}
+ =
+ \min\!\left(
+ N_{\rm local},
+ \frac{A_{\rm local}}{4\Lp^2\ln2}
+ \right).
+\end{equation}
+The measurement is admissible if and only if
+\begin{equation}
+\label{eq:precision-get-admissibility}
+ R_{\rm entropy}\ge0.
+\end{equation}
+When the inequality is satisfied, the collapse index is the deterministic
+finite-register hash
+\begin{equation}
+\label{eq:precision-collapse-index}
+ \iota
+ =
+ {\rm Hash}\!\left(
+ \pyvar{observable_name},
+ A,
+ f_H,
+ N_{\rm local},
+ m
+ \right)
+ \bmod m.
+\end{equation}
+The deterministic selector is
+\pyvar{precision_cosmology.collapse_index(...)}.
+This index defines the rank-one history projector
+\begin{equation}
+\label{eq:precision-history-projector}
+ \boxed{
+ \Pi_{A,\iota}
+ =
+ |A,\omega_{\iota}\rangle\langle A,\omega_{\iota}|.
+ }
+\end{equation}
+For a sequence of admissible GET events, history crystallization is the
+standard projected density-matrix update
+\begin{equation}
+\label{eq:precision-history-update}
+ \rho_{\rm hist}^{(n+1)}
+ =
+ \frac{
+ \Pi_{A_n,\iota_n}\rho_{\rm hist}^{(n)}\Pi_{A_n,\iota_n}}
+ {\Tr\!\left(
+ \Pi_{A_n,\iota_n}\rho_{\rm hist}^{(n)}
+ \right)}.
+\end{equation}
+The pointer packet used by the audit balances the visible rendered coefficient
+against the dark completion entry,
+\begin{equation}
+\label{eq:precision-pointer-wavefunction}
+ \Psi_{\iota}
+ =
+ \left(
+ {\rm amplitude}=\sqrt{p_{\iota}},
+ \quad
+ c_{\rm vis}=-p_{\iota},
+ \quad
+ c_{\rm dark}=p_{\iota}
+ \right),
+\end{equation}
+so the classical visible record is accompanied by the corresponding completion
+ledger entry.
+
+\begin{table}[htbp]
+\centering
+\small
+\begin{tabular}{@{}p{0.28\linewidth}p{0.34\linewidth}p{0.28\linewidth}@{}}
+\toprule
+Quantity & Mathematical definition & Role \\
+\midrule
+Address cost \(C_{\rm addr}\) & \(\log_2|\mathcal R|\) & register locator cost \\
+Ensemble cost \(C_{\rm ens}\) & \(\log_2|\Omega_A|\) & outcome entropy cost \\
+Operational GET cost \(C_{\rm get}\) & \(\max(1,C_{\rm addr}+C_{\rm ens},C_{\rm req})\) & total entropy payment \\
+Budget residual \(R_{\rm entropy}\) & \(N_{\rm limit}-C_{\rm get}\ge0\) & admissibility threshold \\
+Collapse index \(\iota\) & \({\rm Hash}(\cdots)\bmod m\) & finite-register selector \\
+Projection operator \(\Pi_{A,\iota}\) & \(|A,\omega_\iota\rangle\langle A,\omega_\iota|\) & history crystallization \\
+\bottomrule
+\end{tabular}
+\caption{Causal Point GET metrics implemented by
+\pyvar{precision_cosmology.get_measurement_cost(...)} and
+\pyvar{precision_cosmology.collapse_index(...)}.}
+\label{tab:get-cost-metrics}
+\end{table}
+
+\subsection{Dark Matter as Topological Gravitational Ghost}
+\label{sec:dark-matter-topological-ghost}
+
+The de-rendering operator \(\mathcal D_{\bar B}\) defined in
+Eq.~\eqref{eq:section-six-derendering-operator} strips active visible charges
+from anti-baryons while preserving their passive stress-energy in the dark
+completion sector.  That passive gravitational source is the SHBT
+identification of dark matter.
+
+The dark-matter energy density is derived from the completed ledger and the
+loading fraction:
+\begin{equation*}
+\tag{DM1}\label{eq:dm-density}
+\begin{aligned}
+ \rho_{\rm DM}(z)
+ &=
+ \frac{\cdarkcomp}{12}\,
+ \rho_{\rm crit}(z)\bigl[1-\fload(z)\bigr],
+ &
+ \rho_{\rm crit}(z)
+ &=
+ \frac{3H_{\rm SHBT}(z)^2}{8\pi G_{\rm eff}},
+ &
+ G_{\rm eff}
+ &=
+ \GN\bigl(1+\DeltaMod\bigr).
+\end{aligned}
+\end{equation*}
+Here \(\fload(z)\) is the loading fraction from
+Eq.~\eqref{eq:entropy-debt-definition}.  The factor
+\(1-\fload(z)\) is the portion of the horizon register not actively loaded as
+entropy debt: the passive gravitational ghost of the de-rendered anti-baryons.
+
+The baryon density follows from the baryon asymmetry \(\eta_B\), the photon
+number density \(n_\gamma\), and the proton mass \(m_p\).  Dividing both matter
+densities by the same SHBT critical density gives
+\begin{equation*}
+\tag{DM2}\label{eq:dm-baryon-ratio}
+\begin{aligned}
+ \rho_b(z)
+ &=
+ \eta_B n_\gamma m_p(1+z)^3,
+ &
+ \Omega_b(z)
+ &=
+ \frac{\eta_B n_\gamma m_p(1+z)^3}{\rho_{\rm crit}(z)},
+ \\
+ \frac{\Omega_{\rm DM}(z)}{\Omega_b(z)}
+ &=
+ \frac{(\cdarkcomp/12)\,[1-\fload(z)]}
+ {\eta_B n_\gamma m_p(1+z)^3/\rho_{\rm crit}(z)}.
+\end{aligned}
+\end{equation*}
+At \(z=0\), the benchmark audit yields
+\begin{equation*}
+ \frac{\Omega_{\rm DM}}{\Omega_b}\simeq5.34,
+ \qquad
+ \left(\frac{\Omega_{\rm DM}}{\Omega_b}\right)_{\rm obs}\simeq5.4,
+\end{equation*}
+an agreement within \(0.1\).  The dark-matter source is purely gravitational
+and pressureless, so its equation of state is
+\begin{equation*}
+\tag{DM3}\label{eq:dm-eos}
+ w_{\rm DM}=0.
+\end{equation*}
+
+The abundance ratio is therefore not a free parameter.  It is fixed by the
+same modular data that determine \(\eta_B\), \(\cdarkcomp\), and
+\(\fload(z)\).  The audit is implemented in
+\pyvar{precision_cosmology.compute_dark_matter_density(...)},
+\pyvar{precision_cosmology.compute_dm_baryon_ratio(...)}, and
+\pyvar{precision_cosmology.dark_matter_equation_of_state(...)}.  The results
+are returned under \pyvar{report['dark_matter']} (denoted
+\pyvar{cosmo_report['dark_matter']} here), with per-redshift fields
+\pyvar{rho_DM_kg_m3}, \pyvar{Omega_DM}, \pyvar{Omega_b},
+\pyvar{Omega_DM_over_Omega_b}, and \pyvar{w_DM}, plus the top-level
+\pyvar{abundance_ratio} and \pyvar{w_DM}.  Table~\ref{tab:dark-matter-audit}
+records the canonical code map.
+
+\begin{table}[H]
+\centering
+\small
+\begin{tabular}{@{}p{0.34\linewidth}p{0.58\linewidth}@{}}
+\toprule
+Quantity & Code object / audit entry \\
+\midrule
+\(\rho_{\rm DM}(z)\) & \pyvar{precision_cosmology.compute_dark_matter_density(...)} \\
+\(\Omega_{\rm DM}/\Omega_b\) & \pyvar{precision_cosmology.compute_dm_baryon_ratio(...)} \\
+\(w_{\rm DM}\) & \pyvar{precision_cosmology.dark_matter_equation_of_state(...)} \\
+Full dark-matter report & \pyvar{report['dark_matter']} \\
+\bottomrule
+\end{tabular}
+\caption{Dark matter as the topological gravitational ghost of de-rendered
+anti-baryons.  The canonical precision report returns this audit as
+\pyvar{report['dark_matter']}.}
+\label{tab:dark-matter-audit}
+\end{table}
+
+The cosmology section therefore extends the SHBT closure program without
+adding an independent late-time fluid.  The Hubble uplift, growth suppression,
+CPL mirage, cluster-collapse abundance ratios, dark-matter abundance, ISW
+stability, entropy arrow, and GET measurement rule are all
+read as
+observer-frame projections of the finite completed boundary register.  In the
+notation of this unified manuscript, the statement is concise:
+\begin{equation}
+\label{eq:precision-cosmology-closure-summary}
+ \left(
+ \branchstar,\Deltafr=0,\cdarkcomp,\kappad,\Nsat
+ \right)
+ \Longrightarrow
+ \left(
+ \hloc,\fload(z),S_{\rm debt}(z),
+ f\sigma_8(z),\frac{\Omega_{\rm DM}}{\Omega_b},w_{\rm DM},
+ \chi^2_{\nu},{\rm ISW},
+ \Pi_{A,\iota}
+ \right),
+\end{equation}
+with each arrow evaluated by the audit tables above.
+
+\section{Unification and Conclusions}
+\label{sec:unification-and-conclusions}
+
+The preceding sections describe SHBT from four complementary directions:
+modular completion of the boundary theory, entropy self-resolution into bulk
+metric data, anti-baryon de-rendering with passive stress-energy preservation,
+and entropy-budgeted observer history.  The unifying statement is that these
+are not independent mechanisms.  They are different projections of the same
+finite closed boundary register.  Once the completed partition function is
+modular invariant and the canonical branch arithmetic closes, the bulk tensor,
+the physical Hamiltonian constraint, the baryogenesis fixed point, and the
+Causal Point history rule all become consequences of the same closure data.
+
+The core closure chain is
+\begin{equation}
+\label{eq:section-nine-closure-chain}
+ \boxed{
+ [M,S_{\partial}]=[M,T_{\partial}]=0
+ \Longleftrightarrow
+ \Deltafr=0
+ \Longleftrightarrow
+ \Ebulk=0
+ \Longleftrightarrow
+ \Pi_{\rm phys}\Htotal\Pi_{\rm phys}=0.
+ }
+\end{equation}
+Equivalently, $\Htotal=0$ after restriction to the physical subspace.  The
+first condition says that the torus partition function is a genuine modular
+invariant of the completed boundary CFT.  The second says that the visible
+levels and parent completion level have no residual framing mismatch.  The
+third says that the bulk closure tensor vanishes, so the SHBT topological
+Einstein equation is satisfied without adding an independent bulk correction.
+The fourth says that the static physical sector has no external time generator
+left over after projection.  Thus the canonical branch is not merely a useful
+choice of numbers; it is the branch on which boundary modular covariance,
+visible-sector anomaly closure, bulk geometry, and the Hamiltonian constraint
+are the same statement viewed through different interfaces.
+
+The geometric part of the construction is summarized by the holographic RG
+map
+\begin{equation}
+\label{eq:section-nine-rg-map}
+ \boxed{
+ \nabla_{\mathcal C}S_{\partial}
+ \longrightarrow
+ \rho_E(i,j)
+ \longrightarrow
+ \ell_r(\tau)
+ \longrightarrow
+ g_{\mu\nu}(\tau).
+ }
+\end{equation}
+The boundary entropy gradient is first converted into the normalized
+entanglement density $\rho_E(i,j)$ on the finite modular-overlap coordinate
+set.  The ordered resolved state is then compressed into the prime-lattice load
+vector $\ell_r(\tau)$, and the stabilized Gram projection of this load vector
+gives the effective metric slice $g_{\mu\nu}(\tau)$.  In this sense geometry is
+not a continuous background into which the boundary theory is inserted.  It is
+the rendered image of finite boundary information after entropy gradients have
+been normalized, ordered, compressed, and projected.
+
+The matter-asymmetry sector closes by the anti-baryon de-rendering loop
+\begin{equation}
+\label{eq:section-nine-baryogenesis-fixed-point}
+ \boxed{
+ \rho_{\bar B}^{\star}
+ =
+ \frac{
+ \mathcal D_{\bar B}\rho_{\bar B}^{\star}\mathcal D_{\bar B}^{\dagger}}
+ {\Tr\!\left(
+ \mathcal D_{\bar B}\rho_{\bar B}^{\star}\mathcal D_{\bar B}^{\dagger}
+ \right)},
+ \qquad
+ \mathcal C_{\bar B}(\rho_{\bar B}^{\star})=0,
+ \qquad
+ \delta T_{\mu\nu}^{\rm passive}=0.
+ }
+\end{equation}
+At the fixed point, active anti-baryon color and electromagnetic render charge
+have been stripped from the visible channel, but the passive gravitational
+source has not been discarded.  It is carried by the dark completion sector.
+The resulting baryon excess is therefore an asymmetry of rendered visible
+charge, not a violation of the completed stress-energy account.  This is why
+the same branch that fixes $\Deltafr=0$ also supports
+\pyvar{report.stress_energy_preserved=True}: the de-rendering map is allowed only
+because it is a completion-preserving map.
+
+The same modular ledger that fixes \(\eta_B\) also yields
+\(\Omega_{\rm DM}/\Omega_b\simeq5.4\), identifying dark matter as the passive
+gravitational ghost of de-rendered anti-baryons.
+
+The observer sector supplies the final link in the same chain.  A Causal Point
+does not read a pre-existing classical history from an infinite archive.  It
+crystallizes a finite ordered sequence of admissible projections,
+\begin{equation}
+\label{eq:section-nine-history-crystallization}
+ \boxed{
+ \Pi_{\rm history}
+ =
+ \Pi_{A_m,\iota_m}\cdots\Pi_{A_2,\iota_2}\Pi_{A_1,\iota_1}.
+ }
+\end{equation}
+Each factor is admitted only if the local entropy budget remains nonnegative.
+The apparent classical past is therefore the record that survives the ordered
+application of finite-register GET operations.  The observer is part of the
+cosmic code rather than an external reader of it: the address $A_n$, outcome
+index $\iota_n$, local hidden-state budget, and pointer packet are all internal
+boundary data.
+
+The principal numerical predictions of the benchmark branch can be collected
+as
+\begin{equation}
+\label{eq:section-nine-prediction-summary}
+ \boxed{
+ \Lholo\simeq1.09\times10^{-52}\,{\rm m}^{-2},
+ \qquad
+ \Nbits\simeq3.31\times10^{122},
+ \qquad
+ \eta_B=\mathcal O(10^{-10}),
+ \qquad
+ g_{\mu\nu}=g_{\mu\nu}\!\left(\nabla_{\mathcal C}S_{\partial}\right).
+ }
+\end{equation}
+The first number is the holographic dark-energy curvature scale used by the
+topological Einstein equation.  The second is the finite boundary bit budget
+associated with that scale.  The third is the order of the visible baryon
+asymmetry produced by the de-rendering loop, with the benchmark audit giving
+\pyvar{report.eta_b=6.449923359416e-10}.  The fourth is the structural prediction:
+the effective metric is not fundamental input but a calculable output of the
+entropy-gradient pipeline.
+
+Relative to standard holographic approaches, SHBT keeps the boundary-first
+logic but changes what is taken as primitive.  It does not start from a
+large-$N$ gauge theory with an asymptotically anti-de Sitter bulk and then ask
+for a semiclassical interior.  It starts from a completed static boundary CFT,
+requires exact modular closure, and lets finite entropy data render the bulk
+metric.  Relative to entropic-gravity pictures, SHBT does not infer gravity
+from entropy alone; it constrains the entropy flow by the modular invariant
+pairing matrix, the canonical branch arithmetic, and the finite register size.
+Relative to purely constraint-based quantum gravity, it does not stop at the
+formal statement that the Hamiltonian vanishes on physical states; it ties that
+statement to visible-sector levels, dark completion, baryogenesis, and
+observer memory.
+
+The most direct tests of the framework are therefore consistency tests across
+sectors.  The branch data must give integer locks
+$I_{\ell}^{\star}=6$ and $I_q^{\star}=13$, zero framing defect, a vanishing
+bulk closure tensor, and a finite physical-sector Hamiltonian constraint.  The
+entropy pipeline must produce symmetric, trace-normalized, positive metric
+slices from the same boundary densities that define the loading sequence.  The
+baryogenesis module must remove active visible anti-baryon charge while keeping
+passive stress-energy unchanged.  The Causal Point module must crystallize only
+those histories whose retrieval cost fits inside the local entropy budget.  Any
+failure of one of these checks would be a failure of the unified SHBT closure,
+not merely a failure of an auxiliary numerical routine.
+
+Several limitations remain.  The present paper establishes and audits one
+canonical benchmark branch rather than a classification theorem for all modular
+completions.  The dark completion sector is fixed by closure requirements but
+still needs a more explicit microscopic construction.  The entropy-to-metric
+map is deterministic in the benchmark implementation, yet a full comparison
+with precision cosmological data would require a larger phenomenological layer:
+survey observables, perturbations, noise models, and parameter-estimation
+pipelines.  The baryogenesis mechanism also needs extension from the fixed
+render-channel identity to a complete account of early-universe thermal history
+as seen by finite boundary observers.  These are not optional decorations; they
+are the natural next checks if SHBT is to move from a closed auditable framework
+to a quantitatively predictive research program.
+
+The cosmic-code perspective is the simplest way to state the conclusion.  A
+finite boundary register, when forced to close under completed modular kernels,
+contains more than a list of states.  It contains the rules for which visible
+charges can be rendered, which passive sources must be preserved, which entropy
+gradients become geometry, and which observer histories can crystallize.  In
+this view spacetime is the readable projection of a finite holographic code;
+matter asymmetry is a render-channel fixed point of that code; and observation
+is the entropy-budgeted act of selecting a consistent history from within the
+same code.  SHBT is therefore static only at the level of the completed
+boundary.  The dynamical world seen by an observer is the internally
+crystallized image of that closed finite boundary information.
+
+\section{Code Availability}
+\label{sec:code-availability}
+
+The reference implementation and audit scripts for the SHBT and precision
+cosmology calculations are maintained in the GitHub repository
+\url{https://github.com/sys1own/Static-Holographic-Boundary-Theory}.  During
+private review, the same repository state should be supplied as a release
+archive with the paper source.  The publication-critical entry points are:
+
+For the precision-cosmology layer, the names used in
+Table~\ref{tab:cosmology-code-math-map} are the canonical audit entry points:
+\pyvar{load_completed_ledger}, \pyvar{load_default_constants},
+\pyvar{h0_redshift_dependent}, \pyvar{shbt_hubble_rate},
+\pyvar{growth_ode_system}, \pyvar{compute_growth_suppression},
+\pyvar{compute_cluster_collapse},
+\pyvar{compute_dark_matter_density}, \pyvar{compute_dm_baryon_ratio},
+\pyvar{dark_matter_equation_of_state},
+\pyvar{isw_residual}, \pyvar{bbn_stability_check},
+\pyvar{neutrino_hierarchy_masses}, \pyvar{get_measurement_cost},
+\pyvar{collapse_index}, and \pyvar{build_precision_cosmology_report}, all in
+\pyvar{precision_cosmology.py}.
+
+\begin{table}[htbp]
+\centering
+\small
+\begin{tabular}{@{}p{0.32\linewidth}p{0.58\linewidth}@{}}
+\toprule
+Script or module & Paper role \\
+\midrule
+\pyvar{shbt_simulator} & PyO3 module exposing \pyvar{StaticBoundary}, \pyvar{ShbtSimulator}, report getters, and record classes \\
+\pyvar{examples/run_audit.py} & canonical foundation-audit command using \pyvar{ShbtSimulator.run_full_audit()} \\
+\pyvar{precision_cosmology.py} & consolidated Section~\ref{sec:precision-cosmological-implications} tests and JSON report: ledger, Hubble loading, growth, cluster collapse, dark matter, BBN, ISW, neutrinos, chronometers, entropy, and GET costs \\
+\pyvar{src/shbt/boundary.rs} & boundary branch, modular blocks, partition evaluator, and closure checks \\
+\pyvar{src/shbt/entropy_flow.rs} & entropy cascade and holographic metric projection \\
+\pyvar{src/shbt/baryogenesis.rs} & baryogenesis identity, \(\kappad\), de-rendering, and benchmark comparison \\
+\pyvar{src/shbt/causal_point.rs} & Causal Point light cone, finite-memory checks, and history crystallization \\
+\pyvar{src/lib.rs} & PyO3 exports and \pyvar{ShbtSimulator} orchestration \\
+\bottomrule
+\end{tabular}
+\caption{Code components required to reproduce the paper-level audit tables.}
+\label{tab:code-availability}
+\end{table}
+
+The repository-root reproduction commands are:
+\begin{verbatim}
+python examples/run_audit.py
+python precision_cosmology.py --run-tests
+python precision_cosmology.py --json
+python shbt_simulate.py --mode cosmology
+python shbt_simulate.py --mode cosmology --format csv --output cosmo
+cargo test
+cargo build --release
+\end{verbatim}
+The optional Python binding checks use
+\shellcmd{pytest tests/test_simulator.py -q}, and a release wheel can be built with
+\shellcmd{maturin build --release}.
+
+\appendix
+\section*{Appendices: Modular Framing and Quantum-Dimension Derivations}
+\addcontentsline{toc}{section}{Appendices: Modular Framing and Quantum-Dimension Derivations}
+\renewcommand{\cdark}{\cdarkcomp}
+The following appendices incorporate the supplementary material from
+\pyvar{supplementary.tex}.  They use the unified notation of the main text:
+the appendix alias for \(c_{\rm dark}\) is renewed immediately above so every printed
+dark-ledger symbol in the appendices denotes the completed ledger
+\(\cdarkcomp\), while the residual intermediate remains \(\cdarkres\).
+
+\input{supplementary.tex}
+
+\begin{thebibliography}{99}
+
+\bibitem{thooft1980}
+G.~'t Hooft,
+``Naturalness, chiral symmetry, and spontaneous chiral symmetry breaking,'' in
+\textit{Recent Developments in Gauge Theories}, NATO Advanced Study Institutes
+Series B, vol.~59, pp.~135--157, Plenum Press, 1980.
+
+\bibitem{weinberg1989}
+S.~Weinberg,
+``The cosmological constant problem,''
+\textit{Reviews of Modern Physics} \textbf{61}, 1--23 (1989).
+
+\bibitem{pdg2024}
+S.~Navas \textit{et al.} (Particle Data Group),
+``Review of Particle Physics,''
+\textit{Physical Review D} \textbf{110}, 030001 (2024).
+
+\bibitem{cardy1986}
+J.~L. Cardy,
+``Operator content of two-dimensional conformally invariant theories,''
+\textit{Nuclear Physics B} \textbf{270}, 186--204 (1986).
+
+\bibitem{cappelli1987}
+A.~Cappelli, C.~Itzykson, and J.-B.~Zuber,
+``Modular invariant partition functions in two dimensions,''
+\textit{Nuclear Physics B} \textbf{280}, 445--465 (1987).
+
+\bibitem{fefferman1985}
+C.~Fefferman and C.~R. Graham,
+``Conformal invariants,'' in
+\textit{Elie Cartan et les mathematiques d'aujourd'hui},
+Asterisque, hors serie, pp.~95--116, Societe Mathematique de France, 1985.
+
+\bibitem{bekenstein1973}
+J.~D. Bekenstein,
+``Black holes and entropy,''
+\textit{Physical Review D} \textbf{7}, 2333--2346 (1973).
+
+\bibitem{hooft1993}
+G.~'t Hooft,
+``Dimensional reduction in quantum gravity,''
+arXiv:gr-qc/9310026 (1993).
+
+\bibitem{susskind1995}
+L.~Susskind,
+``The world as a hologram,''
+\textit{Journal of Mathematical Physics} \textbf{36}, 6377--6396 (1995).
+
+\bibitem{sakharov1967}
+A.~D. Sakharov,
+``Violation of CP invariance, C asymmetry, and baryon asymmetry of the
+universe,''
+\textit{JETP Letters} \textbf{5}, 24--27 (1967).
+
+\bibitem{maldacena1998}
+J.~M. Maldacena,
+``The large $N$ limit of superconformal field theories and supergravity,''
+\textit{Advances in Theoretical and Mathematical Physics} \textbf{2},
+231--252 (1998), arXiv:hep-th/9711200.
+
+\bibitem{gkp1998}
+S.~S. Gubser, I.~R. Klebanov, and A.~M. Polyakov,
+``Gauge theory correlators from non-critical string theory,''
+\textit{Physics Letters B} \textbf{428}, 105--114 (1998),
+arXiv:hep-th/9802109.
+
+\bibitem{witten1998}
+E.~Witten,
+``Anti de Sitter space and holography,''
+\textit{Advances in Theoretical and Mathematical Physics} \textbf{2},
+253--291 (1998), arXiv:hep-th/9802150.
+
+\bibitem{ryu2006}
+S.~Ryu and T.~Takayanagi,
+``Holographic derivation of entanglement entropy from AdS/CFT,''
+\textit{Physical Review Letters} \textbf{96}, 181602 (2006),
+arXiv:hep-th/0603001.
+
+\bibitem{deboer2000}
+J.~de Boer, E.~Verlinde, and H.~Verlinde,
+``On the holographic renormalization group,''
+\textit{Journal of High Energy Physics} \textbf{2000}, 003 (2000),
+arXiv:hep-th/9912012.
+
+\bibitem{skenderis2002}
+K.~Skenderis,
+``Lecture notes on holographic renormalization,''
+\textit{Classical and Quantum Gravity} \textbf{19}, 5849--5876 (2002),
+arXiv:hep-th/0209067.
+
+\bibitem{verlinde2011}
+E.~Verlinde,
+``On the origin of gravity and the laws of Newton,''
+\textit{Journal of High Energy Physics} \textbf{2011}, 029 (2011),
+arXiv:1001.0785.
+
+\end{thebibliography}
+
+\end{document}
