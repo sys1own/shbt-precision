@@ -311,3 +311,69 @@ def test_cli_quiet(tmp_path: Path) -> None:
     assert proc.returncode == 0, proc.stderr
     assert "Wrote SHBT output" not in proc.stdout
     assert "SHBT Audit Summary" in proc.stdout
+
+
+# ---------------------------------------------------------------------------
+# Supplementary material verification tests
+# ---------------------------------------------------------------------------
+
+
+def _import_shbt_simulator():
+    if str(TARGET_RELEASE) not in sys.path:
+        sys.path.insert(0, str(TARGET_RELEASE))
+    import shbt_simulator
+    return shbt_simulator
+
+
+def test_su2_quantum_dimension_primary() -> None:
+    s = _import_shbt_simulator()
+    d = s.get_su2_quantum_dimension(1, 26)
+    assert d == pytest.approx(1.98742442, abs=1e-7)
+
+
+def test_su3_quantum_dimension_fundamental() -> None:
+    s = _import_shbt_simulator()
+    d = s.get_su3_quantum_dimension(1, 0, 8)
+    assert d == pytest.approx(2.68250707, abs=1e-7)
+
+
+def test_su3_quantum_dimension_adjoint() -> None:
+    s = _import_shbt_simulator()
+    d = s.get_su3_quantum_dimension(1, 1, 8)
+    assert d == pytest.approx(6.19584416, abs=1e-7)
+
+
+def test_exact_central_charge_ledger() -> None:
+    s = _import_shbt_simulator()
+    ledger = s.get_exact_ledger_dict()
+    assert ledger["c_vis"] == {"numerator": 1325, "denominator": 154}
+    assert ledger["c_dark_res"] == {"numerator": 834433, "denominator": 362670}
+    assert ledger["c_dark_comp"] == {"numerator": 1197103, "denominator": 362670}
+    assert ledger["c_tot_res"] == {"numerator": 179764, "denominator": 16485}
+    assert ledger["c_tot_comp"] == {"numerator": 196249, "denominator": 16485}
+
+
+def test_dark_ledger_unit_shift() -> None:
+    s = _import_shbt_simulator()
+    ledger = s.get_exact_ledger_dict()
+    assert (
+        ledger["c_dark_comp"]["numerator"] - ledger["c_dark_res"]["numerator"]
+        == ledger["c_dark_comp"]["denominator"]
+    )
+    assert (
+        ledger["c_dark_comp"]["denominator"] == ledger["c_dark_res"]["denominator"]
+    )
+
+
+def test_framing_defect_canonical_branch() -> None:
+    s = _import_shbt_simulator()
+    assert s.get_framing_defect(26, 8, 312) == 0.0
+
+
+def test_denominator_prime_factorization() -> None:
+    s = _import_shbt_simulator()
+    result = s.get_denominator_prime_factorization()
+    assert result["valid"] is True
+    factors_362670 = {int(k): v for k, v in result["362670"].items()}
+    assert factors_362670 == {2: 1, 3: 1, 5: 1, 7: 1, 11: 1, 157: 1}
+    assert max(factors_362670.keys()) == 157

@@ -1380,6 +1380,53 @@ fn get_geometric_kappa() -> PyResult<String> {
     Ok(calculate_geometric_kappa())
 }
 
+#[pyfunction]
+fn get_su2_quantum_dimension(a: usize, k_l: usize) -> PyResult<f64> {
+    Ok(su2_quantum_dimension(a, k_l))
+}
+
+#[pyfunction]
+fn get_su3_quantum_dimension(p: usize, q: usize, k_q: usize) -> PyResult<f64> {
+    Ok(su3_quantum_dimension(p, q, k_q))
+}
+
+#[pyfunction]
+fn get_exact_ledger_dict(py: Python<'_>) -> PyResult<Bound<'_, PyDict>> {
+    let d = PyDict::new_bound(py);
+    for (key, (num, den)) in exact_central_charge_ledger() {
+        let inner = PyDict::new_bound(py);
+        inner.set_item("numerator", num)?;
+        inner.set_item("denominator", den)?;
+        d.set_item(key, inner)?;
+    }
+    Ok(d)
+}
+
+#[pyfunction]
+fn get_framing_defect(k_l: usize, k_q: usize, K: usize) -> PyResult<f64> {
+    Ok(verify_framing_defect(k_l, k_q, K))
+}
+
+#[pyfunction]
+fn get_denominator_prime_factorization(py: Python<'_>) -> PyResult<Bound<'_, PyDict>> {
+    let d = PyDict::new_bound(py);
+    d.set_item("valid", verify_denominator_prime_factorization())?;
+
+    let f362670 = PyDict::new_bound(py);
+    for (p, e) in denominator_factorization_362670() {
+        f362670.set_item(p.to_string(), e)?;
+    }
+    d.set_item("362670", f362670)?;
+
+    let f16485 = PyDict::new_bound(py);
+    for (p, e) in denominator_factorization_16485() {
+        f16485.set_item(p.to_string(), e)?;
+    }
+    d.set_item("16485", f16485)?;
+
+    Ok(d)
+}
+
 // ===========================================================================
 // HIGH-PRECISION IN-PLACE 4x4 MATRIX MATH TOOLS
 // ===========================================================================
@@ -3534,6 +3581,21 @@ mod shbt_simulator {
 
     #[pymodule_export]
     use super::get_geometric_kappa;
+
+    #[pymodule_export]
+    use super::get_su2_quantum_dimension;
+
+    #[pymodule_export]
+    use super::get_su3_quantum_dimension;
+
+    #[pymodule_export]
+    use super::get_exact_ledger_dict;
+
+    #[pymodule_export]
+    use super::get_framing_defect;
+
+    #[pymodule_export]
+    use super::get_denominator_prime_factorization;
 
     #[pymodule_export]
     use super::AnyonBraidingEngine;
