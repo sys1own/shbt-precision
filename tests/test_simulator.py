@@ -37,13 +37,16 @@ def _rust_extension() -> None:
 
 
 def _import_simulate():
+    repo = str(REPO_ROOT)
+    if repo not in sys.path:
+        sys.path.insert(0, repo)
     import shbt_simulate
     return shbt_simulate
 
 
 def _run_cli(args: list[str]) -> subprocess.CompletedProcess:
     env = os.environ.copy()
-    env["PYTHONPATH"] = str(TARGET_RELEASE)
+    env["PYTHONPATH"] = f"{REPO_ROOT}:{TARGET_RELEASE}"
     return subprocess.run(
         [sys.executable, "shbt_simulate.py", *args],
         cwd=REPO_ROOT,
