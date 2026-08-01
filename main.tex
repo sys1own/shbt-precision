@@ -1,5 +1,8 @@
 
 \documentclass[11pt]{article}
+\usepackage[T1]{fontenc}
+\usepackage{lmodern}
+\usepackage{microtype}
 \usepackage[margin=1in]{geometry}
 
 % Core packages
@@ -67,6 +70,11 @@
 \newcommand{\su}{\mathfrak{su}}
 \newcommand{\uone}{\mathfrak{u}(1)}
 
+% Load simulation-generated macros if available; otherwise fall back to canonical values.
+\InputIfFileExists{sim_results.tex}{}{}
+\providecommand{\BranchResult}{(26,8,312)}
+\providecommand{\EtaBResult}{6.449923359416\times10^{-10}}
+
 \title{Static Holographic Boundary Theory and Precision Cosmology}
 \author{}
 \date{\today}
@@ -89,7 +97,7 @@ finite-capacity precision-cosmology manuscript. The common data determine the
 visible modular arithmetic, the residual and completed dark ledgers
 $\cdarkres=834433/362670$ and
 $\cdarkcomp=\cdarkres+1=1197103/362670$, the finite horizon register,
-holographic RG metric slices, baryogenesis by anti-baryon de-rendering, and
+holographic RG metric slices, baryogenesis by topological anti-baryon state decoupling, and
 Causal Point observer histories. The cosmology part uses the completed ledger
 to define an entropy-debt variable
 $\DeltaMod=\cdarkcomp/24$ and an observer-frame loading law that interpolates
@@ -102,11 +110,11 @@ bridge, the entropy-debt redshift ODE, the Hubble-loading amplitude
 residual equations, BBN decoupling, chronometer covariance, and the finite GET
 measurement rule. The simulator checks exact branch closure, nine positive
 trace-normalized metric slices, nine finite-memory history entries,
-stress-energy-preserving anti-baryon de-rendering with
+stress-energy-preserving topological anti-baryon state decoupling with
 $\eta_B=6.449923359416\times10^{-10}$, Newton-lock stationarity, the
 unity-of-scale identity, Hubble-ladder tracking, growth suppression, the CPL
 mirage template, the cluster-collapse audit, dark matter as the topological
-gravitational ghost of de-rendered anti-baryons, ISW stability, and the
+gravitational ghost of decoupled anti-baryons, ISW stability, and the
 thermodynamic light-cone entropy ledger.
 \end{abstract}
 
@@ -265,7 +273,7 @@ finite and auditable through \pyvar{shbt_simulator.HolographicProjection},
 \pyvar{shbt_simulator.BulkMetricSlice}, and the
 \pyvar{audit['projection_report']} record.
 
-Third, SHBT reframes baryogenesis as anti-baryon de-rendering.  The observed
+Third, SHBT reframes baryogenesis as topological anti-baryon state decoupling.  The observed
 baryon asymmetry is usually framed as a dynamical departure from baryon number,
 C, CP, and equilibrium conditions \cite{sakharov1967}.  Here the active render
 charge is separated from passive stress-energy.  Anti-baryon visible charges
@@ -283,7 +291,7 @@ through
 The benchmark value reported by the audit is
 \pyvar{report.eta_b=6.449923359416e-10}.
 
-The same de-rendering mechanism predicts dark matter as the passive
+The same state-decoupling mechanism predicts dark matter as the passive
 gravitational ghost of the stripped anti-baryons.  The benchmark precision
 audit yields \(\Omega_{\rm DM}/\Omega_b\simeq5.34\), consistent with the
 observed ratio \(\simeq5.4\).
@@ -317,8 +325,8 @@ the completed Hamiltonian constraint annihilates physical states,
 $\Pi_{\rm phys}\Htotal\Pi_{\rm phys}=0$.  Finite-register entropy flow produces
 symmetric, trace-normalized, positive metric slices and an observer-frame
 effective cosmology.  The Causal Point construction turns measurement into an
-entropy-budgeted projection with explicit failure conditions.  Anti-baryon
-de-rendering yields the benchmark baryon asymmetry while preserving passive
+entropy-budgeted projection with explicit failure conditions.  Topological anti-baryon
+state decoupling yields the benchmark baryon asymmetry while preserving passive
 stress-energy.  Running \shellcmd{python examples/run_audit.py} is the intended reproducibility
 check: it should report the canonical branch, \pyvar{framing_defect=0.0},
 \pyvar{modular_invariant=True}, \pyvar{zero_energy_locked=True}, the finite bit
@@ -367,8 +375,8 @@ Section~\ref{sec:modular-data-boundary-partition-function} constructs the
 modular data and boundary partition function.  Section~\ref{sec:boundary-entropy-densities-self-resolution}
 defines the finite entropy densities that self-resolve the boundary register,
 and Section~\ref{sec:holographic-rg-flow-boundary-entropy-bulk-metric} maps
-their gradients into bulk metric slices.  Section~\ref{sec:topological-baryogenesis-anti-baryon-de-rendering}
-develops anti-baryon de-rendering and stress-energy preservation, while
+their gradients into bulk metric slices.  Section~\ref{sec:topological-baryogenesis-anti-baryon-state-decoupling}
+develops topological anti-baryon state decoupling and stress-energy preservation, while
 Section~\ref{sec:causal-point-history-crystallization} defines Causal Points
 and history crystallization.  Section~\ref{sec:numerical-verification-performance}
 collects the implementation audits, and Section~\ref{sec:unification-and-conclusions}
@@ -2026,15 +2034,15 @@ fields include \pyvar{BulkMetricSlice.load_vector},
 \pyvar{BulkMetricSlice.euler_flux}, \pyvar{BulkMetricSlice.metric_components},
 \pyvar{BulkMetricSlice.spatial_metric}, and \pyvar{BulkMetricSlice.eigenvalues}.
 
-\section{Topological Baryogenesis and Anti-Baryon De-Rendering}
-\label{sec:topological-baryogenesis-anti-baryon-de-rendering}
+\section{Topological Baryogenesis and Anti-Baryon State Decoupling}
+\label{sec:topological-baryogenesis-anti-baryon-state-decoupling}
 
 The baryogenesis sector uses the completed boundary branch to separate two
 questions that are usually entangled.  The first is the size of the visible
 baryon excess.  The second is the fate of the anti-baryon stress-energy that
 would ordinarily accompany visible anti-baryon charge.  SHBT answers the first
 question with a topological CP invariant and a modular restoration scale, and it
-answers the second with an active de-rendering map that strips visible color and
+answers the second with an active Stinespring isometric state-projection map that strips visible color and
 electromagnetic charge while preserving the passive gravitational source.  The
 mechanism is therefore not a dynamical erasure of stress-energy.  It is a
 projection of active render channels into the dark completion sector, constrained
@@ -2152,9 +2160,9 @@ charged excitations, plus any residual framing mismatch.  On the canonical
 branch $\Deltafr=0$, so the only nonzero active cost comes from visible gauge
 charge.
 
-The de-rendering operator is the completion-sector projection
+The Stinespring isometric state-projection operator is the completion-sector projection
 \begin{equation}
-\label{eq:section-six-derendering-operator}
+\label{eq:section-six-state-projection-operator}
  \mathcal D_{\bar B}:
  \mathcal H_{\bar B}^{\rm vis}
  \longrightarrow
@@ -2168,7 +2176,7 @@ The de-rendering operator is the completion-sector projection
  \mathcal D_{\bar B}\rho_{\bar B}^{(n)}\mathcal D_{\bar B}^{\dagger}
  \right)}.
 \end{equation}
-The de-rendering map $\mathcal D_{\bar B}$ acts at the modular restoration
+The Stinespring isometric state-projection map $\mathcal D_{\bar B}$ acts at the modular restoration
 scale $M_N$ given in
 Eq.~\eqref{eq:section-six-modular-restoration-scale}.  This scale is
 determined by the same branch arithmetic that fixes the parent completion and
@@ -2179,11 +2187,11 @@ their support on the active $SU(3)$ and $U(1)_{\rm EM}$ channels.  Equivalently,
 the projection is a constant phase-transition boundary condition in the
 register: the active render cost $\mathcal C_{\bar B}$ drops to zero exactly at
 the scale where the modular restoration exponent vanishes.  For any finite
-Causal Point, however, this de-rendering is only observed as a local
+Causal Point, however, this state decoupling is only observed as a local
 horizon-conditioned effect: if the observer's horizon fraction $f_H$
 (Eq.~\eqref{eq:section-seven-local-horizon-fraction}) is too small, the active
 visible anti-baryon channels are already below the local entropy resolution
-limit, so the de-rendering appears to the local observer as a pre-existing
+limit, so the state decoupling appears to the local observer as a pre-existing
 completion asymmetry rather than a dynamical phase transition.  Thus the
 mechanism has two complementary descriptions: (i) a bulk phase transition at
 $M_N$ in the completed boundary data, and (ii) an observer-conditional
@@ -2218,7 +2226,7 @@ charge cost.  The defining equality is
 \end{equation}
 Thus the visible register can lose active anti-baryon color and electromagnetic
 support without violating the gravitational accounting used by the topological
-Einstein equation.  Equivalently, the de-rendered anti-baryon contributes as a
+Einstein equation.  Equivalently, the decoupled anti-baryon contributes as a
 dark passive source rather than as an actively rendered visible particle.
 
 The anti-baryon loop closes at the fixed point
@@ -2626,7 +2634,7 @@ not as a validation of a free parameter.
 
 The preceding sections define SHBT by algebraic closure, entropy
 self-resolution, holographic projection, Causal Point admissibility, and
-anti-baryon de-rendering.  This section records the corresponding finite audit
+topological anti-baryon state decoupling.  This section records the corresponding finite audit
 outputs from the canonical Rust/Python simulator.  The simulator entry point is
 \pyvar{shbt_simulator.ShbtSimulator().run_full_audit()}, and the reproducibility
 command is \shellcmd{python examples/run_audit.py}.  The older standalone
@@ -2820,7 +2828,7 @@ inequality.
 
 The baryogenesis benchmark compares a standard visible field simulation with
 the optimized SHBT render in which anti-baryon visible charge channels are
-de-rendered while their passive stress-energy contribution remains in the dark
+decoupled while their passive stress-energy contribution remains in the dark
 completion sector.  The simulator reports the visible baryon asymmetry as
 \begin{equation}
 \label{eq:section-eight-baryon-asymmetry}
@@ -2842,7 +2850,7 @@ Table~\ref{tab:standard-optimized-field-simulation}.
 Simulation mode & Active visible channels & CPU cycles & Operations & Memory \\
 \midrule
 Standard field simulation & baryon and anti-baryon & $1.0$ & $1.0$ & $1.0$ \\
-Optimized SHBT simulation & baryon rendered, anti-baryon de-rendered & $0.5$ & $0.0015333147477$ & $0.0058214747736093$ \\
+Optimized SHBT simulation & baryon rendered, anti-baryon decoupled & $0.5$ & $0.0015333147477$ & $0.0058214747736093$ \\
 Reduction fraction & removed active anti-baryon render & $0.5$ & $0.9984666852523$ & $0.9941785252263907$ \\
 \bottomrule
 \end{tabular}
@@ -2865,7 +2873,7 @@ topological Einstein equation.
 Quantity & Standard simulation & Optimized SHBT simulation \\
 \midrule
 Visible baryon channel & actively rendered & actively rendered \\
-Visible anti-baryon channel & actively rendered & de-rendered \\
+Visible anti-baryon channel & actively rendered & decoupled \\
 Passive stress-energy & explicitly evolved & preserved in dark completion \\
 Baryon asymmetry output & dynamical baseline target & $\eta_B=6.449923359416\times10^{-10}$ \\
 Stress-energy check & baseline conservation test & true \\
@@ -3999,8 +4007,8 @@ Projection operator \(\Pi_{A,\iota}\) & \(|A,\omega_\iota\rangle\langle A,\omega
 \subsection{Dark Matter as Topological Gravitational Ghost}
 \label{sec:dark-matter-topological-ghost}
 
-The de-rendering operator \(\mathcal D_{\bar B}\) defined in
-Eq.~\eqref{eq:section-six-derendering-operator} strips active visible charges
+The Stinespring isometric state-projection operator \(\mathcal D_{\bar B}\) defined in
+Eq.~\eqref{eq:section-six-state-projection-operator} strips active visible charges
 from anti-baryons while preserving their passive stress-energy in the dark
 completion sector.  That passive gravitational source is the SHBT
 identification of dark matter.
@@ -4027,7 +4035,7 @@ loading fraction:
 Here \(\fload(z)\) is the loading fraction from
 Eq.~\eqref{eq:entropy-debt-definition}.  The factor
 \(1-\fload(z)\) is the portion of the horizon register not actively loaded as
-entropy debt: the passive gravitational ghost of the de-rendered anti-baryons.
+entropy debt: the passive gravitational ghost of the decoupled anti-baryons.
 
 The baryon density follows from the baryon asymmetry \(\eta_B\), the photon
 number density \(n_\gamma\), and the proton mass \(m_p\).  Dividing both matter
@@ -4088,7 +4096,7 @@ Quantity & Code object / audit entry \\
 Full dark-matter report & \pyvar{report['dark_matter']} \\
 \bottomrule
 \end{tabular}
-\caption{Dark matter as the topological gravitational ghost of de-rendered
+\caption{Dark matter as the topological gravitational ghost of decoupled
 anti-baryons.  The canonical precision report returns this audit as
 \pyvar{report['dark_matter']}.}
 \label{tab:dark-matter-audit}
@@ -4121,7 +4129,7 @@ with each arrow evaluated by the audit tables above.
 
 The preceding sections describe SHBT from four complementary directions:
 modular completion of the boundary theory, entropy self-resolution into bulk
-metric data, anti-baryon de-rendering with passive stress-energy preservation,
+metric data, topological anti-baryon state decoupling with passive stress-energy preservation,
 and entropy-budgeted observer history.  The unifying statement is that these
 are not independent mechanisms.  They are different projections of the same
 finite closed boundary register.  Once the completed partition function is
@@ -4177,7 +4185,7 @@ not a continuous background into which the boundary theory is inserted.  It is
 the rendered image of finite boundary information after entropy gradients have
 been normalized, ordered, compressed, and projected.
 
-The matter-asymmetry sector closes by the anti-baryon de-rendering loop
+The matter-asymmetry sector closes by the topological anti-baryon state decoupling loop
 \begin{equation}
 \label{eq:section-nine-baryogenesis-fixed-point}
  \boxed{
@@ -4200,12 +4208,12 @@ source has not been discarded.  It is carried by the dark completion sector.
 The resulting baryon excess is therefore an asymmetry of rendered visible
 charge, not a violation of the completed stress-energy account.  This is why
 the same branch that fixes $\Deltafr=0$ also supports
-\pyvar{report.stress_energy_preserved=True}: the de-rendering map is allowed only
+\pyvar{report.stress_energy_preserved=True}: the Stinespring isometric state-projection map is allowed only
 because it is a completion-preserving map.
 
 The same modular ledger that fixes \(\eta_B\) also yields
 \(\Omega_{\rm DM}/\Omega_b\simeq5.4\), identifying dark matter as the passive
-gravitational ghost of de-rendered anti-baryons.
+gravitational ghost of decoupled anti-baryons.
 
 The observer sector supplies the final link in the same chain.  A Causal Point
 does not read a pre-existing classical history from an infinite archive.  It
@@ -4242,7 +4250,7 @@ as
 The first number is the holographic dark-energy curvature scale used by the
 topological Einstein equation.  The second is the finite boundary bit budget
 associated with that scale.  The third is the order of the visible baryon
-asymmetry produced by the de-rendering loop, with the benchmark audit giving
+asymmetry produced by the state-decoupling loop, with the benchmark audit giving
 \pyvar{report.eta_b=6.449923359416e-10}.  The fourth is the structural prediction:
 the effective metric is not fundamental input but a calculable output of the
 entropy-gradient pipeline.
@@ -4301,8 +4309,7 @@ crystallized image of that closed finite boundary information.
 \label{sec:code-availability}
 
 The reference implementation and audit scripts for the SHBT and precision
-cosmology calculations are maintained in the GitHub repository
-\url{https://github.com/sys1own/Static-Holographic-Boundary-Theory}.  During
+cosmology calculations are maintained in the GitHub repository\footnote{\url{https://github.com/sys1own/shbt-precision.git}}.  During
 private review, the same repository state should be supplied as a release
 archive with the paper source.  The publication-critical entry points are:
 
@@ -4331,7 +4338,7 @@ Script or module & Paper role \\
 \pyvar{precision_cosmology.py} & consolidated Section~\ref{sec:precision-cosmological-implications} tests and JSON report: ledger, Hubble loading, growth, cluster collapse, dark matter, BBN, ISW, neutrinos, chronometers, entropy, and GET costs \\
 \pyvar{src/shbt/boundary.rs} & boundary branch, modular blocks, partition evaluator, and closure checks \\
 \pyvar{src/shbt/entropy_flow.rs} & entropy cascade and holographic metric projection \\
-\pyvar{src/shbt/baryogenesis.rs} & baryogenesis identity, \(\kappad\), de-rendering, and benchmark comparison \\
+\pyvar{src/shbt/baryogenesis.rs} & baryogenesis identity, \(\kappad\), state decoupling, and benchmark comparison \\
 \pyvar{src/shbt/causal_point.rs} & Causal Point light cone, finite-memory checks, and history crystallization \\
 \pyvar{src/lib.rs} & PyO3 exports and \pyvar{ShbtSimulator} orchestration \\
 \bottomrule

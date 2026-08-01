@@ -30,6 +30,7 @@ import json
 import logging
 import os
 import re
+import shutil
 import subprocess
 import sys
 import time
@@ -86,6 +87,22 @@ def _ensure_rust() -> None:
             "object is on your PYTHONPATH (e.g. copy target/release/libshbt_simulator.so "
             "to target/release/shbt_simulator.so)."
         ) from _IMPORT_ERROR
+
+
+def _build_rust_extension() -> None:
+    """Compile the Rust extension and make it importable as ``shbt_simulator``."""
+    repo_root = Path(__file__).resolve().parent
+    subprocess.run(
+        ["cargo", "build", "--release"],
+        cwd=repo_root,
+        check=True,
+    )
+    src = repo_root / "target" / "release" / "libshbt_simulator.so"
+    dst = repo_root / "target" / "release" / "shbt_simulator.so"
+    if not src.exists():
+        raise RuntimeError(f"Compiled extension not found at {src}")
+    shutil.copy(src, dst)
+    print(f"Built and staged {dst}", flush=True)
 
 
 _LOGGER = logging.getLogger("shbt")
@@ -1390,6 +1407,11 @@ def _build_arg_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="suppress non-essential console output",
     )
+    parser.add_argument(
+        "--build",
+        action="store_true",
+        help="build the Rust extension and prepare the Python import name",
+    )
     return parser
 
 
@@ -1441,6 +1463,11 @@ def _shbt_print(message: str, quiet: bool = False) -> None:
 def main(argv: list[str] | None = None) -> int:
     parser = _build_arg_parser()
     args = parser.parse_args(argv)
+
+    if args.build:
+        _build_rust_extension()
+        sys.stdout.flush()
+        os._exit(0)
 
     # Dedicated precision-cosmology test mode.
     if args.mode == "cosmology-test":
