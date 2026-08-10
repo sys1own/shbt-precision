@@ -1032,6 +1032,8 @@ def simulate(config: dict[str, Any]) -> dict[str, Any]:
     if mode in ("audit", "all"):
         report = sim.run_full_audit()
         result["audit"] = report.to_dict()
+        # High-precision stationarity and thermal-flux audit (Section 9.12).
+        result["stability_audit"] = _rs.get_stability_audit()
 
     if mode in ("cosmology", "all"):
         slices = sim.simulate_cosmology(redshift_max, redshift_samples)

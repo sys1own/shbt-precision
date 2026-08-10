@@ -377,3 +377,13 @@ def test_denominator_prime_factorization() -> None:
     factors_362670 = {int(k): v for k, v in result["362670"].items()}
     assert factors_362670 == {2: 1, 3: 1, 5: 1, 7: 1, 11: 1, 157: 1}
     assert max(factors_362670.keys()) == 157
+
+
+def test_stability_audit() -> None:
+    s = _import_shbt_simulator()
+    audit = s.get_stability_audit()
+    assert audit["stationarity_passed"] is True
+    assert audit["thermal_flux_passed"] is True
+    assert audit["Q_dot_W"] == pytest.approx(906e9, rel=1e-12)
+    assert audit["P_bench_W"] == pytest.approx(142.08e6, rel=1e-12)
+    assert audit["Gamma_bench"] == pytest.approx(6377.0, abs=1.0)

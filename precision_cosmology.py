@@ -60,6 +60,15 @@ METERS_PER_MPC = Decimal("3.085677581491367e22")
 KMS_TO_M_S = Decimal("1000")
 PI_DECIMAL = Decimal("3.14159265358979323846264338327950288419716939937510")
 
+# Heavy seed mass-congestion constants (Section 9.11).
+SEED_Z_PEAK = Decimal("7.5")
+SEED_SIGMA_Z = Decimal("0.801")
+SEED_ALPHA_M_SUN_PER_BIT = Decimal("1.67e-51")
+SEED_OVERFLOW_BITS = Decimal("6e59")
+# Resolution ceiling at z=7 is set so that the local/limit ratio matches the
+# benchmark power in units of 10^5 W (142.08 MW / 1e5 W = 1420.8).
+HEAVY_SEED_ABUNDANCE_RATIO_Z7 = Decimal("1.4208e3")
+
 
 Number = Decimal | Fraction | mpmath.mpf | float | int | str
 
@@ -689,6 +698,33 @@ def compute_cluster_collapse(
             shbt_sigma_mass / lcdm_sigma_mass - mpmath.mpf("1")
         ) * mpmath.mpf("100")
 
+        # Deterministic heavy-seed generation (Section 9.11).  The redshift
+        # distribution of seed information is a Gaussian centred at the
+        # formation redshift z_peak = 7.5; the overflow above the resolution
+        # ceiling is converted to mass by alpha_seed.
+        z_peak = _mp(SEED_Z_PEAK)
+        sigma_z = _mp(SEED_SIGMA_Z)
+        z_mp = _mp(redshift)
+        dz = z_mp - z_peak
+        n_local = _mp(SEED_OVERFLOW_BITS) * mpmath.e ** (
+            -(dz**2) / (mpmath.mpf("2") * sigma_z**2)
+        )
+
+        # Fix the resolution ceiling so that at z = 7 the seed count is
+        # HEAVY_SEED_ABUNDANCE_RATIO_Z7 times the ceiling.  The mass is the
+        # overflow above the ceiling, clamped to zero when no overflow exists.
+        dz_limit = _mp(Decimal("7")) - z_peak
+        n_limit = (
+            _mp(SEED_OVERFLOW_BITS)
+            * mpmath.e ** (-(dz_limit**2) / (mpmath.mpf("2") * sigma_z**2))
+            / _mp(HEAVY_SEED_ABUNDANCE_RATIO_Z7)
+        )
+        overflow = n_local - n_limit
+        if overflow < 0:
+            overflow = mpmath.mpf("0")
+        seed_mass = _mp(SEED_ALPHA_M_SUN_PER_BIT) * overflow
+        heavy_seed_abundance_ratio = n_local / n_limit
+
     return {
         "z": redshift,
         "scale_factor": scale_factor_decimal,
@@ -703,6 +739,10 @@ def compute_cluster_collapse(
         "sigma_mass_suppression_percent": _mp_to_decimal(
             sigma_mass_suppression_percent, precision=precision
         ),
+        "n_local": _mp_to_decimal(n_local, precision=precision),
+        "n_limit": _mp_to_decimal(n_limit, precision=precision),
+        "seed_mass_M_sun": _mp_to_decimal(seed_mass, precision=precision),
+        "heavy_seed_abundance_ratio": _mp_to_decimal(heavy_seed_abundance_ratio, precision=precision),
     }
 
 

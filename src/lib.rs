@@ -1427,6 +1427,23 @@ fn get_denominator_prime_factorization(py: Python<'_>) -> PyResult<Bound<'_, PyD
     Ok(d)
 }
 
+#[pyfunction]
+fn get_stability_audit(py: Python<'_>) -> PyResult<Bound<'_, PyDict>> {
+    let audit = verify_stability_audit();
+    let d = PyDict::new_bound(py);
+    d.set_item("stationarity_passed", audit.stationarity_passed)?;
+    d.set_item("thermal_flux_passed", audit.thermal_flux_passed)?;
+    d.set_item("d_ln_C_even_dz", audit.d_ln_c_even_dz)?;
+    d.set_item("d_ln_C_odd_dz", audit.d_ln_c_odd_dz)?;
+    d.set_item("Q_dot_W", audit.q_dot_w)?;
+    d.set_item("P_bench_W", audit.p_bench_w)?;
+    d.set_item("Gamma_bench", audit.gamma_bench)?;
+    d.set_item("Gamma_bench_target", audit.gamma_bench_target)?;
+    d.set_item("seed_z_peak", audit.seed_z_peak)?;
+    d.set_item("seed_sigma_z", audit.seed_sigma_z)?;
+    Ok(d)
+}
+
 // ===========================================================================
 // HIGH-PRECISION IN-PLACE 4x4 MATRIX MATH TOOLS
 // ===========================================================================
@@ -3596,6 +3613,9 @@ mod shbt_simulator {
 
     #[pymodule_export]
     use super::get_denominator_prime_factorization;
+
+    #[pymodule_export]
+    use super::get_stability_audit;
 
     #[pymodule_export]
     use super::AnyonBraidingEngine;
