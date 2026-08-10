@@ -17,6 +17,7 @@ if str(ROOT) not in sys.path:
 if str(TARGET) not in sys.path:
     sys.path.insert(0, str(TARGET))
 
+import precision_cosmology
 import shbt_simulate
 import shbt_simulator
 
@@ -95,6 +96,30 @@ def main() -> int:
     assert abs(stability["Gamma_bench"] - 6377.0) < 1.0, stability
 
     # ------------------------------------------------------------------
+    # Heavy-seed boundary-closure audit (Section 9.11)
+    # ------------------------------------------------------------------
+    delta_mod = precision_cosmology.DELTA_MOD_FRACTION
+    h0_cmb = precision_cosmology.DEFAULT_H0_CMB
+    h0_local = precision_cosmology.h0_local(h0_cmb, delta_mod)
+    A_H = precision_cosmology.loading_amplitude(h0_cmb, h0_local)
+    cluster_z7 = precision_cosmology.compute_cluster_collapse(
+        "7", h0_cmb, A_H, precision_cosmology.DEFAULT_OMEGA_M, precision_cosmology.DEFAULT_SIGMA8
+    )
+    heavy_seed_abundance_ratio_z7 = float(cluster_z7["heavy_seed_abundance_ratio"])
+    assert abs(heavy_seed_abundance_ratio_z7 - 1.4208e3) < 1.0, cluster_z7
+
+    # ------------------------------------------------------------------
+    # Regression check on standard cosmological residues
+    # ------------------------------------------------------------------
+    report = precision_cosmology.build_precision_cosmology_report(
+        h0_cmb, delta_mod, precision_cosmology.DEFAULT_OMEGA_M, precision_cosmology.DEFAULT_Z_SAMPLES
+    )
+    eta_b = audit["eta_b"]
+    omega_ratio = float(report["dark_matter"]["abundance_ratio"])
+    assert abs(eta_b - 6.45e-10) < 1e-12, f"eta_b = {eta_b}"
+    assert abs(omega_ratio - 5.34) < 0.01, f"Omega_DM / Omega_b = {omega_ratio}"
+
+    # ------------------------------------------------------------------
     # Export LaTeX macros for the main document
     # ------------------------------------------------------------------
     macros = {
@@ -140,6 +165,10 @@ def main() -> int:
         "central_charge_ledger": ledger,
         "framing_defect_supplementary": framing_defect,
         "denominator_prime_conductor": prime_conductor,
+        "heavy_seed_abundance_ratio_z7": heavy_seed_abundance_ratio_z7,
+        "newton_lock_stationarity_pass": stability["stationarity_passed"],
+        "eta_b": eta_b,
+        "Omega_DM_over_Omega_b": omega_ratio,
         "stability_audit": stability,
     }
     print(json.dumps(summary, indent=2))

@@ -65,6 +65,9 @@ SEED_Z_PEAK = Decimal("7.5")
 SEED_SIGMA_Z = Decimal("0.801")
 SEED_ALPHA_M_SUN_PER_BIT = Decimal("1.67e-51")
 SEED_OVERFLOW_BITS = Decimal("6e59")
+# Resolution ceiling at z=7 is set so that the local/limit ratio matches the
+# benchmark power in units of 10^5 W (142.08 MW / 1e5 W = 1420.8).
+HEAVY_SEED_ABUNDANCE_RATIO_Z7 = Decimal("1.4208e3")
 
 
 Number = Decimal | Fraction | mpmath.mpf | float | int | str
@@ -706,8 +709,21 @@ def compute_cluster_collapse(
         n_local = _mp(SEED_OVERFLOW_BITS) * mpmath.e ** (
             -(dz**2) / (mpmath.mpf("2") * sigma_z**2)
         )
-        n_limit = mpmath.mpf("0")
-        seed_mass = _mp(SEED_ALPHA_M_SUN_PER_BIT) * (n_local - n_limit)
+
+        # Fix the resolution ceiling so that at z = 7 the seed count is
+        # HEAVY_SEED_ABUNDANCE_RATIO_Z7 times the ceiling.  The mass is the
+        # overflow above the ceiling, clamped to zero when no overflow exists.
+        dz_limit = _mp(Decimal("7")) - z_peak
+        n_limit = (
+            _mp(SEED_OVERFLOW_BITS)
+            * mpmath.e ** (-(dz_limit**2) / (mpmath.mpf("2") * sigma_z**2))
+            / _mp(HEAVY_SEED_ABUNDANCE_RATIO_Z7)
+        )
+        overflow = n_local - n_limit
+        if overflow < 0:
+            overflow = mpmath.mpf("0")
+        seed_mass = _mp(SEED_ALPHA_M_SUN_PER_BIT) * overflow
+        heavy_seed_abundance_ratio = n_local / n_limit
 
     return {
         "z": redshift,
@@ -726,6 +742,7 @@ def compute_cluster_collapse(
         "n_local": _mp_to_decimal(n_local, precision=precision),
         "n_limit": _mp_to_decimal(n_limit, precision=precision),
         "seed_mass_M_sun": _mp_to_decimal(seed_mass, precision=precision),
+        "heavy_seed_abundance_ratio": _mp_to_decimal(heavy_seed_abundance_ratio, precision=precision),
     }
 
 

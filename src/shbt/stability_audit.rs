@@ -79,3 +79,39 @@ pub fn verify_stability_audit() -> StabilityAudit {
         seed_sigma_z: SIGMA_Z,
     }
 }
+
+const MASS_CONGESTION_TOLERANCE: f64 = 1e-12;
+
+/// Anomaly raised when the mass-congestion coupling is detuned beyond the
+/// boundary-closure tolerance, protecting the Newton-lock eigenvector.
+#[derive(Debug)]
+pub struct AnomalyClosureError;
+
+impl std::fmt::Display for AnomalyClosureError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "mass-congestion coupling detuned beyond boundary-closure tolerance"
+        )
+    }
+}
+
+impl std::error::Error for AnomalyClosureError {}
+
+/// Compute the heavy seed mass from the mass-congestion coupling identity and
+/// enforce eigenvector rigidity.  A relative detuning of `alpha_seed` larger
+/// than `MASS_CONGESTION_TOLERANCE` triggers an `AnomalyClosureError`.
+pub fn mass_congestion_coupling(
+    alpha_seed: f64,
+    n_local: f64,
+    n_limit: f64,
+    detuning: f64,
+) -> Result<f64, AnomalyClosureError> {
+    if n_local <= n_limit {
+        return Err(AnomalyClosureError);
+    }
+    if detuning.abs() >= MASS_CONGESTION_TOLERANCE {
+        return Err(AnomalyClosureError);
+    }
+    Ok(alpha_seed * (n_local - n_limit) * (1.0 + detuning))
+}
