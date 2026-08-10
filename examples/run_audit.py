@@ -87,6 +87,14 @@ def main() -> int:
     assert prime_conductor == 157
 
     # ------------------------------------------------------------------
+    # Stability audit (Section 9.12)
+    # ------------------------------------------------------------------
+    stability = shbt_simulator.get_stability_audit()
+    assert stability["stationarity_passed"] is True, stability
+    assert stability["thermal_flux_passed"] is True, stability
+    assert abs(stability["Gamma_bench"] - 6377.0) < 1.0, stability
+
+    # ------------------------------------------------------------------
     # Export LaTeX macros for the main document
     # ------------------------------------------------------------------
     macros = {
@@ -132,6 +140,7 @@ def main() -> int:
         "central_charge_ledger": ledger,
         "framing_defect_supplementary": framing_defect,
         "denominator_prime_conductor": prime_conductor,
+        "stability_audit": stability,
     }
     print(json.dumps(summary, indent=2))
     return 0

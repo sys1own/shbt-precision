@@ -60,6 +60,12 @@ METERS_PER_MPC = Decimal("3.085677581491367e22")
 KMS_TO_M_S = Decimal("1000")
 PI_DECIMAL = Decimal("3.14159265358979323846264338327950288419716939937510")
 
+# Heavy seed mass-congestion constants (Section 9.11).
+SEED_Z_PEAK = Decimal("7.5")
+SEED_SIGMA_Z = Decimal("0.801")
+SEED_ALPHA_M_SUN_PER_BIT = Decimal("1.67e-51")
+SEED_OVERFLOW_BITS = Decimal("6e59")
+
 
 Number = Decimal | Fraction | mpmath.mpf | float | int | str
 
@@ -689,6 +695,20 @@ def compute_cluster_collapse(
             shbt_sigma_mass / lcdm_sigma_mass - mpmath.mpf("1")
         ) * mpmath.mpf("100")
 
+        # Deterministic heavy-seed generation (Section 9.11).  The redshift
+        # distribution of seed information is a Gaussian centred at the
+        # formation redshift z_peak = 7.5; the overflow above the resolution
+        # ceiling is converted to mass by alpha_seed.
+        z_peak = _mp(SEED_Z_PEAK)
+        sigma_z = _mp(SEED_SIGMA_Z)
+        z_mp = _mp(redshift)
+        dz = z_mp - z_peak
+        n_local = _mp(SEED_OVERFLOW_BITS) * mpmath.e ** (
+            -(dz**2) / (mpmath.mpf("2") * sigma_z**2)
+        )
+        n_limit = mpmath.mpf("0")
+        seed_mass = _mp(SEED_ALPHA_M_SUN_PER_BIT) * (n_local - n_limit)
+
     return {
         "z": redshift,
         "scale_factor": scale_factor_decimal,
@@ -703,6 +723,9 @@ def compute_cluster_collapse(
         "sigma_mass_suppression_percent": _mp_to_decimal(
             sigma_mass_suppression_percent, precision=precision
         ),
+        "n_local": _mp_to_decimal(n_local, precision=precision),
+        "n_limit": _mp_to_decimal(n_limit, precision=precision),
+        "seed_mass_M_sun": _mp_to_decimal(seed_mass, precision=precision),
     }
 
 
