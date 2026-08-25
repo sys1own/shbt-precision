@@ -1,5 +1,6 @@
 # SHBT Simulator — Static Holographic Boundary Theory
 
+[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.22102349.svg)](https://doi.org/10.5281/zenodo.22102349)
 [![Rust](https://img.shields.io/badge/rust-1.80+-blue.svg)](https://www.rust-lang.org/)
 [![Python](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
