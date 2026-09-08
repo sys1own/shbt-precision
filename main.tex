@@ -15,6 +15,7 @@
 \usepackage{longtable}
 \usepackage{float}
 \usepackage[hidelinks]{hyperref}
+\usepackage{orcidlink}
 \newcolumntype{L}[1]{>{\raggedright\arraybackslash}p{#1}}
 \newcolumntype{Y}{>{\raggedright\arraybackslash}X}
 \Urlmuskip=0mu plus 1mu\relax
@@ -83,11 +84,23 @@
 \providecommand{\BranchResult}{(26,8,312)}
 \providecommand{\EtaBResult}{6.449923359416\times10^{-10}}
 
+\newcommand{\PaperTitle}{Static Holographic Boundary Theory, Precision
+Cosmology, and Sub-Kelvin Address-Scaled Landauer Calorimetry}
+\newcommand{\PaperAuthor}{}
 \title{Static Holographic Boundary Theory, Precision Cosmology, and\\
 Sub-Kelvin Address-Scaled Landauer Calorimetry}
-\newcommand{\PaperAuthor}{}
 \author{\PaperAuthor}
 \date{\today}
+
+\hypersetup{
+  pdftitle={\PaperTitle},
+  pdfauthor={Noa Toro},
+  pdfsubject={Static Holographic Boundary Theory and its cosmological and
+    calorimetric predictions},
+  pdfkeywords={Static Holographic Boundary Theory, SHBT, precision cosmology,
+    Landauer calorimetry, holography, modular invariance},
+  pdfcreator={LaTeX with hyperref}
+}
 
 \begin{document}
 \maketitle
@@ -232,7 +245,7 @@ $SO(10)_{312}$ parent completion and a dark completion sector.  The dark sector
 is therefore not an optional phenomenological reservoir.  It is the finite
 ledger required by exact closure.  The residual part is
 \begin{equation}
- \cdarkres=\frac{834433}{362670}\simeq2.300805139658643,
+ \cdarkres=\frac{834433}{362670}\simeq2.300805139659,
  \qquad
  8\pi\GN=\frac{12}{\cdarkres\MP^2}.
 \end{equation}
@@ -243,7 +256,7 @@ The finite-screen cosmology construction uses the completed ledger
  =c_{\text{dark}}^{\text{res}}+1
  =
  \frac{1197103}{362670}
- \simeq3.300805139658643,
+ \simeq3.300805139659,
  \qquad
  \DeltaMod=\frac{c_{\text{dark}}^{\text{comp}}}{24}.
 \end{equation}
@@ -912,7 +925,7 @@ $SO(10)_{\Kpar}$ & $\Kpar=312$ &
 $\displaystyle \frac{351}{8}=43.875000000000$ &
 $\mathbb Z_4$ spinor center \\
 $\mathcal H_{\text{dark}}$ & $\text{--}$ &
-$\displaystyle \cdarkcomp=\frac{1197103}{362670}=3.300805139659$ &
+$\displaystyle \cdarkcomp=\frac{1197103}{362670}\simeq3.300805139659$ &
 $\text{--}$ \\
 \bottomrule
 \end{tabular}
@@ -2075,6 +2088,8 @@ mechanism is therefore not a dynamical erasure of stress-energy.  It is a
 projection of active render channels into the dark completion sector, constrained
 by the same framing closure that fixes the branch.
 
+\subsection{Branch Baryogenesis Identity}
+
 The visible electroweak conversion factor is the standard sphaleron coefficient
 for the rendered Standard Model channel,
 \begin{equation}
@@ -2162,6 +2177,8 @@ The four ingredients in Eq.~\eqref{eq:section-six-baryon-asymmetry} are fixed
 by the electroweak conversion coefficient, the modular CP residue, the
 restoration scale, and the Planck normalization.  Substitution of the canonical
 branch data gives \(\eta_B=6.449923359416\times10^{-10}\).
+
+\subsection{Active Charge Cost and Passive Source Accounting}
 
 The visible asymmetry becomes a complete accounting statement only after the
 anti-baryon channel is specified.  Let $\mathcal H_{\bar B}^{\text{vis}}$ denote
@@ -2299,6 +2316,82 @@ from the passive gravitational source.  The former vanishes at the projected
 fixed point, while the latter is exactly transferred to the dark completion
 sector.  Implementation identifiers and performance diagnostics for this map
 are isolated in Section~\ref{sec:code-availability}.
+
+\subsection{Charge Decoupling and Thermal Re-excitation Conditions}
+\label{sec:conditional-thermal-decoupling}
+
+The native summary reports \pyvar{stress_energy_preserved=true}.
+To distinguish this computational diagnostic from an operator-level proof,
+the sufficient mathematical conditions can be stated explicitly.  In the
+following criterion, the charge operators act on the dark output space and
+\(\mathcal D_{\bar B}\) denotes an isometric encoding into that space.
+
+\begin{theorem}[Conditional charge and source preservation]
+Assume \(\mathcal D_{\bar B}^{\dagger}\mathcal D_{\bar B}=\mathbb I\),
+\(\Deltafr=0\), Hermitian active charge operators, and
+\begin{equation}
+\label{eq:decoupling-sufficient-operator-conditions}
+ \begin{aligned}
+ Q_{SU(3)}\mathcal D_{\bar B}
+ &=Q_{\text{EM}}\mathcal D_{\bar B}=0,\\
+ \mathcal D_{\bar B}^{\dagger}
+ T_{\mu\nu}^{\text{dark},\text{passive}}
+ \mathcal D_{\bar B}
+ &=T_{\mu\nu}^{\bar B,\text{passive}}.
+ \end{aligned}
+\end{equation}
+Then for every normalized input density matrix \(\rho\), the encoded
+state \(\rho_\star=\mathcal D_{\bar B}\rho\mathcal D_{\bar B}^{\dagger}\)
+has \(\mathcal C_{\bar B}(\rho_\star)=0\) and preserves the passive
+stress-energy expectation.
+\end{theorem}
+
+\begin{proof}
+Isometry gives \(\Tr\rho_\star=\Tr\rho=1\).  For either active charge
+operator \(Q\), cyclicity of the trace and the stronger annihilation
+condition in Eq.~\eqref{eq:decoupling-sufficient-operator-conditions} give
+\begin{equation}
+\label{eq:decoupling-quadratic-cost-proof}
+ \Tr(\rho_\star Q^2)
+ =\Tr\!\left[\rho( Q\mathcal D_{\bar B})^{\dagger}
+                         ( Q\mathcal D_{\bar B})\right]=0.
+\end{equation}
+Both positive charge-cost terms and the framing term in
+Eq.~\eqref{eq:section-six-active-render-cost} therefore vanish.  Similarly,
+\begin{equation}
+\label{eq:decoupling-passive-source-proof}
+ \begin{aligned}
+ \delta T_{\mu\nu}^{\text{passive}}
+ &\equiv\Tr\!\left(\rho_\star
+            T_{\mu\nu}^{\text{dark},\text{passive}}\right)
+       -\Tr\!\left(\rho T_{\mu\nu}^{\bar B,\text{passive}}\right)\\
+ &=\Tr\!\left[\rho\left(
+ \mathcal D_{\bar B}^{\dagger}T_{\mu\nu}^{\text{dark},\text{passive}}
+ \mathcal D_{\bar B}-T_{\mu\nu}^{\bar B,\text{passive}}
+ \right)\right]=0.
+ \end{aligned}
+\end{equation}
+\end{proof}
+
+The conditions above are stronger than the vanishing compressed first
+moments in Eq.~\eqref{eq:section-six-stripping-constraints}.  In general,
+\(\mathcal D_{\bar B}^{\dagger}Q\mathcal D_{\bar B}=0\) does not imply
+\(\mathcal D_{\bar B}^{\dagger}Q^2\mathcal D_{\bar B}=0\), which is
+what the quadratic cost requires.  For example, with
+\(Q=\operatorname{diag}(1,-1)\) and
+\(\mathcal D=2^{-1/2}(1,1)^T\), the former is zero and the latter is one.
+The native pass flag does not supply the operators needed to check the
+stronger conditions for the physical completion sector.
+
+Here \(\rho_\star\) denotes the encoded neutral state.  Treating it as a
+fixed point additionally requires a channel acting on the completed output
+space that leaves it invariant.  Thermal re-excitation is a further
+dynamical question: the system--environment interaction must preserve the
+neutral subspace, or its transition rates must be calculated.  Neither an
+isometric encoding nor a passive-source flag alone proves that all thermal
+transition amplitudes vanish.  Thus the criterion proves charge and source
+accounting under explicit hypotheses; a thermodynamic immunity proof still
+requires the missing interaction dynamics.
 
 \section{Causal Point and History Crystallization}
 \label{sec:causal-point-history-crystallization}
@@ -2626,6 +2719,14 @@ Section~\ref{sec:code-availability}.
 \section{Numerical Verification of Closure}
 \label{sec:numerical-verification-performance}
 
+The native transcript \pyvar{codespace_audit.json} supplies a foundation
+summary on \((26,8,312)\), with zero reported framing defect, true modular
+and zero-energy flags, nine metric slices, nine history entries, and a true
+stress-energy-preservation flag.  Its reported baryon asymmetry is
+\(6.449923359416131\times10^{-10}\).  These are native execution results
+reported in the supplied artifact, not an independent source-level audit;
+Section~\ref{sec:reported-run-provenance} documents their scope.
+
 All checks in this section are closure tests, not phenomenological fits.
 The branch constants, central charges, and finite register size are fixed by
 the modular closure axioms of Sections~\ref{sec:canonical-branch-axiomatic-foundation}--\ref{sec:modular-data-boundary-partition-function};
@@ -2882,24 +2983,48 @@ precision-cosmology effective description.  The derivation is independent of
 the implementation interface; the exact function and report-key mapping is
 given in Section~\ref{sec:code-availability}.
 
+The numerical tables in this section are reconciled with the precision
+report embedded in \pyvar{codespace_audit.json}.  The earlier
+\pyvar{simulator_output.txt} is retained as a historical comparison.
+Section~\ref{sec:reported-run-provenance}
+records its execution scope and exact dictionary-field crosswalk.  Agreement
+with that report is an output-consistency check, not an independent proof of
+the microscopic construction or a new observational detection.
+
+Exact rational ledger identities are distinguished from retrodictive
+comparisons of model outputs with established quantities, including the
+baryon asymmetry, dark-matter abundance, neutrino scale, and horizon register.
+The designation ``zero-parameter structural retrodiction'' requires a
+separate demonstration that every input is fixed by the branch or by
+specified fundamental constants.  The supplied report alone does not provide
+that demonstration: it contains an explicit CMB intercept and comparison
+parameters, and the neutrino hierarchy uses oscillation-splitting inputs.
+The growth suppression and CPL template remain observational predictions;
+the address-dependent heat slope and capacity cutoff remain proposed
+laboratory tests.  The calorimetric slope is \(k_BT\ln2\) per operation,
+or \(N_{\text{pulse}}k_BT\ln2\simeq6.6990\,\mathrm{zJ/bit}\) for the
+specified \(100{,}000\)-operation burst at \(7\,\mathrm{mK}\).
+
 \subsection{Completion Notation and Entropy Debt}
 
 The canonical branch requires distinct residual and completed dark ledgers.
 Their definitions, together with the entropy-debt variable, are given by
 \begin{equation}
 \label{eq:cosmology-dark-ledger}
- \cdarkres=\frac{834433}{362670},
- \qquad
- \cdarkcomp=\cdarkres+1=\frac{1197103}{362670},
- \qquad
- \DeltaMod=\frac{\cdarkcomp}{24}
- =\frac{1197103}{8704080}.
+ \begin{aligned}
+ \cdarkres&\equiv\frac{834433}{362670}
+ \simeq2.300805139659,\\
+ \cdarkcomp&\equiv\cdarkres+1=\frac{1197103}{362670}
+ \simeq3.300805139659,\\
+ \DeltaMod&\equiv\frac{\cdarkcomp}{24}
+ =\frac{1197103}{8704080}\simeq0.137533547486.
+ \end{aligned}
 \end{equation}
 The residual quantity \(\cdarkres\) is the modular closure residue, whereas
 \(\cdarkcomp\) is the finite-screen completion entering the Noether bridge and
 the entropy debt.  Appendix~\ref{app:coset-anomaly-extractions},
-Eq.~\eqref{eq:dark-completion-fraction}, gives the completed ledger from the
-coset subtraction, while Appendix~\ref{app:center-directed-modular-framing}
+Eq.~\eqref{eq:dark-completion-fraction}, verifies the unit difference between
+the two ledgers, while Appendix~\ref{app:center-directed-modular-framing}
 fixes the parent-level arithmetic used by both ledgers.  These definitions are
 used throughout.
 
@@ -2920,10 +3045,15 @@ saturated bit capacity is
  \qquad
  \Lholo=1.08913883\times10^{-52}\ \mathrm{m}^{-2},
  \qquad
- \Nsat=3.312593327986\times10^{122}.
+ \Nsat\simeq3.311997720142366\times10^{122}.
 \end{equation}
 This finite number is not a density parameter.  It is the total horizon
 register against which the observer-frame loading process is charged.
+The native value supersedes the earlier Python-only fallback
+\(3.312593327986\times10^{122}\), a change of approximately
+\(-0.0179801\%\).  Table~\ref{tab:lightcone-entropy-debt} uses the native
+value throughout.  Its effect on the separate neutrino normalization is
+checked in Eq.~\eqref{eq:native-neutrino-normalization-check}.
 
 Let \(N_{\text{load}}(z)\) be the number of horizon bits actively loaded by the
 past-light-cone sample at redshift \(z\).  The dimensionless loading fraction
@@ -3040,8 +3170,8 @@ The Noether bridge construction uses the completed ledger to evaluate
  -\frac{d\ln\cdarkcomp}{dt}-2\frac{d\ln M_P}{dt}.
 \end{equation}
 On the fixed branch both logarithmic derivatives vanish, so the Bianchi
-stationarity check gives \(\dot G/G=0\).  The same branch verifies the
-unity-of-scale identity.  The retained \(D_5\) cell factor \(\kappad\) entering
+stationarity check gives \(\dot G/G=0\).  The same branch is intended to
+satisfy the unity-of-scale matching relations.  The retained \(D_5\) cell factor \(\kappad\) entering
 this identity is defined in Appendix~\ref{app:boundary-measure-quantum-dimensions},
 Eq.~\eqref{eq:kappa-d5-measure}, and the neutrino eigenvalues used for the
 normal hierarchy are listed in
@@ -3064,54 +3194,73 @@ The Newton-lock identities above remain analytic fixed-branch consequences.
 \toprule
 Physical operator or observable & Mathematical definition & Theoretical value & Closure condition \\
 \midrule
-Completed ledger & $\cdarkcomp=\cdarkres+1$ & $1197103/362670=3.300805139659$ & exact rational closure \\
+Completed ledger & $\cdarkcomp=\cdarkres+1$ & $1197103/362670\simeq3.300805139659$ & exact rational closure \\
 Entropy debt & $\DeltaMod=\cdarkcomp/24$ & $0.137533547486$ & fixed by ledger \\
 $D_5$ cell measure & $\kappad$ & $0.988769793998$ & retained boundary measure \\
 Holographic curvature & $\Lholo$ & $1.08913883\times10^{-52}\ \mathrm{m}^{-2}$ & fixed screen \\
-Horizon register & $N(\Lholo)=3\pi/(\Lp^2\Lholo)$ & $3.312593327986\times10^{122}$ & finite saturation \\
+Horizon register & $N(\Lholo)=3\pi/(\Lp^2\Lholo)$ & $3.311997720142366\times10^{122}$ & native register output \\
 CMB intercept & $H_0^{\text{CMB}}$ & $67.4\,\kmsmpc$ & early-time anchor \\
-Neutrino floor & $m_{\nu,1}=\kappad M_P N^{-1/4}$ & $2.829630635353\times10^{-3}\ \mathrm{eV}$ & unity of scale \\
-Normal mass sum & $\Sigma_{\nu}^{\text{NH}}$ & $61.8\ \mathrm{meV}$ & lower-tension branch \\
-Inverted mass sum & $\Sigma_{\nu}^{\text{IH}}$ & $103\ \mathrm{meV}$ & comparison branch \\
+Neutrino floor & $m_{\nu,1}^{\text{out}}$ & $2.829630635353\times10^{-3}\ \mathrm{eV}$ & reported; normalization check pending \\
+Normal mass sum & $\Sigma_{\nu}^{\text{NH}}$ & $61.965396\ \mathrm{meV}$ & reported normal-ordering output \\
+Inverted mass sum & $\Sigma_{\nu}^{\text{IH}}$ & $103.723086\ \mathrm{meV}$ & reported comparison output \\
 \bottomrule
 \end{tabular}
-\caption{Completed-ledger observables, theoretical values, and Noether-bridge closure conditions.}
+\caption{Completed-ledger observables and Noether-bridge matching conditions.
+The native register and reported neutrino floor must be distinguished:
+Eq.~\eqref{eq:native-neutrino-normalization-check} gives their normalization
+discrepancy with the stated constants.}
 \label{tab:noether-bridge-audit}
 \end{table}
 
 \subsection{Neutrino Hierarchy Lock}
 
-The same completed cosmological closure fixes the neutrino floor before the Hubble
-loading law is applied.  The lightest normal eigenstate is not a fit parameter:
-it is the finite-register quarter-root scale weighted by the retained
-\(D_5\) boundary-cell measure,
+The proposed finite-register matching relation assigns a neutrino floor to
+the quarter-root register scale weighted by the retained \(D_5\)
+boundary-cell measure:
 \begin{equation}
 \label{eq:neutrino-floor-from-register}
  \boxed{
- m_{\nu,1}
+ m_{\nu,1}^{\text{reg}}
  =
  \kappad M_P\Nsat^{-1/4}.
  }
 \end{equation}
-Substituting the canonical values gives
+Substituting the native register value and the stated constants gives
 \begin{align}
 \label{eq:neutrino-floor-numeric-substitution}
- m_{\nu,1}
+ m_{\nu,1}^{\text{reg}}
  &=
  0.988769793998
  \left(1.220890146939\times10^{28}\ \mathrm{eV}\right)
- \left(3.312593327986\times10^{122}\right)^{-1/4}
+ \left(3.311997720142366\times10^{122}\right)^{-1/4}
  \notag\\
- &=
- 2.829630635353\times10^{-3}\ \mathrm{eV}.
+ &\simeq
+ 2.829757842307\times10^{-3}\ \mathrm{eV}.
 \end{align}
-The oscillation splittings then convert the boundary floor into absolute
-propagation eigenstates:
+The native report nevertheless retains the same lightest mass as the earlier
+Python-only report.  With no rescaling of \(\kappad\) or \(M_P\), the
+two values differ:
+\begin{equation}
+\label{eq:native-neutrino-normalization-check}
+ \begin{aligned}
+ m_{\nu,1}^{\text{out}}
+ &=2.829630635353\times10^{-3}\,\mathrm{eV},\\
+ \frac{m_{\nu,1}^{\text{reg}}}{m_{\nu,1}^{\text{out}}}-1
+ &\simeq4.4955321\times10^{-5}.
+ \end{aligned}
+\end{equation}
+The earlier register value reproduces the reported floor to the precision
+of the quoted constants, but the native substitution does not.  The
+\(0.00449553\%\) discrepancy is an unresolved normalization check, not
+a reason to introduce a fitted compensating factor.  The eigenstates and
+sums below reproduce the native output: in these formulas,
+\(m_{\nu,1}\) denotes \(m_{\nu,1}^{\text{out}}\).
+The oscillation-splitting inputs used for that comparison are
 \begin{equation}
 \label{eq:neutrino-oscillation-splittings}
- \Delta m_{21}^2\simeq7.4\times10^{-5}\ \mathrm{eV}^2,
+ \Delta m_{21}^2=7.4\times10^{-5}\ \mathrm{eV}^2,
  \qquad
- \Delta m_{31}^2\simeq2.5\times10^{-3}\ \mathrm{eV}^2.
+ |\Delta m_{31}^2|=2.5\times10^{-3}\ \mathrm{eV}^2.
 \end{equation}
 For the normal hierarchy,
 \begin{align}
@@ -3119,12 +3268,11 @@ For the normal hierarchy,
  m_{\nu,2}^{\text{NH}}
  &=
  \sqrt{m_{\nu,1}^2+\Delta m_{21}^2}
- \simeq8.92\times10^{-3}\ \mathrm{eV},
- &
+ \simeq9.055761124\times10^{-3}\ \mathrm{eV},\\
  m_{\nu,3}^{\text{NH}}
  &=
  \sqrt{m_{\nu,1}^2+\Delta m_{31}^2}
- \simeq5.01\times10^{-2}\ \mathrm{eV}.
+ \simeq5.008000409\times10^{-2}\ \mathrm{eV}.\notag
 \end{align}
 The normal-ordering sum is therefore
 \begin{equation}
@@ -3134,21 +3282,24 @@ The normal-ordering sum is therefore
  m_{\nu,1}^{\text{NH}}
  +m_{\nu,2}^{\text{NH}}
  +m_{\nu,3}^{\text{NH}}
- =
- 61.8\ \mathrm{meV}.
+ \simeq
+ 61.965396\ \mathrm{meV}
+ \simeq61.97\ \mathrm{meV}.
 \end{equation}
 For the inverted hierarchy, the finite-register floor is assigned to the
-lightest third eigenstate,
-\begin{equation}
+lightest third eigenstate.  The comparison uses the same atmospheric-gap
+magnitude in Eq.~\eqref{eq:neutrino-oscillation-splittings}:
+\begin{align}
 \label{eq:inverted-hierarchy-eigenstates}
  m_{\nu,3}^{\text{IH}}
- =
- 2.829630635353\times10^{-3}\ \mathrm{eV},
- \qquad
- m_{\nu,1}^{\text{IH}}\simeq4.87\times10^{-2}\ \mathrm{eV},
- \qquad
- m_{\nu,2}^{\text{IH}}\simeq4.95\times10^{-2}\ \mathrm{eV},
-\end{equation}
+ &=2.829630635353\times10^{-3}\ \mathrm{eV},\notag\\
+ m_{\nu,1}^{\text{IH}}
+ &=\sqrt{(m_{\nu,3}^{\text{IH}})^2+|\Delta m_{31}^2|}
+ \simeq5.008000409\times10^{-2}\ \mathrm{eV},\\
+ m_{\nu,2}^{\text{IH}}
+ &=\sqrt{(m_{\nu,3}^{\text{IH}})^2+|\Delta m_{31}^2|+\Delta m_{21}^2}
+ \simeq5.081345107\times10^{-2}\ \mathrm{eV}.\notag
+\end{align}
 so that
 \begin{equation}
 \label{eq:inverted-hierarchy-sum}
@@ -3156,48 +3307,49 @@ so that
  =
  m_{\nu,3}^{\text{IH}}
  +
- \sqrt{(m_{\nu,3}^{\text{IH}})^2+|\Delta m_{32}^2|}
+ \sqrt{(m_{\nu,3}^{\text{IH}})^2+|\Delta m_{31}^2|}
  +
- \sqrt{(m_{\nu,3}^{\text{IH}})^2+|\Delta m_{32}^2|+\Delta m_{21}^2}
- =
- 103\ \mathrm{meV}.
+ \sqrt{(m_{\nu,3}^{\text{IH}})^2+|\Delta m_{31}^2|+\Delta m_{21}^2}
+ \simeq
+ 103.723086\ \mathrm{meV}.
 \end{equation}
-The hierarchy statistic is the normalized pull of each derived sum against the
+A hierarchy statistic would compare each derived sum with a specified
 cosmological mass-sum likelihood:
 \begin{equation}
 \label{eq:neutrino-tension-sigma}
  \sigma_{\text{tens}}^{\text{NH}}
- =
+ \equiv
  \frac{\Delta\Sigma_{\nu}^{\text{NH}}}
- {\sigma_{\Sigma}^{\text{NH}}}
- =
- 1.68,
+ {\sigma_{\Sigma}^{\text{NH}}},
  \qquad
  \sigma_{\text{tens}}^{\text{IH}}
- =
+ \equiv
  \frac{\Delta\Sigma_{\nu}^{\text{IH}}}
- {\sigma_{\Sigma}^{\text{IH}}}
- =
- 2.80.
+ {\sigma_{\Sigma}^{\text{IH}}}.
 \end{equation}
-Thus the normal ordering is the lower-tension finite-register completion.  The
-explicit eigenstate ledger is shown in Table~\ref{tab:neutrino-hierarchy-audit}.
+The supplied output contains neither this likelihood nor updated pull values.
+Consequently no numerical hierarchy preference is inferred from this run.
+Table~\ref{tab:neutrino-hierarchy-audit} uses the computed eigenvalue arrays and
+sums; the separate legacy display fields in the report are not used as
+numerical results.
 
 \begin{table}[htbp]
 \centering
 \small
-\begin{tabular}{@{}L{0.24\linewidth}L{0.28\linewidth}L{0.19\linewidth}L{0.19\linewidth}@{}}
+\begin{tabularx}{\linewidth}{@{}L{0.21\linewidth}Yrr@{}}
 \toprule
-Physical observable & Mathematical definition & Normal hierarchy & Inverted hierarchy \\
+Physical observable & Eigenstate or definition & Normal (meV) & Inverted (meV) \\
 \midrule
-Floor eigenstate & $\kappad M_P\Nsat^{-1/4}$ & \(m_1=2.83\times10^{-3}\ \mathrm{eV}\) & \(m_3=2.83\times10^{-3}\ \mathrm{eV}\) \\
-Second eigenstate & oscillation-splitting lift & \(m_2=8.92\times10^{-3}\ \mathrm{eV}\) & \(m_1=4.87\times10^{-2}\ \mathrm{eV}\) \\
-Third eigenstate & oscillation-splitting lift & \(m_3=5.01\times10^{-2}\ \mathrm{eV}\) & \(m_2=4.95\times10^{-2}\ \mathrm{eV}\) \\
-Mass sum & $\Sigma_\nu=\sum_i m_{\nu,i}$ & \(61.8\ \mathrm{meV}\) & \(103\ \mathrm{meV}\) \\
-Likelihood pull & $\Delta\Sigma_\nu/\sigma_\Sigma$ & \(1.68\sigma\) & \(2.80\sigma\) \\
+Floor eigenstate & \(m_1^{\text{NH}}\), \(m_3^{\text{IH}}\) & 2.829631 & 2.829631 \\
+Middle eigenstate & \(m_2^{\text{NH}}\), \(m_1^{\text{IH}}\) & 9.055761 & 50.080004 \\
+Heaviest eigenstate & \(m_3^{\text{NH}}\), \(m_2^{\text{IH}}\) & 50.080004 & 50.813451 \\
+Mass sum & \(\Sigma_\nu=\sum_i m_{\nu,i}\) & 61.965396 & 103.723086 \\
 \bottomrule
-\end{tabular}
-\caption{Neutrino propagation eigenstates, mass sums, and hierarchy likelihood pulls.}
+\end{tabularx}
+\caption{Neutrino benchmark outputs from the supplied
+\pyvar{neutrino_hierarchy} record, converted from eV to meV and rounded after
+evaluation.  These conditional mass predictions use the stated oscillation
+splittings; the run does not evaluate hierarchy likelihood pulls.}
 \label{tab:neutrino-hierarchy-audit}
 \end{table}
 
@@ -3271,7 +3423,7 @@ The clock-skew cosmology is built from the entropy-debt uplift
 For the canonical branch this gives
 \begin{align}
 \label{eq:local-hubble-uplift}
- \DeltaMod&=0.137533547486,
+ \DeltaMod&\simeq0.137533547486,
  &
  \exp(\DeltaMod/2)&=1.071186351229,\\
  \hloc&=72.197960072861\,\kmsmpc.
@@ -3332,15 +3484,18 @@ Table~\ref{tab:precision-redshift-ladder}.
 \toprule
 \(z\) & Loading term \([\kmsmpc]\) & \(H_0(z)\ [\kmsmpc]\) \\
 \midrule
-0.0 & 4.797960072861 & 72.197960072861 \\
-0.5 & 3.198640048574 & 70.598640048574 \\
-1.0 & 2.398980036431 & 69.798980036431 \\
-2.0 & 1.599320024287 & 68.999320024287 \\
-10.0 & 0.436178188442 & 67.836178188442 \\
-1100.0 & 0.004357820230 & 67.404357820230 \\
+0.0 & 4.797960 & 72.197960 \\
+0.5 & 3.198640 & 70.598640 \\
+1.0 & 2.398980 & 69.798980 \\
+2.0 & 1.599320 & 68.999320 \\
+10.0 & 0.436178 & 67.836178 \\
+1100.0 & 0.004358 & 67.404358 \\
 \bottomrule
 \end{tabular}
-\caption{Redshift-ladder values implied by the observer-frame Hubble loading law.}
+\caption{Conditional observer-frame Hubble-loading predictions, rounded from
+the supplied \pyvar{redshift_ladder} record.  The run uses
+\(\hcmb=67.4\,\kmsmpc\); the displayed digits indicate numerical rounding,
+not observational precision.}
 \label{tab:precision-redshift-ladder}
 \end{table}
 
@@ -3459,11 +3614,14 @@ Table~\ref{tab:growth-suppression-audit}.
 \toprule
 \(z\) & \((f\sigma_8)_{\lcdm}\) & \((f\sigma_8)_{\text{SHBT}}\) & Kinematic suppression \\
 \midrule
-0.5 & 0.475 & 0.428 & \(-9.8\%\) \\
-0.8 & 0.453 & 0.415 & \(-8.4\%\) \\
+0.5 & 0.474947 & 0.428313 & \(-9.8188\%\) \\
+0.8 & 0.453095 & 0.414899 & \(-8.4300\%\) \\
 \bottomrule
 \end{tabular}
-\caption{Structure-growth suppression induced by the loaded background friction term.}
+\caption{Conditional structure-growth predictions from the supplied
+\pyvar{growth_suppression} record.  Percentages are evaluated from the
+unrounded outputs, not from the displayed rounded amplitudes.  Passing the
+reported software test is not an observational detection of suppression.}
 \label{tab:growth-suppression-audit}
 \end{table}
 
@@ -3509,12 +3667,16 @@ spherical top-hat model supplies the linear threshold \(\delta_c(z)\) from
 \(\sigma_M^{\lcdm}\) & \(\sigma_M^{\text{SHBT}}\) & \(\nu_{\text{SHBT}}\) &
 Abundance ratio \\
 \midrule
-0.0 & 1.6760 & 1.6733 & 0.6000 & 0.5601 & 2.9873 & \(6.10\times10^{-1}\) \\
-0.5 & 1.6821 & 1.6799 & 0.4614 & 0.4378 & 3.8370 & \(5.15\times10^{-1}\) \\
-1.0 & 1.6844 & 1.6826 & 0.3641 & 0.3492 & 4.8186 & \(4.21\times10^{-1}\) \\
+0.0 & 1.675988 & 1.673300 & 0.600000 & 0.560127 & 2.987360 & 0.610365 \\
+0.5 & 1.682196 & 1.679900 & 0.461353 & 0.437824 & 3.836927 & 0.515529 \\
+1.0 & 1.684257 & 1.682600 & 0.364052 & 0.349197 & 4.818479 & 0.420489 \\
 \bottomrule
 \end{tabular}
-\caption{Cluster-collapse observables obtained from the shared loaded background and growth solution.}
+\caption{Cluster-collapse benchmark predictions from the supplied
+\pyvar{cluster_collapse} record.  The final column is
+\(n_{\text{SHBT}}/n_{\lcdm}\).  All entries are rounded from the reported
+outputs; their agreement with the log does not independently validate the
+calibrated collapse prescription.}
 \label{tab:cluster-collapse-audit}
 \end{table}
 
@@ -3534,15 +3696,18 @@ shown in Table~\ref{tab:lightcone-entropy-debt}.
 \toprule
 \(z\) & \(H_0(z)\) & \(H_{\text{SHBT}}(z)\) & \(\fload\) & \(S_{\text{debt}}\) [bits] \\
 \midrule
-0.0 & 72.1980 & 72.1980 & 0.000000 & \(0\) \\
-0.5 & 70.5986 & 93.3532 & 0.060044 & \(1.989003\times10^{121}\) \\
-1.0 & 69.7990 & 124.9846 & 0.082638 & \(2.737457\times10^{121}\) \\
-2.0 & 68.9993 & 209.2553 & 0.098010 & \(3.246671\times10^{121}\) \\
-10.0 & 67.8362 & 1392.3727 & 0.107059 & \(3.546445\times10^{121}\) \\
-1100.0 & 67.4044 & \(1.5887954471\times10^{6}\) & 0.107436 & \(3.558913\times10^{121}\) \\
+0.0 & 72.197960 & 72.197960 & 0.000000 & \(0\) \\
+0.5 & 70.598640 & 93.353155 & 0.060044 & \(1.988645\times10^{121}\) \\
+1.0 & 69.798980 & 124.984619 & 0.082638 & \(2.736965\times10^{121}\) \\
+2.0 & 68.999320 & 209.255270 & 0.098010 & \(3.246087\times10^{121}\) \\
+10.0 & 67.836178 & 1392.372681 & 0.107059 & \(3.545807\times10^{121}\) \\
+1100.0 & 67.404358 & \(1.588795\times10^{6}\) & 0.107436 & \(3.558273\times10^{121}\) \\
 \bottomrule
 \end{tabular}
-\caption{Information-theoretic past-light-cone loading and entropy-debt ledger.}
+\caption{Numerical past-light-cone loading and entropy-debt ledger from
+\pyvar{lightcone_entropy_debt}.  Both Hubble columns use \(\kmsmpc\);
+\(\fload\) is dimensionless and \(S_{\text{debt}}\) is in bits.  These are
+model outputs for the reported finite-register input, not measured entropies.}
 \label{tab:lightcone-entropy-debt}
 \end{table}
 
@@ -3616,13 +3781,16 @@ of the ISW stability table.
 \toprule
 \(z\) & \(\Delta(\dot H/H^2)\) & SHBT \(\dot H/H^2\) \\
 \midrule
-10.0 & \(-0.012860\) & \(-1.512860\) \\
-50.0 & \(-0.002788\) & \(-1.502788\) \\
-100.0 & \(-0.001409\) & \(-1.501409\) \\
-1100.0 & \(-0.000129\) & \(-1.500129\) \\
+10.0 & \(-0.012859751\) & \(-1.512859751\) \\
+50.0 & \(-0.002787730\) & \(-1.502787730\) \\
+100.0 & \(-0.001408638\) & \(-1.501408638\) \\
+1100.0 & \(-0.000129304\) & \(-1.500129304\) \\
 \bottomrule
 \end{tabular}
-\caption{Matter-era ISW residual generated by the observer-frame clock drift.}
+\caption{Dimensionless matter-era ISW residual benchmark from
+\pyvar{isw_stability}, including its extrapolated recombination row.  The
+columns reproduce the reported diagnostic, rather than a full radiation-era
+transfer-function calculation or an observed ISW measurement.}
 \label{tab:isw-stability-audit}
 \end{table}
 
@@ -3708,7 +3876,10 @@ background parameters entering this check, so
  \nu=N_{\text{data}}-N_{\text{params}}=32-3=29.
 \end{equation}
 For the benchmark covariance entry,
-\(\chi^2=30.16\), \(\nu=29\), and \(\chi^2_\nu=1.04\).  Thus
+the supplied report records \(\chi^2=30.16\), \(\nu=29\), and
+\(\chi^2_\nu=1.04\).  The observational vector and covariance matrix are
+not included in that artifact, so this is a reported statistic rather than
+an independently recomputed fit.  Its arithmetic normalization is
 \begin{equation}
 \label{eq:chronometer-reduced-chi-square}
  \boxed{
@@ -3736,7 +3907,9 @@ Total chi-square \(\chi^2\) & \(30.16\) \\
 Reduced chi-square \(\chi^2_{\nu}\) & \(1.04\) \\
 \bottomrule
 \end{tabular}
-\caption{Cosmic chronometer covariance statistics for the loaded SHBT background.}
+\caption{Reported cosmic-chronometer benchmark statistics for the loaded
+SHBT background.  Independent likelihood validation requires the underlying
+data vector and covariance matrix.}
 \label{tab:chronometer-validation-audit}
 \end{table}
 
@@ -3752,22 +3925,27 @@ because \(\GammaLock>0\) and \(\Nsat>0\), every sampled \(z\ge0\) has
 \small
 \begin{tabular}{@{}L{0.36\linewidth}L{0.34\linewidth}L{0.18\linewidth}@{}}
 \toprule
-Physical observable & Theoretical value & Closure status \\
+Physical observable & Reported value or target & Evidence status \\
 \midrule
-Local uplift & \(72.197960072861\,\kmsmpc\) & satisfied \\
-Gradient target & \(4.797960072861\,\kmsmpc\) & satisfied \\
-CPL template & \(w_0=-1.065,\; w_a=-0.066\) & satisfied \\
-BBN loading shift & \(4.797960068064\times10^{-9}\,\kmsmpc\) & negligible \\
-Shift over radiation-era \(H(z_{\text{BBN}})\) & \(7.421690135465\times10^{-27}\) & negligible \\
-Chronometer validation & \(\chi^2/\nu=30.16/29,\; \chi^2_{\nu}=1.04\) & satisfied \\
-Forecast \(\chi^2\) sensitivity & rigid \(\lcdm=35.78\), SHBT \(=0.08\) & forecast \\
-Projected \(\Delta\mathrm{BIC}\) sensitivity & \(+35.70\) vs rigid intercept & forecast \\
-Cosmic age & \(13.277\ \mathrm{Gyr}\) for SHBT branch & derived \\
-Thermodynamic arrow & \(dS_{\text{total}}/dt_{\text{lc}}>0\) for sampled \(z\ge0\) & satisfied \\
-Overall precision closure & all listed conditions closed & satisfied \\
+Local uplift & \(72.197960\,\kmsmpc\) & model output \\
+Gradient target & \(4.797960\,\kmsmpc\) & model output \\
+CPL template & \(w_0=-1.064677,\; w_a=-0.065814\) & prediction \\
+BBN loading shift & \(4.797960\times10^{-9}\,\kmsmpc\) & numerical diagnostic \\
+Shift over radiation-era \(H(z_{\text{BBN}})\) & \(7.421690\times10^{-27}\) & numerical diagnostic \\
+Chronometer statistic & \(\chi^2/\nu=30.16/29,\; \chi^2_{\nu}=1.04\) & reported statistic \\
+Forecast \(\chi^2\) sensitivity & rigid \(\lcdm=35.784815\), SHBT \(=0.083375\) & forecast \\
+Projected \(\Delta\mathrm{BIC}\) sensitivity & \(+35.701440\) vs rigid intercept & forecast \\
+Cosmic age & \(13.276617\ \mathrm{Gyr}\) & model output \\
+Thermodynamic arrow & \(dS_{\text{total}}/dt_{\text{lc}}>0\) for sampled \(z\ge0\) & reported sample pass \\
+Overall precision audit & \(\mathrm{PASS}\) & reported Python audit \\
+Foundation audit & available; completed & reported native execution \\
 \bottomrule
 \end{tabular}
-\caption{Summary of precision-cosmology observables and closure conditions.}
+\caption{Summary reconciled with \pyvar{summary_table_17}; foundation
+availability is taken separately from \pyvar{foundation_audit}.  A reported
+precision-audit pass and completed native foundation run record execution
+status; they do not by themselves prove the microscopic CFT realization or
+establish an observational detection.}
 \label{tab:precision-summary-audit}
 \end{table}
 
@@ -4065,10 +4243,9 @@ dominant transient relative to the $142.08\,$MW benchmark.
 \label{sec:superconformal-stabilization}
 
 The heavy seed must be stable under holographic renormalization-group flow
-from the high-redshift boundary to the late-time bulk.  Stability is enforced
-by the superconformal three-point function in the Neveu-Schwarz sector.  In the
-Landau-Ginzburg realization of the boundary CFT the even-spin coupling takes
-the form
+from the high-redshift boundary to the late-time bulk.  Stability is imposed
+as a stationarity condition on a proposed Neveu-Schwarz seed coupling.  The
+even-spin ansatz used in this manuscript is
 \begin{equation}
 \label{eq:c-even-three-point}
 \begin{aligned}
@@ -4101,16 +4278,42 @@ stationary eigenvector of the RG flow:
 \label{eq:newton-lock-stationarity}
 \frac{\partial}{\partial\tau}\,\ln C_{\text{even/odd}} = 0.
 \end{equation}
-Equation~\eqref{eq:newton-lock-stationarity} fixes the residue of the ghost
-seed to a constant along the flow, preventing any secular drift in
-$M_{\text{seed}}$.  Combined with the completed central-charge ledger
-$\cdarkcomp$ and the zero-framing condition $\Delta_{\text{fr}}=0$ from
-Section~\ref{sec:modular_framing_proof}, the Noether bridge therefore pins
-the primordial seed as a superconformally stable, passive gravitational
-source.
+If Eq.~\eqref{eq:newton-lock-stationarity} is established for a specified
+operator family, it fixes the seed coupling along the flow.  The canonical
+center-lift calculation itself establishes only the arithmetic framing
+condition:
+\begin{equation}
+\label{eq:seed-center-lift-arithmetic}
+ \begin{aligned}
+ I_\ell^*&=\frac{312}{2\times26}=6,
+ &I_q^*&=\frac{312}{3\times8}=13,\\
+ \Deltafr(312,26,8)&=\max(\|6\|_{\mathbb Z},\|13\|_{\mathbb Z})=0.
+ \end{aligned}
+\end{equation}
+Adopting the additional parameter identification
+\(b^{-2}=I_\ell^*+I_q^*\) from the specification gives
+\begin{equation}
+\label{eq:seed-proposed-coupling-identification}
+ b=\frac{1}{\sqrt{19}},\qquad Q=\frac{20}{\sqrt{19}},
+ \qquad bQ=\frac{20}{19}.
+\end{equation}
+This identification is an additional model prescription.  The integer-lift
+arithmetic does not specify the individual \(\alpha_i\), impose
+\(\sum_i\alpha_i=20/19\), or determine their RG derivatives.  Those
+operator constraints are needed before a vanishing exponent or full
+coupling stationarity can be inferred.
 
-The resulting cosmological sector closes without an independent late-time
-fluid.  The Hubble uplift, growth suppression,
+The native \pyvar{stability_audit} reports
+\pyvar{stationarity_passed=true}, \pyvar{thermal_flux_passed=true}, and
+\pyvar{d_ln_C_even_dz=0.0}, \pyvar{d_ln_C_odd_dz=0.0}.
+These are successful reported benchmark diagnostics with respect to
+redshift.  The transcript does not supply the differentiated functions,
+operator trajectories, or their relation to the RG parameter \(\tau\).
+It therefore does not turn the center-lift arithmetic into a first-principles
+proof of Eq.~\eqref{eq:newton-lock-stationarity}.
+
+Under the proposed matching conditions, the cosmological sector is intended
+to close without an independent late-time fluid.  The Hubble uplift, growth suppression,
 CPL mirage, cluster-collapse abundance ratios, dark-matter abundance, ISW
 stability, entropy arrow, GET measurement rule, heavy seed formation, and
 superconformal seed stabilization are observer-frame projections of the finite
@@ -4531,7 +4734,7 @@ Parasitic capacitive cross-talk & \(<0.05\,\mathrm{zJ}\) per burst & Coupling be
 Microwave drive heating & \(<0.10\,\mathrm{zJ}\) per burst & Direct absorption from \(6.5\,\mathrm{GHz}\) readout photons & Spatial isolation \(>500\,\mu\mathrm{m}\) plus bandpass filters \\
 Amplifier back-action & \(<0.02\,\mathrm{zJ}\) per burst & Josephson or HEMT noise returning along the readout line & Dual junction isolators with \(>45\,\mathrm{dB}\) isolation at \(6.5\,\mathrm{GHz}\) \\
 NIS-lead thermal conductance & \(<0.01\,\mathrm{zJ}\) per burst & Heat leakage through normal-metal thermometer leads & \(100\times100\,\mathrm{nm}^2\) junctions with high \(R_N\) \\
-Total systematic noise floor & \(\mathbf{\pm0.18\,\mathrm{zJ}}\) per burst & Combined thermal uncertainty limit & Below the \(6.699\,\mathrm{zJ}\) one-bit SHBT step \\
+Engineering noise allowance & \(\simeq0.18017\,\mathrm{zJ}\) per burst & Safety-scaled design budget & Conditional on the noise model in Section~\ref{sec:cryo_noise_budget} \\
 \bottomrule
 \end{tabularx}
 \caption{Systematic-error attenuation budget for address-scaled calorimetry.}
@@ -4616,7 +4819,7 @@ Metric or parameter & Null-model \(H_0\) target & SHBT \(H_1\) target & Selectio
 \midrule
 Direct slope \(\widehat{\alpha}\) & \(0\,\mathrm{zJ/bit}\) & \(6.6990\,\mathrm{zJ/bit}\) & Reject \(H_0\) at \(\ge5\sigma\), \(p<10^{-6}\) \\
 Normalized slope \(\beta_1\) & \(0.000\pm0.010\) & \(1.000\pm0.010\) & Requires consistency with the selected model \\
-Intercept \(\beta_0\) & \(6.699\,\mathrm{zJ}\) & \(0.000\pm0.180\,\mathrm{zJ}\) after baseline subtraction & Diagnoses parasitic drive heating \\
+Intercept \(\beta_0\) & \(6.699\,\mathrm{zJ}\) & \(0.000\pm0.18017\,\mathrm{zJ}\) design allowance after baseline subtraction & Diagnoses parasitic drive heating \\
 Reduced chi-square \(\chi_\nu^2\) & \(\chi_\nu^2\gg1\) for SHBT-like data & \(1.00\pm0.05\) & Noise-consistent goodness of fit \\
 Akaike information criterion & \(\mathrm{AIC}_{H_0}\) baseline & \(\Delta\mathrm{AIC}=\mathrm{AIC}_{H_0}-\mathrm{AIC}_{H_1}>10\) & Decisive preference for \(H_1\) \\
 \bottomrule
@@ -4682,6 +4885,115 @@ same artificial ceiling provided the hardware remains functional.  A sharp,
 reproducible breakdown at \(C_{\text{op}}>C_{\text{local}}^{\text{exp}}\) therefore
 tests the finite-register postulate, while its absence falsifies this cutoff
 prediction even if a nonzero calorimetric slope were observed.
+
+\subsection{Cryogenic Nanocalorimetry Noise Budget at 7 mK}
+\label{sec:cryo_noise_budget}
+
+The noise budget distinguishes a single Landauer operation from the
+\(N_{\text{pulse}}=100{,}000\)-operation burst used in the measurement
+protocol.  At \(T=7.0\,\mathrm{mK}\),
+\begin{align}
+\label{eq:noise-budget-single-event}
+ E_L&=k_BT\ln2
+ =6.6989507\times10^{-26}\,\mathrm{J},\\
+\label{eq:noise-budget-burst-step}
+ \Delta Q_{\text{step}}&=N_{\text{pulse}}E_L
+ \simeq6.698951\,\mathrm{zJ}.
+\end{align}
+The burst heat slope is therefore
+\(N_{\text{pulse}}k_BT\ln2\simeq6.6990\,\mathrm{zJ/bit}\);
+the single-operation slope is
+\(k_BT\ln2\simeq6.69895\times10^{-5}\,\mathrm{zJ/bit}\).
+These are different measurement normalizations of the same proposed
+address-dependent contribution.
+
+For the equilibrium-fluctuation model and absorber heat capacity
+\(C_e=4.90\times10^{-21}\,\mathrm{J\,K^{-1}}\) used here, the
+thermal energy standard deviation is
+\begin{align}
+\label{eq:noise-budget-thermal-fluctuation}
+ \Delta E_{\text{th}}
+ &=\sqrt{k_BT^2C_e}\notag\\
+ &=\sqrt{(1.380649\times10^{-23})(0.0070)^2
+          (4.90\times10^{-21})}\,\mathrm{J}\notag\\
+ &\simeq1.8206972\times10^{-24}\,\mathrm{J}
+ \simeq0.0018207\,\mathrm{zJ}.
+\end{align}
+This equilibrium quantity is not, by itself, the uncertainty of the
+finite-duration heat estimator.  Relating the two requires the thermal and
+readout transfer functions, integration window, and estimator calibration.
+
+For a provisional independent-noise model, interpret the channel allocations
+in Table~\ref{tab:noise_budget_7mk} as equivalent per-burst RMS contributions.
+Their quadrature sum is
+\begin{align}
+\label{eq:noise-budget-quadrature}
+ \Delta Q_{\text{total}}
+ &=\left[
+ (\Delta Q_{\text{SFQ}})^2+(\Delta Q_{\text{micro}})^2
+ +(\Delta Q_{\text{SQUID}})^2+(\Delta Q_{\text{lead}})^2
+ +(\Delta E_{\text{th}})^2\right]^{1/2}\notag\\
+ &\simeq\sqrt{0.050^2+0.100^2+0.020^2+0.010^2
+                  +0.0018207^2}\,\mathrm{zJ}\notag\\
+ &\simeq0.11403208\,\mathrm{zJ}.
+\end{align}
+Applying the specified engineering safety multiplier to the unrounded result
+defines the design allowance
+\begin{equation}
+\label{eq:noise-budget-design-allowance}
+ \Delta Q_{\text{bounded}}
+ \equiv1.58\,\Delta Q_{\text{total}}
+ \simeq0.18017068\,\mathrm{zJ}
+ \simeq0.18017\,\mathrm{zJ}.
+\end{equation}
+The label ``bounded'' denotes this engineering allowance, not a proven
+upper bound or a specified statistical confidence interval.  In particular,
+the unrounded allowance is slightly greater than \(0.18\,\mathrm{zJ}\).
+The multiplier \(1.58\) is an experimental design choice, not a constant
+derived from the canonical affine branch.
+
+\begin{table}[htbp]
+\centering
+\scriptsize
+\begin{tabularx}{\linewidth}{@{}L{0.26\linewidth}Yrr@{}}
+\toprule
+Noise channel or aggregate & Physical origin or combination &
+Energy (\(\mathrm{zJ}\)) & Squared energy (\(\mathrm{zJ}^2\)) \\
+\midrule
+SFQ logic switching & Clock cross-talk allocation & 0.05000 & 0.00250000 \\
+Microwave readout & Readout leakage allocation & 0.10000 & 0.01000000 \\
+SQUID back-action & Amplifier back-action allocation & 0.02000 & 0.00040000 \\
+Thermal leads & Lead-leakage allocation & 0.01000 & 0.00010000 \\
+Electron thermal fluctuation & Equilibrium absorber model & 0.0018207 & 0.000003315 \\
+\midrule
+Combined RMS total & Independent-channel quadrature & 0.114032 & 0.013003315 \\
+Safety-scaled allowance & \(1.58\times\) unrounded RMS total & 0.180171 & 0.032461476 \\
+\bottomrule
+\end{tabularx}
+\caption{Arithmetic audit of the proposed \(7\,\mathrm{mK}\) per-burst
+noise budget.  The first four entries are design allocations, not measured
+noise levels.  Squared entries are variances only under the stated RMS
+interpretation; the safety-scaled row is not an additional noise source.}
+\label{tab:noise_budget_7mk}
+\end{table}
+
+The corresponding design signal-to-noise ratios are
+\begin{equation}
+\label{eq:noise-budget-snr}
+ \frac{\Delta Q_{\text{step}}}{\Delta Q_{\text{total}}}
+ \simeq58.7,
+ \qquad
+ \frac{\Delta Q_{\text{step}}}{\Delta Q_{\text{bounded}}}
+ \simeq37.2.
+\end{equation}
+These ratios establish an arithmetic separation between the proposed signal
+and the allocated noise, conditional on the model.  They do not establish
+that a fabricated device attains those allocations.  For correlated noise,
+the combined variance instead includes
+\(2\sum_{i<j}\operatorname{Cov}(Q_i,Q_j)\); deterministic heat offsets
+must be calibrated separately rather than combined as independent random
+variances.  Device calibration and control runs are therefore required
+before claiming a measured noise bound or experimental signal resolution.
 
 \section{Closure Synthesis and Conclusions}
 \label{sec:closure-synthesis-conclusions}
@@ -4875,11 +5187,13 @@ crystallized image of that closed finite boundary information.
 \label{sec:code-availability}
 
 The reference implementation and audit scripts for the SHBT and precision
-cosmology calculations are maintained in the GitHub repository\footnote{Immutable release tag:
+cosmology calculations are maintained in the GitHub repository\footnote{Named release tag:
 \url{https://github.com/sys1own/shbt-precision/releases/tag/v1.0.0};
 \texttt{commit-sha: main@head}.}.
-Reproducibility is tied to the tagged repository release accompanying the
-published analysis.  The publication-critical entry points and their
+The tagged release is the intended reproduction target; the supplied run
+does not record an immutable commit or wheel identifier.  The branch-head
+marker in the repository footnote is not a commit hash.  The
+publication-critical entry points and their
 physical roles are summarized in Table~\ref{tab:code-availability}.  This
 section provides the implementation bridge for the theory developed in
 Sections~\ref{sec:introduction}--\ref{sec:closure-synthesis-conclusions}.
@@ -4912,6 +5226,190 @@ Software interface & Physical role and principal accessors \\
 \caption{Explicit physics-to-software bridge required to reproduce the paper-level closure tables.}
 \label{tab:code-availability}
 \end{table}
+
+\subsection{Reported Run Provenance and Output Crosswalk}
+\label{sec:reported-run-provenance}
+
+The primary numerical artifact is now \pyvar{codespace_audit.json}, supplied
+as the native Linux Codespace run.  Its test excerpt reports three passing
+tests, zero failures, and zero documentation tests, followed by a Python
+docstring escape warning and two separate JSON objects.  Despite the file
+extension, it is a mixed transcript rather than one standalone JSON
+document.  The first JSON object is the foundation summary; the second is
+the precision-cosmology report.  Its SHA-256 digest is
+\begin{center}
+\scriptsize
+\nolinkurl{5a8eefc28f4a8b13791268c629e8a91b5b27d715fbcf0d2d2e5ef54982deb301}
+\end{center}
+\begingroup
+\raggedright
+The precision report records \pyvar{foundation_audit.available=true},
+\pyvar{foundation_audit.method=run_full_audit},
+\pyvar{foundation_audit.status=completed}, and
+\pyvar{simulator_constants.simulator_available=true}.
+Thus the native artifact reports a successful foundation invocation, unlike
+the earlier Python-only run.  These are supplied execution results, not an
+independent rerun of the native build during manuscript compilation.
+\par
+\endgroup
+
+For comparison, the historical \pyvar{simulator_output.txt} records fourteen
+\pyvar{PrecisionCosmologyTests} tests in \(49.830\,\mathrm{s}\), with an
+\texttt{OK} summary.  That earlier artifact has SHA-256 digest
+\begin{center}
+\scriptsize
+\nolinkurl{73db22deb55747f4d4fe5adecc108fc11655ec79c1a057196f3685c9deffad1a}
+\end{center}
+Only that earlier artifact records
+\pyvar{foundation_audit.available=false},
+\pyvar{simulator_constants.simulator_available=false}, and the status
+\pyvar{shbt_simulator.ShbtSimulator not importable}.
+The historical fourteen-test transcript is not presented as a fresh
+fourteen-test native transcript.  Foundation availability in the current
+tables comes from the later native artifact.  The interfaces in
+Table~\ref{tab:code-availability} remain the implementation contract;
+the summary flags are not a complete per-method execution trace.
+
+The native foundation summary reports the branch \((26,8,312)\),
+\pyvar{framing_defect (delta_fr)=0.0},
+\pyvar{modular_invariant=true}, \pyvar{zero_energy_locked=true},
+\pyvar{projection_dimension_26_to_4=true},
+\pyvar{stress_energy_preserved=true},
+\pyvar{projection_all_passed=true}, and \pyvar{memory_all_passed=true}.
+The counts \pyvar{metric_slices=9} and \pyvar{history_entries=9} accompany
+\pyvar{eta_b=6.449923359416131e-10}.  Its
+\pyvar{central_charge_ledger} stores the residual, completed, and visible
+charges as numerator/denominator pairs; those exact pairs agree with the
+manuscript's rational ledgers.  The native
+\pyvar{Omega_DM_over_Omega_b=5.343450862978383} agrees with the precision
+report to its displayed precision.
+
+The native register \pyvar{N_sat_bits=3.311997720142366E+122} differs from
+the historical fallback \(3.312593327986\times10^{122}\).
+Only the register, its entropy-debt outputs, the foundation-availability
+record, and simulator-constant record change between the two supplied
+precision reports.  The unchanged neutrino floor is therefore reported
+separately from its native-register recomputation in
+Eq.~\eqref{eq:native-neutrino-normalization-check}.
+
+Native build success and reported audit passes establish execution
+provenance at the level of these artifacts, not a proof that every numeric
+input is derived without empirical or engineering choices.  For example,
+the report retains the CMB anchor and oscillation-splitting inputs, while
+\pyvar{stability_audit} lists \pyvar{seed_z_peak=7.5} and
+\pyvar{seed_sigma_z=0.801} without their derivations.  Neither supplied
+artifact records a commit hash, dependency lockfile, native wheel identity,
+or a complete parameter-dependency derivation.  Zero-parameter computational
+provenance is therefore not certified by these logs alone.
+
+Table~\ref{tab:reported-output-crosswalk} links the reconciled numerical
+results to exact keys in the native precision JSON.  In the field column, names
+refer to fields within the record in the middle column; array records are
+matched by their \pyvar{z} field.  These are dictionary mappings, not
+invented PyO3 methods.  Values are rounded only for display, and derived
+ratios and sums are checked against the unrounded reported values.
+
+\clearpage
+\begingroup
+\scriptsize
+\begin{longtable}{@{}L{0.24\linewidth}L{0.27\linewidth}L{0.40\linewidth}@{}}
+\caption{Reported-output crosswalk for the reconciled cosmology results.
+The mapping establishes traceability to the supplied artifact, not source-code
+execution coverage for every intermediate equation.}
+\label{tab:reported-output-crosswalk}\\
+\toprule
+Manuscript result & Top-level record or key & Exact output fields or related keys \\
+\midrule
+\endfirsthead
+\toprule
+Manuscript result & Top-level record or key & Exact output fields or related keys \\
+\midrule
+\endhead
+\midrule
+\multicolumn{3}{r}{Continued on the next page}\\
+\endfoot
+\bottomrule
+\endlastfoot
+Ledger, Eq.~\eqref{eq:cosmology-dark-ledger} &
+\pyvar{completed_ledger} &
+\pyvar{completed_ledger_decimal}, \pyvar{delta_mod}; the residual is
+checked arithmetically as the completed ledger minus one.\\
+Screen, Eq.~\eqref{eq:cosmology-finite-register} &
+\pyvar{N_sat_bits} & \pyvar{lambda_holo_si_m2}, with the native register
+also recorded in \pyvar{simulator_constants.n_sat}; source-level derivation
+is not included in the transcript.\\
+Neutrinos, Table~\ref{tab:neutrino-hierarchy-audit} &
+\pyvar{neutrino_hierarchy} &
+\pyvar{normal_masses_ev}, \pyvar{inverted_masses_ev},
+\pyvar{normal_sum_mev}, \pyvar{inverted_sum_mev}.\\
+Hubble law, Eq.~\eqref{eq:derived-hubble-loading-law},
+Table~\ref{tab:precision-redshift-ladder} & \pyvar{redshift_ladder} &
+\pyvar{loading_term_km_s_mpc}, \pyvar{h0_z_km_s_mpc}; top-level anchors
+\pyvar{h0_cmb_km_s_mpc}, \pyvar{A_H_km_s_mpc}.\\
+Growth, Eq.~\eqref{eq:growth-suppression-summary},
+Table~\ref{tab:growth-suppression-audit} & \pyvar{growth_suppression} &
+\pyvar{lcdm_fsigma8}, \pyvar{shbt_fsigma8}, \pyvar{suppression_fraction}.\\
+Cluster collapse, Table~\ref{tab:cluster-collapse-audit} &
+\pyvar{cluster_collapse} & \pyvar{lcdm_delta_c}, \pyvar{shbt_delta_c},
+\pyvar{lcdm_sigma_mass}, \pyvar{shbt_sigma_mass},
+\pyvar{shbt_peak_height}, \pyvar{abundance_ratio}.\\
+Entropy debt, Eq.~\eqref{eq:entropy-debt-definition},
+Table~\ref{tab:lightcone-entropy-debt} & \pyvar{lightcone_entropy_debt} &
+\pyvar{h0_z_km_s_mpc}, \pyvar{h_shbt_km_s_mpc},
+\pyvar{f_load}, \pyvar{S_debt_bits}.\\
+ISW, Eq.~\eqref{eq:isw-loading-residual},
+Table~\ref{tab:isw-stability-audit} & \pyvar{isw_stability} &
+\pyvar{delta_dotH_over_H2}, \pyvar{shbt_dotH_over_H2}.\\
+BBN, Eq.~\eqref{eq:bbn-loading-stability} & \pyvar{bbn_stability} &
+\pyvar{loading_shift_km_s_mpc}, \pyvar{delta_H_over_H_rad},
+\pyvar{radiation_hubble_km_s_mpc}, \pyvar{z_bbn}.\\
+Dark matter, Eqs.~\eqref{eq:dm-density}--\eqref{eq:dm-eos} &
+\pyvar{dark_matter} & \pyvar{abundance_ratio}, \pyvar{w_DM}; nested
+\pyvar{rows} contain \pyvar{rho_DM_kg_m3}, \pyvar{Omega_DM},
+\pyvar{Omega_b}, \pyvar{Omega_DM_over_Omega_b}.\\
+Precision summary, Table~\ref{tab:precision-summary-audit} &
+\pyvar{summary_table_17} & \pyvar{local_uplift_km_s_mpc},
+\pyvar{gradient_target_km_s_mpc}, \pyvar{cpl_template},
+\pyvar{bbn_loading_shift_km_s_mpc}, \pyvar{bbn_shift_over_H_rad},
+\pyvar{chronometer}, \pyvar{forecast_chi2_sensitivity},
+\pyvar{projected_delta_bic_sensitivity}, \pyvar{cosmic_age_gyr},
+\pyvar{thermodynamic_arrow}, \pyvar{overall_precision_audit}.\\
+Foundation coverage & \pyvar{foundation_audit} &
+\pyvar{available}, \pyvar{method}, \pyvar{status}; the native artifact
+reports availability and completed \pyvar{run_full_audit} execution.\\
+Native foundation summary & First JSON object &
+\pyvar{branch}, \pyvar{framing_defect (delta_fr)},
+\pyvar{modular_invariant}, \pyvar{zero_energy_locked},
+\pyvar{eta_b}, \pyvar{stress_energy_preserved},
+\pyvar{metric_slices}, \pyvar{history_entries},
+\pyvar{central_charge_ledger}, \pyvar{stability_audit}.\\
+\end{longtable}
+\endgroup
+
+The computed neutrino arrays and sums take precedence over the legacy
+\pyvar{paper_table_normal_sum_mev} and
+\pyvar{paper_table_inverted_sum_mev} display fields, which still contain
+\(61.8\) and \(103\), respectively.  Similarly, the cluster records report
+\pyvar{seed_mass_M_sun=0.0} at their sampled redshifts; their test pass is not
+evidence for the nonzero primordial-seed example in
+Section~\ref{sec:mass-congestion-seeds}.  The chronometer covariance data,
+neutrino likelihood, and a commit-pinned source snapshot are not present in
+the supplied artifact.
+
+The exact partial-fraction check validates
+Eq.~\eqref{eq:dark-fractional-ledger}; Appendix~\ref{app:dark-cft-criterion}
+separates this arithmetic proof from a conditional modular-pairing criterion.
+The native summary does not supply a dark-sector
+character basis or modular matrices, an operator-level Stinespring
+construction, or the missing link between integer center lifts and
+superconformal RG stationarity.  No output-to-method assignment is claimed
+for those missing calculations.  The calorimetric design budget in
+Section~\ref{sec:cryo_noise_budget} is a separate arithmetic calculation,
+not a result of either supplied test transcript.  Thus a complete
+equation-to-accessor audit and bidirectional executable synchronization
+remain distinct from the output-level reconciliation documented here.
+
+\subsection{Foundation Interfaces and Reproduction Commands}
 
 \begingroup
 \setlength{\rightskip}{0pt plus 3em}
@@ -5057,8 +5555,8 @@ The optional Python binding checks use
 \shellcmd{maturin build --release}.
 
 \appendix
-\section*{Appendices: Modular Framing and Quantum-Dimension Derivations}
-\addcontentsline{toc}{section}{Appendices: Modular Framing and Quantum-Dimension Derivations}
+\section*{Appendices: Modular Framing, Quantum Dimensions, and Dark-Sector Conditions}
+\addcontentsline{toc}{section}{Appendices: Modular Framing, Quantum Dimensions, and Dark-Sector Conditions}
 In the appendices, \(c_{\text{dark}}\) denotes the completed ledger
 \(\cdarkcomp\); the residual ledger is written explicitly as \(\cdarkres\).
 
@@ -5223,25 +5721,28 @@ dimensionless overlap to
 This is the retained quantum-dimension weight entering the topological
 Jarlskog residue and the finite-register neutrino scale.
 
-The corresponding normal-hierarchy eigenvalues are
+The reported normal-hierarchy eigenvalues are listed below.  They retain the
+native report's mass floor; the distinct mass obtained from the native
+register substitution is compared in
+Eq.~\eqref{eq:native-neutrino-normalization-check}.
 \begin{align}
 \label{eq:supplement-lightest-neutrino}
  m_{\nu,1}
  &=
- \kappad M_P\Nsat^{-1/4}
+ m_{\nu,1}^{\text{out}}
  =
  2.829630635353\times10^{-3}\ \mathrm{eV},\\
  m_{\nu,2}
  &=
  \sqrt{m_{\nu,1}^2+\Delta m_{21}^2}
  \simeq
- 8.92\times10^{-3}\ \mathrm{eV},\nonumber\\
+ 9.055761124\times10^{-3}\ \mathrm{eV},\nonumber\\
 \label{eq:supplement-third-neutrino}
  m_{\nu,3}
  &=
  \sqrt{m_{\nu,1}^2+\Delta m_{31}^2}
  \simeq
- 5.01\times10^{-2}\ \mathrm{eV}.
+ 5.008000409\times10^{-2}\ \mathrm{eV}.
 \end{align}
 
 \subsection{Exact Dark Central Charge Ledger Proof}
@@ -5268,8 +5769,79 @@ Since $154 = 2 \times 7 \times 11$ divides $362670$ with multiplier $K_{\text{mu
 c_{\text{tot}}^{\text{res}} &= \frac{1325 \times 2355 + 834433}{362670} = \frac{3954808}{362670} = \frac{3954808 / 22}{362670 / 22} = \frac{179764}{16485}, \\
 c_{\text{tot}}^{\text{comp}} &= \frac{1325 \times 2355 + 1197103}{362670} = \frac{4317478}{362670} = \frac{4317478 / 22}{362670 / 22} = \frac{196249}{16485}.
 \end{align}
-The reduced denominator $16485 = 3 \times 5 \times 7 \times 157$ reflects prime conductor $157$.
+The reduced denominator $16485 = 3 \times 5 \times 7 \times 157$ contains the prime factor $157$.
 \end{proof}
+
+\section{Dark-Sector Ledger and Modular-Invariance Criterion}
+\label{app:dark-cft-criterion}
+
+\subsection{Exact Fractional-Ledger Arithmetic}
+
+The fractional part of the completed dark ledger admits the exact
+partial-fraction identity
+\begin{equation}
+\label{eq:dark-fractional-ledger}
+ \cdarkcomp-3
+ =\frac{109093}{362670}
+ =\frac{739}{2310}-\frac{3}{157}
+ \simeq0.300805139659.
+\end{equation}
+Indeed, \(362670=2310\times157\) and
+\(739\times157-3\times2310=109093\).  This identity verifies the
+ledger arithmetic; it does not specify a coset embedding, a character basis,
+or a modular-invariant microscopic CFT realization.
+
+Consequently the completed ledger obeys
+\begin{equation}
+\label{eq:dark-completed-partial-fraction}
+ \cdarkcomp=3+\frac{739}{2310}-\frac{3}{157}
+ =\frac{1197103}{362670}.
+\end{equation}
+The native denominator diagnostic records the prime \(157\).  Establishing
+the conductor of a particular modular representation additionally requires
+its explicit modular data; the rational ledger alone does not supply them.
+
+\subsection{Conditional Diagonal-Pairing Criterion}
+
+\begin{theorem}[Diagonal-pairing criterion]
+Suppose a specified dark CFT carrying the required completed central charge
+has a finite character vector \(\chi_{\text{dark}}\) closed under unitary
+modular matrices \(S_{\text{dark}}\) and \(T_{\text{dark}}\).  Then its
+diagonal character pairing
+\begin{equation}
+\label{eq:dark-diagonal-partition-criterion}
+ Z_{\text{dark}}(\tau,\bar\tau)
+ =\chi_{\text{dark}}(\tau)^\dagger
+ M^{\text{dark}}\chi_{\text{dark}}(\tau)
+ =\sum_i|\chi_i^{\text{dark}}(\tau)|^2,
+ \qquad M^{\text{dark}}=\mathbb I,
+\end{equation}
+is invariant under both modular generators.
+\end{theorem}
+
+\begin{proof}
+For either generator matrix \(U=S_{\text{dark}}\) or
+\(U=T_{\text{dark}}\), unitarity gives
+\begin{equation}
+\label{eq:dark-unitary-pairing-proof}
+ \chi_{\text{dark}}^\dagger U^\dagger M^{\text{dark}}U
+ \chi_{\text{dark}}
+ =\chi_{\text{dark}}^\dagger U^\dagger U\chi_{\text{dark}}
+ =Z_{\text{dark}}.
+\end{equation}
+Equivalently,
+\begin{equation}
+\label{eq:dark-commutator-criterion}
+ [M^{\text{dark}},S_{\text{dark}}]
+ =[M^{\text{dark}},T_{\text{dark}}]=0.
+\end{equation}
+\end{proof}
+
+This proves the pairing criterion under its stated hypotheses, not the
+existence of the required microscopic CFT.  A constructive completion must
+still provide the character spectrum, conformal weights, and modular
+matrices of a theory realizing the ledger.  Neither a matching central
+charge nor a reported modular-invariance flag supplies that construction.
 % END INLINED APPENDIX MATERIAL
 
 \begin{thebibliography}{99}
