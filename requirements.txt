@@ -1,6 +1,8 @@
 # Optional runtime dependencies for SHBT simulator data export and visualization.
 # The core simulator only needs the compiled shbt_simulator Rust extension.
 
+mpmath>=1.3.0
+
 matplotlib>=3.5.0
 h5py>=3.7.0
 pandas>=1.5.0

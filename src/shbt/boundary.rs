@@ -15,6 +15,10 @@ const PARENT_LEVEL: u32 = 312;
 const C_DARK_NUM: u32 = 1197103;
 const C_DARK_RES_NUM: u32 = 834433;
 const C_DARK_DEN: u32 = 362670;
+pub const C_DARK_COMP_NUM: i64 = 1197103;
+pub const C_DARK_COMP_DEN: i64 = 362670;
+pub const C_DARK_RES_DEN: i64 = 362670;
+pub const DARK_PRIMES: [usize; 6] = [2, 3, 5, 7, 11, 157];
 const LAMBDA_HOLO_STR: &str = "1.0892229828054038e-52";
 const LAMBDA_HOLO_SI_M2_STR: &str = "1.08913883e-52";
 const BIT_BUDGET_STR: &str = "3.311997720142366e122";
@@ -62,6 +66,23 @@ pub struct VerificationReport {
     pub zero_energy_locked: bool,
     pub projection_dimension_26_to_4: bool,
     pub all_passed: bool,
+}
+
+#[derive(Debug, Clone)]
+#[pyclass]
+pub struct DarkSectorModularData {
+    #[pyo3(get)]
+    pub c_dark_comp: f64,
+    #[pyo3(get)]
+    pub delta_mod: f64,
+    #[pyo3(get)]
+    pub s_matrix_real: Vec<Vec<f64>>,
+    #[pyo3(get)]
+    pub s_matrix_imag: Vec<Vec<f64>>,
+    #[pyo3(get)]
+    pub t_matrix_phases: Vec<(f64, f64)>,
+    #[pyo3(get)]
+    pub conformal_weights: Vec<f64>,
 }
 
 #[pymethods]
@@ -227,12 +248,122 @@ impl StaticBoundary {
     }
 }
 
+impl StaticBoundary {
+    pub fn c_dark_completed_rational() -> (i64, i64) {
+        (C_DARK_COMP_NUM, C_DARK_COMP_DEN)
+    }
+
+    pub fn build_dark_s_block() -> (Vec<Vec<f64>>, Vec<Vec<f64>>) {
+        let dimension = DARK_PRIMES.len() as f64;
+        let scale = 1.0 / dimension.sqrt();
+        let mut real = vec![vec![0.0; DARK_PRIMES.len()]; DARK_PRIMES.len()];
+        let mut imag = vec![vec![0.0; DARK_PRIMES.len()]; DARK_PRIMES.len()];
+        for row in 0..DARK_PRIMES.len() {
+            for column in 0..DARK_PRIMES.len() {
+                let angle = -2.0 * std::f64::consts::PI * (row * column) as f64 / dimension;
+                real[row][column] = scale * angle.cos();
+                imag[row][column] = scale * angle.sin();
+            }
+        }
+        (real, imag)
+    }
+
+    pub fn build_dark_t_block() -> (Vec<(f64, f64)>, Vec<f64>) {
+        let central_charge = C_DARK_COMP_NUM as f64 / C_DARK_COMP_DEN as f64;
+        let central_charge_offset = central_charge / 24.0;
+        let mut phases = Vec::with_capacity(DARK_PRIMES.len());
+        let mut weights = Vec::with_capacity(DARK_PRIMES.len());
+        for &prime in DARK_PRIMES.iter() {
+            let weight = ((prime * prime) % C_DARK_COMP_DEN as usize) as f64 / (2.0 * prime as f64);
+            let reduced_weight = weight.fract();
+            let angle = 2.0 * std::f64::consts::PI * (reduced_weight - central_charge_offset);
+            phases.push((angle.cos(), angle.sin()));
+            weights.push(reduced_weight);
+        }
+        (phases, weights)
+    }
+
+    pub fn evaluate_z_dark(tau_re: f64, tau_im: f64) -> f64 {
+        assert!(tau_im > 0.0, "tau must be in upper half-plane");
+        let (_, weights) = Self::build_dark_t_block();
+        let central_charge = C_DARK_COMP_NUM as f64 / C_DARK_COMP_DEN as f64;
+        let q_magnitude = (-2.0 * std::f64::consts::PI * tau_im).exp();
+        let _ = tau_re;
+        weights
+            .iter()
+            .map(|weight| q_magnitude.powf(2.0 * (weight - central_charge / 24.0)))
+            .sum()
+    }
+
+    fn build_dark_modular_data() -> DarkSectorModularData {
+        let (s_matrix_real, s_matrix_imag) = Self::build_dark_s_block();
+        let (t_matrix_phases, conformal_weights) = Self::build_dark_t_block();
+        DarkSectorModularData {
+            c_dark_comp: C_DARK_COMP_NUM as f64 / C_DARK_COMP_DEN as f64,
+            delta_mod: C_DARK_COMP_NUM as f64 / C_DARK_COMP_DEN as f64 / 24.0,
+            s_matrix_real,
+            s_matrix_imag,
+            t_matrix_phases,
+            conformal_weights,
+        }
+    }
+}
+
 #[pymethods]
 impl StaticBoundary {
     /// Construct the canonical benchmark boundary.
     #[new]
     fn py_new() -> Self {
         Self::new()
+    }
+
+    #[staticmethod]
+    pub fn dark_modular_data() -> DarkSectorModularData {
+        Self::build_dark_modular_data()
+    }
+
+    #[staticmethod]
+    pub fn s_dark() -> PyResult<(Vec<Vec<f64>>, Vec<Vec<f64>>)> {
+        Ok(Self::build_dark_s_block())
+    }
+
+    #[staticmethod]
+    pub fn t_dark() -> PyResult<Vec<(f64, f64)>> {
+        Ok(Self::build_dark_t_block().0)
+    }
+
+    #[staticmethod]
+    pub fn dark_conformal_weights() -> PyResult<Vec<f64>> {
+        Ok(Self::build_dark_t_block().1)
+    }
+
+    #[staticmethod]
+    pub fn evaluate_z_dark_py(tau_re: f64, tau_im: f64) -> PyResult<f64> {
+        if tau_im <= 0.0 {
+            return Err(pyo3::exceptions::PyValueError::new_err("tau must be in upper half-plane"));
+        }
+        Ok(Self::evaluate_z_dark(tau_re, tau_im))
+    }
+
+    #[staticmethod]
+    pub fn verify_dark_modular_closure() -> PyResult<bool> {
+        let (real, imag) = Self::build_dark_s_block();
+        for row in 0..real.len() {
+            for column in 0..real.len() {
+                let (mut sum_real, mut sum_imag) = (0.0, 0.0);
+                for index in 0..real.len() {
+                    sum_real += real[row][index] * real[column][index]
+                        + imag[row][index] * imag[column][index];
+                    sum_imag += imag[row][index] * real[column][index]
+                        - real[row][index] * imag[column][index];
+                }
+                let expected = if row == column { 1.0 } else { 0.0 };
+                if (sum_real - expected).abs() > 1.0e-14 || sum_imag.abs() > 1.0e-14 {
+                    return Ok(false);
+                }
+            }
+        }
+        Ok(true)
     }
 
     /// Construct a boundary with arbitrary branch levels.

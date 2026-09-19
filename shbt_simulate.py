@@ -78,6 +78,15 @@ except Exception:  # pragma: no cover
     _pc = None  # type: ignore[assignment]
     _HAS_PC = False
 
+AnomalyClosureError = getattr(_pc, "AnomalyClosureError", RuntimeError)
+
+try:
+    import boltzmann_shbt as _boltzmann  # type: ignore[import]
+    _HAS_BOLTZMANN = True
+except Exception:  # pragma: no cover
+    _boltzmann = None  # type: ignore[assignment]
+    _HAS_BOLTZMANN = False
+
 
 def _ensure_rust() -> None:
     if not _HAS_RUST:
@@ -1070,6 +1079,25 @@ def simulate(config: dict[str, Any]) -> dict[str, Any]:
     return result
 
 
+def run_simulation_pipeline(c_operational: int = 5, l_max: int = 2500) -> dict[str, Any]:
+    """Run the requested spectrum, calorimetry, and non-Gaussianity exports."""
+    if c_operational > 6:
+        if _HAS_PC:
+            raise _pc.AnomalyClosureError(
+                f"Operational capacity C_op={c_operational} bits exceeds local boundary threshold C_local=6 bits."
+            )
+        raise RuntimeError("operational capacity exceeds C_local=6 bits")
+    if not _HAS_BOLTZMANN or not _HAS_PC:
+        raise RuntimeError("precision_cosmology and boltzmann_shbt must be importable")
+    spectra = _boltzmann.compute_cmb_power_spectra(l_max=l_max, output_prefix="shbt_run")
+    calorimetry_file, _ = _pc.simulate_calorimetry_experiment(output_prefix="shbt_run")
+    return {
+        "spectra": spectra,
+        "calorimetry_csv": calorimetry_file,
+        "non_gaussianity": _pc.compute_non_gaussianity_shapes(),
+    }
+
+
 def _add_repro_metadata(result: dict[str, Any]) -> None:
     """Attach version, git, and timestamp metadata to a simulation result."""
     result.setdefault("metadata", {}).update({
@@ -1538,6 +1566,16 @@ def main(argv: list[str] | None = None) -> int:
             cosmic_age_gyr=pc_report.get("cosmic_age_gyr"),
             overall_precision_audit=summary_table.get("overall_precision_audit"),
         )
+
+    if config.get("mode") == "all":
+        try:
+            result["precision_pipeline"] = run_simulation_pipeline(
+                c_operational=int(config.get("c_operational", 5)),
+                l_max=int(config.get("l_max", 2500)),
+            )
+        except AnomalyClosureError as exc:
+            _LOGGER.error("Pipeline terminated via AnomalyClosureError: %s", exc)
+            return 1
 
     # Determine where to write results
     explicit_output = args.output
