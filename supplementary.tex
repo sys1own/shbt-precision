@@ -31,7 +31,7 @@ T_{\partial} &= T_{SU(2)_{k_l}} \otimes T_{SU(3)_{k_q}} \otimes T_{SO(10)_K} \ot
 
 For an arbitrary affine Wess-Zumino-Witten (WZW) factor $G_k$, highest weight modules are parameterized by integrable highest weights $\lambda \in P_+^k$. The central charge $c_{G_k}$ and conformal weight $h_\lambda$ are given by:
 \begin{equation}
-c_{G_k} = \frac{k \dim G}{k + g^\vee}, \quad h_\lambda = \frac{(\lambda, \lambda + 2\rho)}{2(k + g^\vee)},
+c_{G_k} = \frac{k \dimop G}{k + g^\vee}, \quad h_\lambda = \frac{(\lambda, \lambda + 2\rho)}{2(k + g^\vee)},
 \end{equation}
 where $g^\vee$ is the dual Coxeter number and $\rho$ is the Weyl vector. The explicit constituent modular kernels are defined as follows:
 
@@ -158,25 +158,28 @@ dimensionless overlap to
 This is the retained quantum-dimension weight entering the topological
 Jarlskog residue and the finite-register neutrino scale.
 
-The corresponding normal-hierarchy eigenvalues are
+The reported normal-hierarchy eigenvalues are listed below.  They retain the
+native report's mass floor; the distinct mass obtained from the native
+register substitution is compared in
+Eq.~\eqref{eq:native-neutrino-normalization-check}.
 \begin{align}
 \label{eq:supplement-lightest-neutrino}
  m_{\nu,1}
  &=
- \kappad M_P\Nsat^{-1/4}
+ m_{\nu,1}^{\text{out}}
  =
  2.829630635353\times10^{-3}\ \mathrm{eV},\\
  m_{\nu,2}
  &=
  \sqrt{m_{\nu,1}^2+\Delta m_{21}^2}
  \simeq
- 8.92\times10^{-3}\ \mathrm{eV},\nonumber\\
+ 9.055761124\times10^{-3}\ \mathrm{eV},\nonumber\\
 \label{eq:supplement-third-neutrino}
  m_{\nu,3}
  &=
  \sqrt{m_{\nu,1}^2+\Delta m_{31}^2}
  \simeq
- 5.01\times10^{-2}\ \mathrm{eV}.
+ 5.008000409\times10^{-2}\ \mathrm{eV}.
 \end{align}
 
 \subsection{Exact Dark Central Charge Ledger Proof}
@@ -203,5 +206,76 @@ Since $154 = 2 \times 7 \times 11$ divides $362670$ with multiplier $K_{\text{mu
 c_{\text{tot}}^{\text{res}} &= \frac{1325 \times 2355 + 834433}{362670} = \frac{3954808}{362670} = \frac{3954808 / 22}{362670 / 22} = \frac{179764}{16485}, \\
 c_{\text{tot}}^{\text{comp}} &= \frac{1325 \times 2355 + 1197103}{362670} = \frac{4317478}{362670} = \frac{4317478 / 22}{362670 / 22} = \frac{196249}{16485}.
 \end{align}
-The reduced denominator $16485 = 3 \times 5 \times 7 \times 157$ reflects prime conductor $157$.
+The reduced denominator $16485 = 3 \times 5 \times 7 \times 157$ contains the prime factor $157$.
 \end{proof}
+
+\section{Dark-Sector Ledger and Modular-Invariance Criterion}
+\label{app:dark-cft-criterion}
+
+\subsection{Exact Fractional-Ledger Arithmetic}
+
+The fractional part of the completed dark ledger admits the exact
+partial-fraction identity
+\begin{equation}
+\label{eq:dark-fractional-ledger}
+ \cdarkcomp-3
+ =\frac{109093}{362670}
+ =\frac{739}{2310}-\frac{3}{157}
+ \simeq0.300805139659.
+\end{equation}
+Indeed, \(362670=2310\times157\) and
+\(739\times157-3\times2310=109093\).  This identity verifies the
+ledger arithmetic; it does not specify a coset embedding, a character basis,
+or a modular-invariant microscopic CFT realization.
+
+Consequently the completed ledger obeys
+\begin{equation}
+\label{eq:dark-completed-partial-fraction}
+ \cdarkcomp=3+\frac{739}{2310}-\frac{3}{157}
+ =\frac{1197103}{362670}.
+\end{equation}
+The native denominator diagnostic records the prime \(157\).  Establishing
+the conductor of a particular modular representation additionally requires
+its explicit modular data; the rational ledger alone does not supply them.
+
+\subsection{Conditional Diagonal-Pairing Criterion}
+
+\begin{theorem}[Diagonal-pairing criterion]
+Suppose a specified dark CFT carrying the required completed central charge
+has a finite character vector \(\chi_{\text{dark}}\) closed under unitary
+modular matrices \(S_{\text{dark}}\) and \(T_{\text{dark}}\).  Then its
+diagonal character pairing
+\begin{equation}
+\label{eq:dark-diagonal-partition-criterion}
+ Z_{\text{dark}}(\tau,\bar\tau)
+ =\chi_{\text{dark}}(\tau)^\dagger
+ M^{\text{dark}}\chi_{\text{dark}}(\tau)
+ =\sum_i|\chi_i^{\text{dark}}(\tau)|^2,
+ \qquad M^{\text{dark}}=\mathbb I,
+\end{equation}
+is invariant under both modular generators.
+\end{theorem}
+
+\begin{proof}
+For either generator matrix \(U=S_{\text{dark}}\) or
+\(U=T_{\text{dark}}\), unitarity gives
+\begin{equation}
+\label{eq:dark-unitary-pairing-proof}
+ \chi_{\text{dark}}^\dagger U^\dagger M^{\text{dark}}U
+ \chi_{\text{dark}}
+ =\chi_{\text{dark}}^\dagger U^\dagger U\chi_{\text{dark}}
+ =Z_{\text{dark}}.
+\end{equation}
+Equivalently,
+\begin{equation}
+\label{eq:dark-commutator-criterion}
+ [M^{\text{dark}},S_{\text{dark}}]
+ =[M^{\text{dark}},T_{\text{dark}}]=0.
+\end{equation}
+\end{proof}
+
+This proves the pairing criterion under its stated hypotheses, not the
+existence of the required microscopic CFT.  A constructive completion must
+still provide the character spectrum, conformal weights, and modular
+matrices of a theory realizing the ledger.  Neither a matching central
+charge nor a reported modular-invariance flag supplies that construction.
