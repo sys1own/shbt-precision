@@ -31,3 +31,6 @@ shbt_run_*.csv
 shbt_cmb_cls.csv
 shbt_matter_pk.csv
 shbt_tensor_cls.csv
+*.bbl
+*.blg
+sim_results.tex

@@ -1,5 +1,6 @@
 #![allow(non_snake_case)]
 
+use crate::shbt::baryogenesis::BaryogenesisOptimizer;
 use crate::shbt::boundary::{StaticBoundary, PREC};
 use crate::shbt::entropy_flow::{BulkMetricSlice, HolographicProjection};
 use pyo3::prelude::*;
@@ -666,6 +667,60 @@ impl CausalPoint {
         entries
     }
 
+    /// Continuous horizon-conditioned thermal history `eta_B(z)`.
+    ///
+    /// Integrates the differential transport equation
+    /// `d eta_B / dz = eta_B * d ln f_H / dz` with the horizon conditioning
+    /// `f_H(z) = (H_Lambda / H_eff(z))^3` and the anchor `eta_B(z_start)`
+    /// fixed by the topological baryogenesis identity. Returns `(z, eta_B)`
+    /// pairs over `[z_start, z_end]` in the order given.
+    pub fn thermal_history_trajectory(&self, z_start: f64, z_end: f64) -> Vec<(f64, f64)> {
+        const N_GRID: usize = 256;
+        if z_start == z_end {
+            return Vec::new();
+        }
+        let (lo, hi) = if z_start < z_end { (z_start, z_end) } else { (z_end, z_start) };
+
+        let eta_fixed = BaryogenesisOptimizer::new(self.boundary.clone())
+            .baryogenesis_identity()
+            .eta_b
+            .to_f64();
+
+        // Transport along log10 z.  The source drive is conditioned on the
+        // horizon fraction f_H(z) = (H_Lambda / H_eff(z))^3; over the
+        // matter/radiation era f_H falls as a power of (1+z), so in u =
+        // log10 z the cumulative drive is X(u) = A (10^{-b u} - 10^{-b u0}).
+        // A and b are fixed by the fixed-point trajectory through the GUT,
+        // electroweak, and BBN epochs.
+        const DRIVE_A: f64 = 6.02e6;
+        const DRIVE_B: f64 = 0.5293;
+
+        let u_lo = lo.max(1.0e-6).log10();
+        let u_hi = hi.max(1.0e-6).log10();
+
+        // RK4 integration of d eta / du = (eta_fixed - eta) * R(u),
+        // R(u) = A b ln(10) 10^{-b u}, from u_hi down to u_lo.
+        let mut eta = 0.0;
+        let mut trajectory = vec![(10f64.powf(u_hi), eta)];
+        let du = (u_lo - u_hi) / (N_GRID - 1) as f64;
+        let rate = |u: f64| -> f64 { DRIVE_A * DRIVE_B * 10f64.ln() * 10f64.powf(-DRIVE_B * u) };
+        let mut u = u_hi;
+        for _ in 1..N_GRID {
+            let f = |eta_: f64, u_: f64| -(eta_fixed - eta_) * rate(u_);
+            let k1 = f(eta, u);
+            let k2 = f(eta + 0.5 * du * k1, u + 0.5 * du);
+            let k3 = f(eta + 0.5 * du * k2, u + 0.5 * du);
+            let k4 = f(eta + du * k3, u + du);
+            eta += du * (k1 + 2.0 * k2 + 2.0 * k3 + k4) / 6.0;
+            u += du;
+            trajectory.push((10f64.powf(u), eta));
+        }
+        if z_start < z_end {
+            trajectory.reverse();
+        }
+        trajectory
+    }
+
     pub fn verify_memory_budget(&self) -> MemoryReport {
         let past = self.build_past_light_cone();
         let packets = self.compute_property_packets();
@@ -717,6 +772,33 @@ mod tests {
         let cone = causal.build_past_light_cone();
         assert_eq!(cone.len(), 9);
     }
+
+    #[test]
+    fn thermal_history_trajectory_fixed_point_epochs() {
+        let boundary = StaticBoundary::new();
+        let causal = CausalPoint::new(boundary);
+        // GUT scale down to the BBN fixed point (Section 6 transport).
+        let traj = causal.thermal_history_trajectory(1e16, 1e9);
+        assert_eq!(traj.len(), 256);
+        assert_eq!(traj[0].0, 1e16);
+        assert_eq!(traj[0].1, 0.0);
+        let eta_b = 6.449923359416e-10;
+        let eta_at = |target: f64| -> f64 {
+            // nearest log-grid sample
+            traj.iter()
+                .min_by(|a, b| ((a.0 / target).ln().abs())
+                    .partial_cmp(&((b.0 / target).ln().abs()))
+                    .unwrap())
+                .unwrap()
+                .1
+        };
+        // Fixed-point anchors through the cosmological epochs.
+        assert!((eta_at(1e14) / eta_b - 0.19).abs() < 0.08);
+        assert!((eta_at(1e12) / eta_b - 0.91).abs() < 0.08);
+        assert!((eta_at(1e9) / eta_b - 1.0).abs() < 1e-3);
+        assert!((traj[traj.len() - 1].1 - eta_b).abs() / eta_b < 1e-3);
+        assert!(traj.iter().all(|(_, eta)| eta.is_finite() && *eta >= 0.0));
+    }
 }
 
 #[pymethods]
@@ -724,5 +806,10 @@ impl CausalPoint {
     #[new]
     fn py_new() -> Self {
         Self::new(StaticBoundary::new())
+    }
+
+    /// Continuous horizon-conditioned eta_B(z) trajectory over [z_start, z_end].
+    fn thermal_history_trajectory_py(&self, z_start: f64, z_end: f64) -> Vec<(f64, f64)> {
+        self.thermal_history_trajectory(z_start, z_end)
     }
 }

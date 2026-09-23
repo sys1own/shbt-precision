@@ -77,5 +77,50 @@ def compute_cmb_power_spectra(l_max: int = 2000, output_prefix: str = "shbt") ->
     return {"cmb_csv": cmb_file, "matter_csv": matter_file, "tensor_csv": tensor_file, "r": R_CANONICAL, "n_t": N_T_CANONICAL, "f_NL_local": 0.015, "tau_NL": 0.000324}
 
 
+# ----------------------------------------------------------------------
+# Joint-likelihood / MCMC wrappers (delegates to precision_cosmology)
+# ----------------------------------------------------------------------
+
+try:
+    from precision_cosmology import (
+        COSMIC_CHRONOMETER_DATA,
+        load_chronometer_covariance,
+        log_likelihood_components,
+        provenance_lock,
+        run_mcmc_analysis,
+    )
+except Exception:  # pragma: no cover - precision_cosmology unavailable.
+    COSMIC_CHRONOMETER_DATA = ()
+    load_chronometer_covariance = None  # type: ignore[assignment]
+    log_likelihood_components = None  # type: ignore[assignment]
+    provenance_lock = None  # type: ignore[assignment]
+    run_mcmc_analysis = None  # type: ignore[assignment]
+
+
+def _run_unit_tests() -> int:
+    import unittest
+
+    class BoltzmannTests(unittest.TestCase):
+        def test_cmb_spectra(self) -> None:
+            result = compute_cmb_power_spectra(l_max=16, output_prefix="/tmp/shbt_test")
+            self.assertEqual(result["r"], R_CANONICAL)
+            self.assertEqual(result["n_t"], N_T_CANONICAL)
+
+        def test_likelihood_pipeline_available(self) -> None:
+            if load_chronometer_covariance is None:
+                self.skipTest("precision_cosmology not importable")
+            data = load_chronometer_covariance()
+            self.assertEqual(data["n_data"], 32)
+            self.assertEqual(len(COSMIC_CHRONOMETER_DATA), 32)
+
+    suite = unittest.defaultTestLoader.loadTestsFromTestCase(BoltzmannTests)
+    result = unittest.TextTestRunner(verbosity=2).run(suite)
+    return 0 if result.wasSuccessful() else 1
+
+
 if __name__ == "__main__":
+    import sys
+
+    if "--run-tests" in sys.argv:
+        sys.exit(_run_unit_tests())
     print(compute_cmb_power_spectra())

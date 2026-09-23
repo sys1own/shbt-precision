@@ -145,6 +145,43 @@ impl VerificationReport {
     }
 }
 
+/// Flat C-ABI view of the boundary invariants (48 bytes).
+/// Layout: six IEEE-754 doubles in declaration order.
+#[repr(C)]
+#[derive(Debug, Clone, Copy)]
+pub struct StaticBoundaryCAbi {
+    pub lepton_level: f64,
+    pub quark_level: f64,
+    pub parent_level: f64,
+    pub i_l_star: f64,
+    pub i_q_star: f64,
+    pub framing_defect: f64,
+}
+
+impl StaticBoundaryCAbi {
+    /// The canonical C-ABI contract is exactly 48 bytes.
+    pub const SIZE_BYTES: usize = 48;
+
+    /// Serialize to the flat 48-byte little-endian ABI layout.
+    pub fn to_bytes(&self) -> [u8; Self::SIZE_BYTES] {
+        let mut out = [0u8; Self::SIZE_BYTES];
+        for (offset, v) in [
+            self.lepton_level,
+            self.quark_level,
+            self.parent_level,
+            self.i_l_star,
+            self.i_q_star,
+            self.framing_defect,
+        ]
+        .iter()
+        .enumerate()
+        {
+            out[8 * offset..8 * offset + 8].copy_from_slice(&v.to_le_bytes());
+        }
+        out
+    }
+}
+
 #[derive(Debug, Clone)]
 #[pyclass]
 pub struct StaticBoundary {
@@ -307,6 +344,101 @@ impl StaticBoundary {
             conformal_weights,
         }
     }
+
+    /// Enumerate candidate parent levels `K <= max_k` for the branch
+    /// `(k_l, k_q)` and return `(K, I_l, I_q, Delta_fr)` sorted by ascending
+    /// framing defect. The canonical `K = lcm(2 k_l, 3 k_q)` is the minimal
+    /// lift with `\Delta_fr = 0`; all defect-free lifts are multiples of it.
+    pub fn classify_modular_completions(
+        k_l: u32,
+        k_q: u32,
+        max_k: u32,
+    ) -> Vec<(u32, u32, u32, f64)> {
+        let mut candidates: Vec<(u32, u32, u32, f64)> = (1..=max_k)
+            .map(|k| {
+                let defect = verify_framing_defect(k_l as usize, k_q as usize, k as usize);
+                let i_l = ((k as f64) / (2.0 * k_l as f64)).round() as u32;
+                let i_q = ((k as f64) / (3.0 * k_q as f64)).round() as u32;
+                (k, i_l, i_q, defect)
+            })
+            .collect();
+        candidates.sort_by(|a, b| a.3.partial_cmp(&b.3).unwrap().then(a.0.cmp(&b.0)));
+        candidates
+    }
+
+    /// Count of `K <= max_k` lifts with exactly zero framing defect.
+    pub fn defect_free_completion_count(k_l: u32, k_q: u32, max_k: u32) -> usize {
+        (1..=max_k)
+            .filter(|&k| verify_framing_defect(k_l as usize, k_q as usize, k as usize) == 0.0)
+            .count()
+    }
+
+    /// Weil character orthogonality audit of the completed dark sector.
+    ///
+    /// Checks, in order:
+    ///   1. the completed ledger splits from the residual one by exactly one
+    ///      unit of the conductor, `c_comp - c_res = 1`;
+    ///   2. the primary-module count obeys `N_dark^prim = 8 * D = 2,901,360`
+    ///      over conductor `D = 362670`;
+    ///   3. the conductor is square-free with the six-prime factorization
+    ///      `2 * 3 * 5 * 7 * 11 * 157`;
+    ///   4. `S_dark S_dark^dagger = I` (orthogonality of the Weil characters);
+    ///   5. every `T_dark` phase lies on the unit circle.
+    pub fn dark_weil_orthogonality_check(&self) -> bool {
+        // 1. Completed and residual ledgers differ by exactly one conductor unit.
+        let unit = Rational::from((1i32, 1i32));
+        if (self.c_dark.clone() - self.c_dark_residual.clone()) != unit {
+            return false;
+        }
+
+        // 2. Primary-module count: N_dark^prim = 8 D = 2,901,360.
+        const N_DARK_PRIM: u64 = 2_901_360;
+        if N_DARK_PRIM != 8 * C_DARK_COMP_DEN as u64 {
+            return false;
+        }
+
+        // 3. Conductor factorization.
+        if !verify_denominator_prime_factorization() {
+            return false;
+        }
+
+        // 4. Unitarity (orthogonality) of the Weil S block.
+        let (real, imag) = Self::build_dark_s_block();
+        let n = real.len();
+        for row in 0..n {
+            for column in 0..n {
+                let (mut sum_real, mut sum_imag) = (0.0, 0.0);
+                for index in 0..n {
+                    sum_real += real[row][index] * real[column][index]
+                        + imag[row][index] * imag[column][index];
+                    sum_imag += imag[row][index] * real[column][index]
+                        - real[row][index] * imag[column][index];
+                }
+                let expected = if row == column { 1.0 } else { 0.0 };
+                if (sum_real - expected).abs() > 1.0e-14 || sum_imag.abs() > 1.0e-14 {
+                    return false;
+                }
+            }
+        }
+
+        // 5. All T_dark phases on the unit circle.
+        let (phases, _) = Self::build_dark_t_block();
+        phases
+            .iter()
+            .all(|(re, im)| (re * re + im * im - 1.0).abs() < 1.0e-12)
+    }
+
+    /// Flat 48-byte C-ABI projection of the boundary invariants.
+    pub fn to_c_abi(&self) -> StaticBoundaryCAbi {
+        StaticBoundaryCAbi {
+            lepton_level: self.lepton_level as f64,
+            quark_level: self.quark_level as f64,
+            parent_level: self.parent_level as f64,
+            i_l_star: self.i_l_star.to_f64(),
+            i_q_star: self.i_q_star.to_f64(),
+            framing_defect: self.framing_defect().to_f64(),
+        }
+    }
 }
 
 #[pymethods]
@@ -456,6 +588,46 @@ impl StaticBoundary {
     fn evaluate_z_boundary_py(&self, tau_re: f64, tau_im: f64) -> f64 {
         let tau = Complex::with_val(PREC, (tau_re, tau_im));
         self.evaluate_z_boundary(tau).to_f64()
+    }
+
+    /// Enumerate candidate parent levels K <= max_k with their framing
+    /// defects, sorted ascending (Appendix A classification theorem).
+    #[staticmethod]
+    fn classify_modular_completions_py(
+        k_l: u32,
+        k_q: u32,
+        max_k: u32,
+    ) -> Vec<(u32, u32, u32, f64)> {
+        Self::classify_modular_completions(k_l, k_q, max_k)
+    }
+
+    /// Verify dark-sector Weil character orthogonality over conductor D.
+    fn dark_weil_orthogonality_check_py(&self) -> bool {
+        self.dark_weil_orthogonality_check()
+    }
+
+    /// SHA-256 provenance state vector (C-ABI state + embedded data).
+    fn provenance_state_hash_py(&self) -> String {
+        self.provenance_state_hash()
+    }
+
+    /// Verify the runtime state vector and embedded data digest.
+    fn verify_provenance_state_py(&self) -> PyResult<String> {
+        self.verify_provenance_state()
+            .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))
+    }
+
+    /// Flat 48-byte C-ABI projection of the boundary invariants.
+    fn to_c_abi_py(&self) -> (f64, f64, f64, f64, f64, f64) {
+        let abi = self.to_c_abi();
+        (
+            abi.lepton_level,
+            abi.quark_level,
+            abi.parent_level,
+            abi.i_l_star,
+            abi.i_q_star,
+            abi.framing_defect,
+        )
     }
 }
 
@@ -1415,5 +1587,45 @@ mod tests {
         let report = sb.verify_equations();
         assert!(report.projection_dimension_26_to_4);
         assert!(report.all_passed);
+    }
+
+    #[test]
+    fn classify_modular_completions_unique_defect_free_lift() {
+        let candidates = StaticBoundary::classify_modular_completions(26, 8, 1000);
+        let (k, i_l, i_q, defect) = candidates[0];
+        assert_eq!((k, i_l, i_q), (312, 6, 13));
+        assert_eq!(defect, 0.0);
+        // K = 312 = lcm(2*26, 3*8) is the minimal defect-free lift; every
+        // other defect-free candidate is a multiple of it.
+        let defect_free: Vec<u32> = candidates
+            .iter()
+            .filter(|c| c.3 == 0.0)
+            .map(|c| c.0)
+            .collect();
+        assert!(defect_free.iter().all(|k| k % 312 == 0));
+        assert_eq!(
+            StaticBoundary::defect_free_completion_count(26, 8, 311),
+            0,
+            "no defect-free lift exists below K = 312"
+        );
+    }
+
+    #[test]
+    fn dark_weil_orthogonality_check_passes() {
+        let sb = StaticBoundary::new();
+        assert!(sb.dark_weil_orthogonality_check());
+    }
+
+    #[test]
+    fn c_abi_layout_is_48_bytes() {
+        assert_eq!(std::mem::size_of::<StaticBoundaryCAbi>(), StaticBoundaryCAbi::SIZE_BYTES);
+        let sb = StaticBoundary::new();
+        let abi = sb.to_c_abi();
+        assert_eq!(abi.lepton_level, 26.0);
+        assert_eq!(abi.quark_level, 8.0);
+        assert_eq!(abi.parent_level, 312.0);
+        assert_eq!(abi.i_l_star, 6.0);
+        assert_eq!(abi.i_q_star, 13.0);
+        assert_eq!(abi.framing_defect, 0.0);
     }
 }

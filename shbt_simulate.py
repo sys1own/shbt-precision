@@ -1099,12 +1099,15 @@ def run_simulation_pipeline(c_operational: int = 5, l_max: int = 2500) -> dict[s
 
 
 def _add_repro_metadata(result: dict[str, Any]) -> None:
-    """Attach version, git, and timestamp metadata to a simulation result."""
-    result.setdefault("metadata", {}).update({
+    """Attach version, git, timestamp, and provenance-lock metadata."""
+    metadata = result.setdefault("metadata", {})
+    metadata.update({
         "version": get_version(),
         "git_info": get_git_info(),
         "timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat(),
     })
+    if _HAS_PC and hasattr(_pc, "provenance_lock"):
+        metadata["provenance"] = _pc.provenance_lock()
 
 
 def run_precision_cosmology(config: dict[str, Any]) -> dict[str, Any]:

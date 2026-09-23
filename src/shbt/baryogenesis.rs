@@ -9,6 +9,8 @@ use rug::Float;
 
 const GUT_SCALE_GEV: f64 = 2.0e16;
 const PLANCK_MASS_GEV: f64 = 1.220_890e19;
+/// Heavy right-handed neutrino scale: the anti-baryon dissipation threshold.
+pub const M_N_GEV: f64 = 1.22e16;
 const SU2_DUAL_COXETER: u32 = 2;
 const SU3_DUAL_COXETER: u32 = 3;
 const SO10_DUAL_COXETER: u32 = 8;
@@ -198,9 +200,39 @@ impl BaryogenesisOptimizer {
     fn py_new() -> Self {
         Self::new(StaticBoundary::new())
     }
+
+    /// Anti-baryon-to-baryon Lindblad relaxation rate (units of M_N).
+    /// Exactly zero for T < M_N (thermodynamic immunity).
+    #[staticmethod]
+    fn thermal_lindblad_evolution_py(temp_gev: f64, m_n_gev: f64) -> f64 {
+        Self::thermal_lindblad_evolution(temp_gev, m_n_gev)
+    }
 }
 
 impl BaryogenesisOptimizer {
+    /// Thermal Lindblad evolution of the anti-baryon register.
+    ///
+    /// With system-environment jump operators
+    /// `L_k = sqrt(gamma_k(T)) P_{\bar B} (x) M_k`, the anti-baryon-to-baryon
+    /// relaxation rate is `\Gamma_{\bar B -> B}(T)`. The de-rendered sector is
+    /// thermodynamically immune below the heavy-neutrino scale: the projector
+    /// `P_{\bar B}` annihilates the vacuum sector, so
+    /// `\Gamma_{\bar B -> B}(T) = 0` identically for `T < M_N`.
+    /// Above threshold the rate is Boltzmann suppressed:
+    /// `gamma(T) = (T / M_N)^3 * exp(-M_N / T)`.
+    ///
+    /// Returns `\Gamma_{\bar B -> B}(T)` in units of `M_N`.
+    pub fn thermal_lindblad_evolution(temp_gev: f64, m_n_gev: f64) -> f64 {
+        if temp_gev <= 0.0 || m_n_gev <= 0.0 {
+            return 0.0;
+        }
+        if temp_gev < m_n_gev {
+            return 0.0;
+        }
+        let ratio = temp_gev / m_n_gev;
+        ratio.powi(3) * (-m_n_gev / temp_gev).exp()
+    }
+
     pub fn new(boundary: StaticBoundary) -> Self {
         let render_charge_vector = [
             Float::with_val(PREC, (4.0f64 / 3.0).sqrt()),
@@ -524,5 +556,25 @@ mod tests {
         let delta = optimizer.run_benchmark(512);
         assert!(delta.stress_energy_preserved);
         assert!(delta.cpu_cycle_reduction_fraction > 0.0);
+    }
+
+    #[test]
+    fn thermal_lindblad_zero_below_neutrino_scale() {
+        // Thermodynamic immunity: the anti-baryon projector annihilates the
+        // vacuum sector for T < M_N = 1.22e16 GeV.
+        for &t in &[1.0e10, 1.0e14, M_N_GEV * (1.0 - 1e-9)] {
+            assert_eq!(BaryogenesisOptimizer::thermal_lindblad_evolution(t, M_N_GEV), 0.0);
+        }
+        // Degenerate inputs are safe.
+        assert_eq!(BaryogenesisOptimizer::thermal_lindblad_evolution(0.0, M_N_GEV), 0.0);
+    }
+
+    #[test]
+    fn thermal_lindblad_boltzmann_suppressed_above_threshold() {
+        let rate = BaryogenesisOptimizer::thermal_lindblad_evolution(M_N_GEV, M_N_GEV);
+        // At T = M_N: gamma = e^{-1} ~ 0.368 (units of M_N).
+        assert!((rate - (-1.0f64).exp()).abs() < 1e-15);
+        // The rate remains bounded and positive above threshold.
+        assert!(BaryogenesisOptimizer::thermal_lindblad_evolution(2.0 * M_N_GEV, M_N_GEV) > 0.0);
     }
 }
