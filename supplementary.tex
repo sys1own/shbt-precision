@@ -1,3 +1,105 @@
+\documentclass[11pt]{article}
+\usepackage[T1]{fontenc}
+\usepackage{lmodern}
+\usepackage{microtype}
+\usepackage[margin=1in]{geometry}
+
+% Core packages
+\usepackage{amsmath,amssymb,amsfonts,mathtools,bm,amsthm}
+\usepackage{tikz}
+\usepackage{tikz-cd}
+\usepackage[american]{circuitikz}
+\usetikzlibrary{arrows.meta,calc,fit,positioning,shapes.geometric}
+\usepackage{multicol}
+\usepackage{array,booktabs,tabularx}
+\usepackage{longtable}
+\usepackage{float}
+\usepackage[hidelinks]{hyperref}
+\usepackage{orcidlink}
+\newcolumntype{L}[1]{>{\raggedright\arraybackslash}p{#1}}
+\newcolumntype{Y}{>{\raggedright\arraybackslash}X}
+\Urlmuskip=0mu plus 1mu\relax
+
+% Paragraphs
+\setlength{\parindent}{0pt}
+\setlength{\parskip}{1\baselineskip}
+\setlength{\emergencystretch}{2em}
+\sloppy
+
+% Theorem-like environments used in the appendices
+\theoremstyle{plain}
+\newtheorem{theorem}{Theorem}
+\newtheorem{definition}{Definition}
+
+\DeclareMathOperator{\Tr}{Tr}
+\DeclareMathOperator{\diag}{diag}
+\DeclareMathOperator{\lcm}{lcm}
+\DeclareMathOperator{\dimop}{dim}
+\DeclareRobustCommand{\pyvar}[1]{%
+  \ifmmode\text{\nolinkurl{#1}}\else\nolinkurl{#1}\fi%
+}
+\DeclareRobustCommand{\shellcmd}[1]{\texttt{\detokenize{#1}}}
+\providecommand{\Z}{\mathbb Z}
+\newcommand{\branchstar}{\mathfrak b_*}
+\newcommand{\kell}{k_{\ell}}
+\newcommand{\kq}{k_q}
+\newcommand{\Kpar}{K}
+\newcommand{\Deltafr}{\Delta_{\text{fr}}}
+\newcommand{\cdarkres}{c_{\text{dark}}^{\text{res}}}
+\newcommand{\cdarkcomp}{c_{\text{dark}}^{\text{comp}}}
+\newcommand{\Lholo}{\Lambda_{\text{holo}}}
+\newcommand{\Nsat}{N_{\text{sat}}}
+\newcommand{\Nbits}{N}
+\newcommand{\Lp}{L_P}
+\newcommand{\MP}{M_P}
+\newcommand{\GN}{G_N}
+\newcommand{\Ebulk}{\mathcal E_{\mu\nu}}
+\newcommand{\Zboundary}{Z_{\partial}}
+\newcommand{\Htotal}{H_{\text{total}}}
+\newcommand{\Hboundary}{H_{\partial}}
+\newcommand{\Hbulk}{H_{\text{bulk}}}
+\newcommand{\Hstab}{H_{\text{stabilizer}}}
+\newcommand{\shbt}{\ensuremath{\mathrm{SHBT}}}
+\newcommand{\lcdm}{\ensuremath{\Lambda\mathrm{CDM}}}
+\newcommand{\hzero}{H_0}
+\newcommand{\hcmb}{H_0^{\text{CMB}}}
+\newcommand{\hloc}{H_0^{\text{loc}}}
+\newcommand{\hlambda}{H_{\Lambda}}
+\newcommand{\kmsmpc}{\mathrm{km\,s^{-1}\,Mpc^{-1}}}
+\newcommand{\DeltaMod}{\Delta_{\text{mod}}}
+\newcommand{\fload}{f_{\text{load}}}
+\newcommand{\debtentropy}{S_{\text{debt}}}
+\newcommand{\horizonentropy}{S_{\text{H}}}
+\newcommand{\GammaLock}{\Gamma_{\text{lock}}}
+\newcommand{\AH}{A_H}
+\newcommand{\kappad}{\kappa_{D_5}}
+\newcommand{\dd}{\mathcal D}
+\newcommand{\msun}{M_{\odot}}
+\newcommand{\so}{\mathfrak{so}}
+\newcommand{\su}{\mathfrak{su}}
+\newcommand{\uone}{\mathfrak{u}(1)}
+
+% Load simulation-generated macros if available; otherwise fall back to canonical values.
+\InputIfFileExists{sim_results.tex}{}{}
+\providecommand{\BranchResult}{(26,8,312)}
+\providecommand{\EtaBResult}{6.449923359416\times10^{-10}}
+
+\title{Static Holographic Boundary Theory:\\
+Supplementary Material}
+\author{}
+\date{\today}
+
+\hypersetup{
+  pdftitle={SHBT Supplementary Material},
+  pdfauthor={},
+  pdfsubject={Supplementary proofs for Static Holographic Boundary Theory},
+  pdfkeywords={Static Holographic Boundary Theory, SHBT, modular invariance},
+  pdfcreator={LaTeX with hyperref}
+}
+
+\begin{document}
+\maketitle
+
 % Appendix material for Static Holographic Boundary Theory (SHBT)
 \section{Modular Framing Phase Proof}
 \label{sec:modular_framing_proof}
@@ -160,8 +262,8 @@ Jarlskog residue and the finite-register neutrino scale.
 
 The reported normal-hierarchy eigenvalues are listed below.  They retain the
 native report's mass floor; the distinct mass obtained from the native
-register substitution is compared in
-Eq.~\eqref{eq:native-neutrino-normalization-check}.
+register substitution is compared in the neutrino
+normalization check of the main text.
 \begin{align}
 \label{eq:supplement-lightest-neutrino}
  m_{\nu,1}
@@ -279,3 +381,5 @@ existence of the required microscopic CFT.  A constructive completion must
 still provide the character spectrum, conformal weights, and modular
 matrices of a theory realizing the ledger.  Neither a matching central
 charge nor a reported modular-invariance flag supplies that construction.
+
+\end{document}

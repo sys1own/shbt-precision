@@ -8,3 +8,26 @@ __pycache__/
 /simulation_results
 *.egg-info/
 main_text.txt
+venv/
+
+# LaTeX build artifacts
+*.aux
+*.fdb_latexmk
+*.fls
+*.log
+*.out
+*.synctex.gz
+*.toc
+
+# Simulator outputs
+*.h5
+*_run_info.json
+cosmology.json
+cosmology_custom.json
+cosmo_*.csv
+result_*.png
+result.json
+shbt_run_*.csv
+shbt_cmb_cls.csv
+shbt_matter_pk.csv
+shbt_tensor_cls.csv
