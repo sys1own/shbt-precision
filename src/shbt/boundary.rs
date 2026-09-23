@@ -161,6 +161,25 @@ pub struct StaticBoundaryCAbi {
 impl StaticBoundaryCAbi {
     /// The canonical C-ABI contract is exactly 48 bytes.
     pub const SIZE_BYTES: usize = 48;
+
+    /// Serialize to the flat 48-byte little-endian ABI layout.
+    pub fn to_bytes(&self) -> [u8; Self::SIZE_BYTES] {
+        let mut out = [0u8; Self::SIZE_BYTES];
+        for (offset, v) in [
+            self.lepton_level,
+            self.quark_level,
+            self.parent_level,
+            self.i_l_star,
+            self.i_q_star,
+            self.framing_defect,
+        ]
+        .iter()
+        .enumerate()
+        {
+            out[8 * offset..8 * offset + 8].copy_from_slice(&v.to_le_bytes());
+        }
+        out
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -585,6 +604,17 @@ impl StaticBoundary {
     /// Verify dark-sector Weil character orthogonality over conductor D.
     fn dark_weil_orthogonality_check_py(&self) -> bool {
         self.dark_weil_orthogonality_check()
+    }
+
+    /// SHA-256 provenance state vector (C-ABI state + embedded data).
+    fn provenance_state_hash_py(&self) -> String {
+        self.provenance_state_hash()
+    }
+
+    /// Verify the runtime state vector and embedded data digest.
+    fn verify_provenance_state_py(&self) -> PyResult<String> {
+        self.verify_provenance_state()
+            .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))
     }
 
     /// Flat 48-byte C-ABI projection of the boundary invariants.

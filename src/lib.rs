@@ -3584,6 +3584,18 @@ impl ShbtSimulator {
         self.boundary.dark_weil_orthogonality_check()
     }
 
+    /// SHA-256 provenance state vector (48-byte C-ABI + embedded data).
+    fn provenance_state_hash(&self) -> String {
+        self.boundary.provenance_state_hash()
+    }
+
+    /// Verify the runtime state vector and embedded data digest.
+    fn verify_provenance_state(&self) -> PyResult<String> {
+        self.boundary
+            .verify_provenance_state()
+            .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))
+    }
+
     /// Anti-baryon Lindblad relaxation rate in units of M_N (zero for T < M_N).
     #[staticmethod]
     fn thermal_lindblad_evolution(temp_gev: f64, m_n_gev: f64) -> f64 {

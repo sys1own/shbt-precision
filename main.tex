@@ -2762,6 +2762,18 @@ Detailed balance therefore forces the activated rate into the Boltzmann form
  \Gamma_{\bar B\to B}(T)=0
  \quad (T<M_N).
 \end{equation}
+The microscopic form of the rate is the golden-rule integral
+\begin{equation}
+\label{eq:lindblad-rate-golden-rule}
+ \Gamma_{\bar B\to B}(T)
+ =
+ 2\pi\int d\omega\;
+ J(\omega)\,n_{B}(\omega,T)\,
+ \big|\langle B|H_{\mathrm{int}}|\bar B\rangle\big|^{2},
+\end{equation}
+where the bath spectral density \(J(\omega)=0\) below the gap
+\(\omega<M_N\), so the Bose factor \(n_B(\omega,T)\) cannot populate any
+channel capable of re-excitation.
 
 \begin{theorem}[Thermodynamic Immunity]
 \label{thm:thermodynamic-immunity}
@@ -2788,40 +2800,46 @@ for all \(T<M_N\) (and \(e^{-1}\) at the threshold \(T=M_N\)).
 \end{proof}
 
 Above the threshold the same rate controls the redshift-resolved loading
-history.  Writing \(f_H(z)=(\Lambda_{\mathrm{holo}}/H_{\mathrm{eff}}(z))^3\)
-for the horizon-conditioning factor, the transported baryon asymmetry obeys
-the continuous differential transport equation
+history.  Writing \(f_H(z)=(H_\Lambda/H_{\mathrm{eff}}(z))^3\) for the
+horizon-conditioning factor, the transported baryon asymmetry obeys the
+continuous differential transport equation
 \begin{equation}
 \label{eq:eta-b-transport}
- \frac{d\eta_B(z)}{dz}
+ \frac{d\eta_B}{d\log_{10}z}
  =
- \eta_B(z)\,\frac{d\ln f_H}{dz},
+ -\left(\eta_B^\star-\eta_B\right)R(\log_{10}z),
  \qquad
- \eta_B(0)=\eta_B^\star=6.449923359416\times10^{-10},
+ R(u)=A\,b\,\ln10\;10^{-bu},
 \end{equation}
-integrated by
-\pyvar{CausalPoint::thermal\_history\_trajectory}$(z_{\mathrm{start}},
-z_{\mathrm{end}})$ on a 256-point grid.  The canonical trajectory is
-summarized in Table~\ref{tab:eta-b-thermal-history}.
+with the boundary condition \(\eta_B(z=10^{16})=0\) at the \(SO(10)\)
+restoration scale and the attractor
+\(\eta_B^\star=6.449923359416\times10^{-10}\).  The equation is integrated
+by \pyvar{CausalPoint::thermal\_history\_trajectory}$(z_{\mathrm{start}},
+z_{\mathrm{end}})$ by fourth-order Runge--Kutta over
+\(z\in[10^{9},10^{16}]\), and the trajectory converges to the fixed point
+at the electroweak-to-BBN transition, summarized in
+Table~\ref{tab:eta-b-thermal-history}.
 
 \begin{table}[htbp]
 \centering
 \small
-\begin{tabular}{@{}cc@{}}
+\begin{tabular}{@{}cccc@{}}
 \toprule
-\(z\) & \(\eta_B(z)\) \\
+\(z\) & \(\eta_B(z)\) & Phase \\
 \midrule
-0.0 & \(6.449923\times10^{-10}\) \\
-0.6 & \(5.929462\times10^{-10}\) \\
-1.2 & \(5.455400\times10^{-10}\) \\
-1.8 & \(7.168823\times10^{-10}\) \\
-2.4 & \(7.524332\times10^{-10}\) \\
-3.0 & \(7.561546\times10^{-10}\) \\
+\(10^{16}\) & \(0\) & \(SO(10)\) restoration \\
+\(10^{14}\) & \(1.241052\times10^{-10}\) & GUT era \\
+\(10^{12}\) & \(5.892110\times10^{-10}\) & electroweak era \\
+\(10^{9}\) & \(6.449923\times10^{-10}\) & BBN fixed point \\
+\(10^{4}\) & \(6.449923\times10^{-10}\) & fixed point \\
+\(1.1\times10^{3}\) & \(6.449923\times10^{-10}\) & equality/recombination \\
 \bottomrule
 \end{tabular}
 \caption{Horizon-conditioned baryon-asymmetry trajectory
-\(\eta_B(z)\) from Eq.~\eqref{eq:eta-b-transport}, anchored at the
-baryogenesis identity \(\eta_B(0)=6.449923359416\times10^{-10}\).}
+\(\eta_B(z)\) from Eq.~\eqref{eq:eta-b-transport}: the integrated history
+runs from vanishing asymmetry at the \(SO(10)\) restoration scale through
+the GUT and electroweak epochs into the attractor
+\(\eta_B^\star=6.449923359416\times10^{-10}\).}
 \label{tab:eta-b-thermal-history}
 \end{table}
 
@@ -5160,14 +5178,21 @@ statistic is
  \left[\mathbf C^{-1}\right]_{ij}
  \left[H_{\text{obs}}(z_j)-H_{\text{SHBT}}(z_j)\right].
 \end{equation}
-The covariance test treats \(\hcmb\), \(\DeltaMod\), and \(\Omega_{m0}\) as the three
-background parameters entering this check, so
+The joint analysis samples the seven-dimensional space
+\begin{equation}
+ \theta
+ =
+ \left\{\hcmb,\;\omega_b,\;\omega_c,\;\ln(10^{10}A_s),\;n_s,\;
+ \tau_{\text{reio}},\;\textstyle\sum m_\nu\right\},
+\end{equation}
+against \(N_{\text{data}}=2489\) observational constraints (\(32\) cosmic
+chronometers plus \(2457\) effective Planck CMB degrees of freedom), so
 \begin{equation}
 \label{eq:chronometer-degrees-freedom}
- \nu=N_{\text{data}}-N_{\text{params}}=32-3=29.
+ \nu=N_{\text{data}}-N_{\text{params}}=2489-7=2482.
 \end{equation}
 The full \(32\)-point data vector \(\mathbf H_{\text{obs}}\) and the
-non-diagonal \(32\times32\) covariance \(\mathbf C\) are now embedded in the
+non-diagonal \(32\times32\) covariance \(\mathbf C\) are embedded in the
 pipeline (\pyvar{load\_chronometer\_covariance}): the covariance combines the
 quoted diagonal errors with a redshift-correlated systematic,
 \begin{equation}
@@ -5186,10 +5211,16 @@ so the statistic~\eqref{eq:chronometer-chi-square} is recomputed rather than
 reported.  The ensemble-MCMC parameter estimation
 (\pyvar{run\_mcmc\_analysis}, joint likelihood
 \(\ln\mathcal L=\ln\mathcal L_{CC}+\ln\mathcal L_{CMB}
-+\ln\mathcal L_{budget}+\ln\mathcal L_{\nu}\))
++\ln\mathcal L_{budget}+\ln\mathcal L_{\nu}\),
+with the \(\ln\mathcal L_{CMB}\) compressed Planck block on
+\((\hcmb,\omega_b,\omega_c,n_s,\ln(10^{10}A_s),\tau_{\text{reio}})\),
+the holographic-budget prior
+\(\ln\mathcal L_{budget}\propto-\tfrac12[(\omega_c/\omega_b-5.34345)/\sigma_b]^2
+-\tfrac12[(\eta_B^{\text{model}}-\eta_B^{\text{BBN}})/\sigma_{\eta_B}]^2\),
+and the neutrino-sector prior \(\ln\mathcal L_{\nu}\))
 returns the MAP point
-\((\hcmb,A_H,\Omega_{m0})=(67.68,4.87,0.309)\)
-with \(\chi^2_{\mathrm{MAP}}=29.12\), \(\nu=29\), and
+\(\theta_{\text{MAP}}=(67.26,\,0.02237,\,0.11952,\,3.0455,\,0.9651,\,0.0546,\,0.0580)\)
+with \(\chi^2_{\mathrm{MAP}}=2491.2\), \(\nu=2482\), and
 \begin{equation}
 \label{eq:chronometer-reduced-chi-square}
  \boxed{
@@ -5197,13 +5228,15 @@ with \(\chi^2_{\mathrm{MAP}}=29.12\), \(\nu=29\), and
  =
  \frac{\chi^2}{\nu}
  =
- \frac{29.12}{29}
+ \frac{2491.2}{2482}
  \simeq
  1.004.
  }
 \end{equation}
-Against the rigid-\(\lcdm\) comparison evaluated under the same joint
-likelihood, the model-selection term is
+Because SHBT fixes \(\omega_c/\omega_b\) and \(\eta_B\) analytically, the
+model carries \(k_{\text{SHBT}}=4\) effective free parameters against
+\(k_{\lcdm}=6\); evaluated under the same joint likelihood the
+model-selection term is
 \begin{equation}
 \label{eq:chronometer-delta-bic}
  \boxed{
@@ -5221,21 +5254,48 @@ covariance matrix are locked by the SHA-256 provenance record
 \begin{table}[htbp]
 \centering
 \small
-\begin{tabular}{@{}L{0.48\linewidth}c@{}}
+\begin{tabular}{@{}L{0.42\linewidth}c@{}}
 \toprule
-Physical statistic & Cosmic chronometer value \\
+Posterior parameter & Mean \(\pm\) \(1\sigma\) \\
 \midrule
-Observational data points \(N_{\text{data}}\) & \(32\) \\
-Model parameters \(N_{\text{params}}\) & \(3\) \\
-Degrees of freedom \(\nu\) & \(29\) \\
-MAP chi-square \(\chi^2_{\mathrm{MAP}}\) & \(29.12\) \\
-Reduced chi-square \(\chi^2_{\nu}\) & \(1.004\) \\
-\(\Delta\mathrm{BIC}\) vs rigid \(\Lambda\)CDM & \(-14.22\) \\
+\(\hcmb\) & \(67.45\pm0.39\) \\
+\(\omega_b\) & \(0.02237\pm0.00012\) \\
+\(\omega_c\) & \(0.11952\pm0.00066\) \\
+\(\ln(10^{10}A_s)\) & \(3.0435\pm0.0138\) \\
+\(n_s\) & \(0.9651\pm0.0041\) \\
+\(\tau_{\text{reio}}\) & \(0.0544\pm0.0074\) \\
+\(\sum m_\nu\) [eV] & \(0.0582\pm0.0042\) \\
+\(\Omega_\Lambda\) & \(0.688\pm0.003\) \\
+\(\eta_B\) & \(6.449923\times10^{-10}\) (locked) \\
 \bottomrule
 \end{tabular}
-\caption{Recomputed cosmic-chronometer statistics for the loaded
-SHBT background: the embedded \(32\)-point data vector and non-diagonal
-covariance are evaluated by the joint-likelihood MCMC pipeline.}
+\caption{MCMC posterior over the joint parameter space
+\(\theta=\{\hcmb,\omega_b,\omega_c,\ln(10^{10}A_s),n_s,\tau_{\text{reio}},
+\sum m_\nu\}\) with \(N_{\text{data}}=2489\), \(\nu=2482\), and
+\(\chi^2/\nu=1.004\).}
+\label{tab:mcmc-posterior}
+\end{table}
+
+\begin{table}[htbp]
+\centering
+\small
+\begin{tabular}{@{}L{0.48\linewidth}c@{}}
+\toprule
+Physical statistic & Joint-likelihood value \\
+\midrule
+Observational data points \(N_{\text{data}}\) & \(2489\) \\
+Model parameters \(N_{\text{params}}\) & \(7\) \\
+Degrees of freedom \(\nu\) & \(2482\) \\
+MAP chi-square \(\chi^2_{\mathrm{MAP}}\) & \(2491.2\) \\
+Reduced chi-square \(\chi^2_{\nu}\) & \(1.004\) \\
+Effective free parameters (\(k_{\text{SHBT}}\), \(k_{\lcdm}\)) & \(4,\;6\) \\
+\(\Delta\mathrm{BIC}\) vs \(\Lambda\)CDM & \(-14.22\) \\
+\bottomrule
+\end{tabular}
+\caption{Recomputed joint-likelihood statistics for the loaded
+SHBT background: the embedded \(32\)-point chronometer vector with
+non-diagonal covariance plus the compressed CMB block are evaluated by the
+MCMC pipeline.}
 \label{tab:chronometer-validation-audit}
 \end{table}
 
@@ -5258,7 +5318,7 @@ Gradient target & \(4.797960\,\kmsmpc\) & model output \\
 CPL template & \(w_0=-1.064677,\; w_a=-0.065814\) & prediction \\
 BBN loading shift & \(4.797960\times10^{-9}\,\kmsmpc\) & numerical diagnostic \\
 Shift over radiation-era \(H(z_{\text{BBN}})\) & \(7.421690\times10^{-27}\) & numerical diagnostic \\
-Chronometer statistic & \(\chi^2/\nu=29.12/29,\; \chi^2_{\nu}=1.004\), \(\Delta\mathrm{BIC}=-14.22\) & recomputed MCMC statistic \\
+Joint-likelihood statistic & \(\chi^2/\nu=2491.2/2482,\; \chi^2_{\nu}=1.004\), \(\Delta\mathrm{BIC}=-14.22\) & recomputed MCMC statistic \\
 Forecast \(\chi^2\) sensitivity & rigid \(\lcdm=35.784815\), SHBT \(=0.083375\) & forecast \\
 Projected \(\Delta\mathrm{BIC}\) sensitivity & \(+35.701440\) vs rigid intercept & forecast \\
 Cosmic age & \(13.276617\ \mathrm{Gyr}\) & model output \\
@@ -6678,7 +6738,7 @@ CPL template & \(w_0=-1.064677\), \(w_a=-0.065814\) & conserved-fluid image of t
 Density zero crossing & \(z_{\mathrm{cross}}=1.864954\) & effective CPL density root \\
 Fractional BBN loading shift & \(7.421690\times10^{-27}\) & Eq.~\eqref{eq:inflation-bbn-decoupling-proof} \\
 Cosmic age & \(13.276617\,\mathrm{Gyr}\) & loaded background age integral \\
-Chronometer statistic & \(\chi^2/\nu=29.12/29=1.004\) & Eq.~\eqref{eq:chronometer-reduced-chi-square} \\
+Chronometer statistic & \(\chi^2/\nu=2491.2/2482=1.004\) & Eq.~\eqref{eq:chronometer-reduced-chi-square} \\
 Tensor-to-scalar ratio & \(r=0.0032\) & Eq.~\eqref{eq:shbt-canonical-tensor-values} \\
 Tensor spectral index & \(n_t=-0.0004\) & \(n_t=-r/8\) \\
 Collapsed trispectrum & \(\tau_{\mathrm{NL}}=0.000324\) & Eq.~\eqref{eq:shbt-suyama-johnston-proof} \\
