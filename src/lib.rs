@@ -3569,6 +3569,32 @@ impl ShbtSimulator {
         self.causal_point.crystallize_history()
     }
 
+    /// Enumerate candidate parent levels K <= max_k with framing defects,
+    /// sorted ascending; (312, 6, 13, 0.0) leads on the canonical branch.
+    fn classify_modular_completions(&self, max_k: u32) -> Vec<(u32, u32, u32, f64)> {
+        StaticBoundary::classify_modular_completions(
+            self.boundary.lepton_level,
+            self.boundary.quark_level,
+            max_k,
+        )
+    }
+
+    /// Dark-sector Weil character orthogonality over conductor D = 362670.
+    fn dark_weil_orthogonality_check(&self) -> bool {
+        self.boundary.dark_weil_orthogonality_check()
+    }
+
+    /// Anti-baryon Lindblad relaxation rate in units of M_N (zero for T < M_N).
+    #[staticmethod]
+    fn thermal_lindblad_evolution(temp_gev: f64, m_n_gev: f64) -> f64 {
+        BaryogenesisOptimizer::thermal_lindblad_evolution(temp_gev, m_n_gev)
+    }
+
+    /// Continuous horizon-conditioned eta_B(z) trajectory over [z_start, z_end].
+    fn thermal_history_trajectory(&self, z_start: f64, z_end: f64) -> Vec<(f64, f64)> {
+        self.causal_point.thermal_history_trajectory(z_start, z_end)
+    }
+
     fn simulate_cosmology(&self, z_max: f64, samples: usize) -> Vec<BulkMetricSlice> {
         let xi = self.causal_point.xi.clone();
         let cp = CausalPoint::new_with_params(

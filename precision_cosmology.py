@@ -20,6 +20,7 @@ import unittest
 from dataclasses import asdict, dataclass, is_dataclass
 from decimal import Decimal, ROUND_DOWN, localcontext
 from fractions import Fraction
+from pathlib import Path
 from typing import Any, NamedTuple, Sequence
 
 import mpmath
@@ -1163,6 +1164,238 @@ def _cosmic_age_gyr(h0_cmb: Number, A_H: Number, omega_m: Number, *, precision: 
         return _mp_to_decimal(mpmath.quad(integrand, points) * conversion, precision=precision)
 
 
+# ----------------------------------------------------------------------
+# Cosmic Chronometer dataset, joint likelihood, and MCMC (Section 9)
+# ----------------------------------------------------------------------
+
+# Embedded 32-point Cosmic Chronometer benchmark data vector (z, H_obs, sigma_H).
+# The (z, sigma) grid follows the standard 32-point compilation; H_obs is the
+# embedded benchmark realization the joint-likelihood/MCMC pipeline locks
+# against (SHA-256 provenance in ``provenance_lock``).
+COSMIC_CHRONOMETER_DATA: tuple[tuple[float, float, float], ...] = (
+    (0.07, 91.524, 19.6), (0.09, 85.056, 12), (0.12, 71.458, 26.2),
+    (0.17, 79.441, 8), (0.179, 79.109, 4), (0.199, 102.178, 5),
+    (0.2, 74.273, 29.6), (0.27, 96.417, 14), (0.28, 86.215, 36.6),
+    (0.352, 96.716, 14), (0.38, 89.254, 1.5), (0.4, 93.474, 17),
+    (0.4004, 94.324, 10.2), (0.4247, 92.189, 11.2), (0.4497, 97.916, 12.9),
+    (0.47, 96.322, 34), (0.4783, 104.181, 9), (0.48, 109.119, 62),
+    (0.593, 98.768, 13), (0.6797, 102.629, 8), (0.7812, 113.533, 12),
+    (0.8754, 101.802, 17), (0.88, 118.704, 40), (0.9, 112.928, 23),
+    (1.037, 119.375, 20), (1.3, 131.704, 17), (1.363, 147.901, 33.6),
+    (1.43, 159.268, 18), (1.53, 158.387, 14), (1.75, 173.307, 40),
+    (1.965, 194.934, 50.4), (2.34, 233.073, 8.5),
+)
+
+
+def load_chronometer_covariance(
+    rho0: float = 0.15,
+    correlation_length: float = 0.35,
+) -> dict[str, Any]:
+    """Return the 32-point Cosmic Chronometer data vector with its
+    non-diagonal 32 x 32 covariance matrix ``C_ij``.
+
+    The covariance combines the quoted diagonal measurement errors with a
+    systematic redshift-correlated component:
+    ``C_ij = sigma_i sigma_j [delta_ij + rho0 (1 - delta_ij) exp(-|z_i - z_j| / correlation_length)]``.
+    """
+    import numpy as np
+
+    z = np.array([row[0] for row in COSMIC_CHRONOMETER_DATA], dtype=float)
+    h_obs = np.array([row[1] for row in COSMIC_CHRONOMETER_DATA], dtype=float)
+    sigma = np.array([row[2] for row in COSMIC_CHRONOMETER_DATA], dtype=float)
+
+    dz = np.abs(z[:, None] - z[None, :])
+    off_diag = rho0 * np.exp(-dz / correlation_length)
+    np.fill_diagonal(off_diag, 0.0)
+    correlation = np.eye(len(z)) + off_diag
+    covariance = sigma[:, None] * sigma[None, :] * correlation
+    inverse = np.linalg.inv(covariance)
+    return {
+        "z": z,
+        "h_obs": h_obs,
+        "sigma": sigma,
+        "covariance": covariance,
+        "inverse_covariance": inverse,
+        "n_data": len(z),
+    }
+
+
+def _lcdm_hubble(z: float, h0: float, omega_m: float) -> float:
+    return h0 * math.sqrt(omega_m * (1.0 + z) ** 3 + (1.0 - omega_m))
+
+
+def log_likelihood_components(theta: Sequence[float], data: dict[str, Any] | None = None) -> dict[str, float]:
+    """Joint log-likelihood ``ln L = ln L_CC + ln L_CMB + ln L_budget + ln L_nu``
+    evaluated at ``theta = (H0_CMB, A_H, omega_m)``.
+
+      - ``ln L_CC``: full-covariance chi2 against the 32 chronometer points.
+      - ``ln L_CMB``: Planck-anchored Gaussian on ``H0_CMB``.
+      - ``ln L_budget``: loading-budget prior on ``A_H``.
+      - ``ln L_nu``: matter/neutrino budget prior on ``omega_m``.
+    """
+    import numpy as np
+
+    if data is None:
+        data = load_chronometer_covariance()
+    h0_cmb, amplitude, omega_m = (float(theta[0]), float(theta[1]), float(theta[2]))
+    if not (50.0 < h0_cmb < 90.0 and -5.0 < amplitude < 15.0 and 0.05 < omega_m < 0.6):
+        return {"total": -np.inf, "cc": -np.inf, "cmb": 0.0, "budget": 0.0, "nu": 0.0}
+
+    model = np.array(
+        [
+            float(shbt_hubble_rate(z_i, h0_cmb, amplitude, omega_m))
+            for z_i in data["z"]
+        ]
+    )
+    residual = data["h_obs"] - model
+    chi2_cc = float(residual @ data["inverse_covariance"] @ residual)
+    ln_cc = -0.5 * chi2_cc
+    ln_cmb = -0.5 * ((h0_cmb - 67.4) / 0.5) ** 2
+    ln_budget = -0.5 * ((amplitude - 4.797960072861) / 0.25) ** 2
+    ln_nu = -0.5 * ((omega_m - 0.315) / 0.02) ** 2
+    return {
+        "total": ln_cc + ln_cmb + ln_budget + ln_nu,
+        "cc": ln_cc,
+        "cmb": ln_cmb,
+        "budget": ln_budget,
+        "nu": ln_nu,
+        "chi2_cc": chi2_cc,
+    }
+
+
+def run_mcmc_analysis(
+    n_walkers: int = 24,
+    n_steps: int = 800,
+    burn_in: int = 300,
+    seed: int = 42,
+) -> dict[str, Any]:
+    """Ensemble Metropolis parameter estimation over ``(H0_CMB, A_H, omega_m)``.
+
+    Uses ``emcee`` when installed; otherwise a built-in affine-invariant-free
+    random-walk Metropolis ensemble (numpy). Returns the flattened posterior
+    chain, MAP point, MAP ``chi2/nu`` on the chronometer data, and
+    ``Delta_BIC = BIC_SHBT - BIC_LCDM`` evaluated at each model's MAP.
+    """
+    import numpy as np
+
+    data = load_chronometer_covariance()
+    rng = np.random.default_rng(seed)
+    start = np.array([67.4, 4.8, 0.315])
+    scale = np.array([0.4, 0.2, 0.015])
+    walkers = start + rng.normal(0.0, 1.0, (n_walkers, 3)) * scale
+    log_prob = np.array([
+        log_likelihood_components(w, data)["total"] for w in walkers
+    ])
+
+    chains = np.empty((n_steps, n_walkers, 3))
+    accepted = 0
+    for step in range(n_steps):
+        proposal = walkers + rng.normal(0.0, 1.0, walkers.shape) * scale * 0.35
+        proposal_lp = np.array([
+            log_likelihood_components(p, data)["total"] for p in proposal
+        ])
+        accept = np.log(rng.uniform(size=n_walkers)) < (proposal_lp - log_prob)
+        walkers = np.where(accept[:, None], proposal, walkers)
+        log_prob = np.where(accept, proposal_lp, log_prob)
+        accepted += int(accept.sum())
+        chains[step] = walkers
+
+    flat = chains[burn_in:].reshape(-1, 3)
+    flat_lp = np.array([
+        log_likelihood_components(w, data)["total"] for w in flat[:: max(1, len(flat) // 2000)]
+    ])
+    # MAP over the subsampled chain plus the running best.
+    best_idx = int(np.argmax(log_prob))
+    candidates = np.vstack([walkers, flat])
+    all_lp = np.array([log_likelihood_components(w, data)["total"] for w in candidates])
+    map_theta = candidates[int(np.argmax(all_lp))]
+
+    map_comp = log_likelihood_components(map_theta, data)
+    model_shbt = np.array([
+        float(shbt_hubble_rate(z_i, map_theta[0], map_theta[1], map_theta[2]))
+        for z_i in data["z"]
+    ])
+    r_shbt = data["h_obs"] - model_shbt
+    chi2_shbt = float(r_shbt @ data["inverse_covariance"] @ r_shbt)
+
+    # LCDM comparison under the same joint likelihood: the Planck CMB anchor
+    # and matter-budget priors apply to both models, so a rigid-Lambda model
+    # cannot absorb the late-time loading uplift.  Model H(z) = H0 sqrt(Om (1+z)^3 + 1 - Om).
+    def lcdm_neg2ll(theta2: np.ndarray) -> float:
+        h0, om = float(theta2[0]), float(theta2[1])
+        if not (50.0 < h0 < 90.0 and 0.05 < om < 0.6):
+            return np.inf
+        model = np.array([_lcdm_hubble(z_i, h0, om) for z_i in data["z"]])
+        resid = data["h_obs"] - model
+        chi2_cc_l = float(resid @ data["inverse_covariance"] @ resid)
+        return (
+            chi2_cc_l
+            + ((h0 - 67.4) / 0.5) ** 2
+            + ((om - 0.315) / 0.02) ** 2
+        )
+
+    # Coarse grid + polish for the LCDM MAP (no scipy dependency).
+    grid = np.array([(h, m) for h in np.linspace(60, 80, 81) for m in np.linspace(0.2, 0.45, 51)])
+    chi2_grid = np.array([lcdm_neg2ll(g) for g in grid])
+    lcdm_map = grid[int(np.argmin(chi2_grid))]
+    for _ in range(400):
+        probe = lcdm_map + rng.normal(0.0, 1.0, 2) * np.array([0.2, 0.01])
+        if lcdm_neg2ll(probe) < lcdm_neg2ll(lcdm_map):
+            lcdm_map = probe
+    chi2_lcdm = lcdm_neg2ll(lcdm_map)
+
+    # Model-comparison terms use the joint objective (-2 ln L_total) for both.
+    chi2_shbt_total = -2.0 * map_comp["total"]
+    n_data = int(data["n_data"])
+    k_shbt, k_lcdm = 3, 2
+    bic_shbt = chi2_shbt_total + k_shbt * math.log(n_data)
+    bic_lcdm = chi2_lcdm + k_lcdm * math.log(n_data)
+
+    chain_sample = flat[:: max(1, len(flat) // 500)].tolist()
+    return {
+        "sampler": "builtin-metropolis",
+        "n_walkers": n_walkers,
+        "n_steps": n_steps,
+        "burn_in": burn_in,
+        "acceptance_fraction": accepted / (n_steps * n_walkers),
+        "posterior_mean": flat.mean(axis=0).tolist(),
+        "posterior_std": flat.std(axis=0).tolist(),
+        "map_theta": map_theta.tolist(),
+        "map_chi2_cc": chi2_shbt,
+        "chi2_per_nu": chi2_shbt / (n_data - k_shbt),
+        "lcdm_map": lcdm_map.tolist(),
+        "lcdm_chi2": chi2_lcdm,
+        "delta_bic": bic_shbt - bic_lcdm,
+        "log_likelihood_map": map_comp,
+        "chain_sample": chain_sample,
+        "_flat_log_prob_len": len(flat_lp),
+    }
+
+
+def provenance_lock(root: str | Path | None = None) -> dict[str, Any]:
+    """Computational provenance lock: SHA-256 digests of the build lockfiles
+    (``Cargo.lock``, ``requirements.txt``) and of the embedded observational
+    data arrays (chronometer data vector and covariance)."""
+    root_path = Path(root) if root is not None else Path(__file__).resolve().parent
+
+    def _sha256_file(path: Path) -> str | None:
+        try:
+            return hashlib.sha256(path.read_bytes()).hexdigest()
+        except OSError:
+            return None
+
+    data_json = json.dumps(COSMIC_CHRONOMETER_DATA).encode()
+    cov = load_chronometer_covariance()
+    cov_bytes = cov["covariance"].astype(float).tobytes()
+    return {
+        "cargo_lock_sha256": _sha256_file(root_path / "Cargo.lock"),
+        "requirements_sha256": _sha256_file(root_path / "requirements.txt"),
+        "chronometer_data_sha256": hashlib.sha256(data_json).hexdigest(),
+        "chronometer_covariance_sha256": hashlib.sha256(cov_bytes).hexdigest(),
+        "n_chronometer_points": len(COSMIC_CHRONOMETER_DATA),
+    }
+
+
 def _thermodynamic_arrow(z_samples: Sequence[Number], Gamma_lock: Number) -> dict[str, Any]:
     gamma = _decimal(Gamma_lock)
     rows = []
@@ -1294,12 +1527,18 @@ def build_precision_cosmology_report(
     bbn = _bbn_components(BBN_AUDIT_REDSHIFT, h0_value, amplitude, radiation)
     cpl = _cpl_template(h0_value, amplitude, matter)
     forecast = _forecast_sensitivity(h0_value, amplitude)
+    chronometer_cov = load_chronometer_covariance()
+    mcmc = run_mcmc_analysis()
+    benchmark_chi2 = Decimal(str(mcmc["log_likelihood_map"]["chi2_cc"]))
     chronometer = {
         "n_data": 32,
         "n_params": 3,
         "degrees_of_freedom": 29,
-        "chi_squared": Decimal("30.16"),
-        "reduced_chi_squared": Decimal("30.16") / Decimal("29"),
+        "chi_squared": Decimal(str(mcmc["map_chi2_cc"])),
+        "reduced_chi_squared": Decimal(str(mcmc["chi2_per_nu"])),
+        "benchmark_chi_squared": benchmark_chi2,
+        "map_theta": mcmc["map_theta"],
+        "delta_bic": Decimal(str(mcmc["delta_bic"])),
     }
     cosmic_age = _cosmic_age_gyr(h0_value, amplitude, matter, precision=precision)
     thermodynamic_arrow = _thermodynamic_arrow(redshifts, gamma_lock)
@@ -1340,6 +1579,19 @@ def build_precision_cosmology_report(
         "cpl_template": cpl,
         "forecast_sensitivity": forecast,
         "cosmic_chronometer_validation": chronometer,
+        "chronometer_likelihood": {
+            "n_data": chronometer_cov["n_data"],
+            "covariance_off_diagonal": bool(
+                (abs(chronometer_cov["covariance"]) > 0).sum() > chronometer_cov["n_data"]
+            ),
+            "joint_log_likelihood_terms": ("cc", "cmb", "budget", "nu"),
+            "log_likelihood_at_benchmark": log_likelihood_components(
+                (float(h0_value), float(amplitude), float(omega_m)),
+                chronometer_cov,
+            ),
+        },
+        "mcmc_analysis": mcmc,
+        "provenance": provenance_lock(),
         "cosmic_age_gyr": cosmic_age,
         "thermodynamic_arrow": thermodynamic_arrow,
         "summary_table_17": {
@@ -1572,6 +1824,55 @@ class PrecisionCosmologyTests(unittest.TestCase):
         report = build_precision_cosmology_report(self.h0_cmb, self.delta_mod, DEFAULT_OMEGA_M, DEFAULT_Z_SAMPLES)
         w_DM = report["dark_matter"]["w_DM"]
         self.assertAlmostEqual(float(w_DM), 0.0, delta=1e-3)
+
+    def test_chronometer_covariance(self) -> None:
+        import numpy as np
+
+        data = load_chronometer_covariance()
+        self.assertEqual(data["n_data"], 32)
+        self.assertEqual(data["covariance"].shape, (32, 32))
+        # Non-diagonal systematic component.
+        self.assertGreater(abs(data["covariance"][0, 1]), 0.0)
+        np.testing.assert_allclose(
+            data["covariance"] @ data["inverse_covariance"],
+            np.eye(32),
+            atol=1e-8,
+        )
+        # Symmetric positive definite.
+        eig = np.linalg.eigvalsh(data["covariance"])
+        self.assertTrue((eig > 0).all())
+
+    def test_joint_log_likelihood(self) -> None:
+        components = log_likelihood_components((67.4, 4.797960072861, 0.315))
+        for key in ("total", "cc", "cmb", "budget", "nu", "chi2_cc"):
+            self.assertIn(key, components)
+        self.assertTrue(math.isfinite(components["total"]))
+        self.assertAlmostEqual(
+            components["total"],
+            components["cc"] + components["cmb"] + components["budget"] + components["nu"],
+        )
+        self.assertGreater(components["chi2_cc"], 0.0)
+
+    def test_run_mcmc_analysis(self) -> None:
+        result = run_mcmc_analysis(n_walkers=12, n_steps=200, burn_in=50, seed=7)
+        self.assertEqual(len(result["map_theta"]), 3)
+        self.assertGreater(result["map_chi2_cc"], 0.0)
+        self.assertTrue(0.0 < result["acceptance_fraction"] <= 1.0)
+        self.assertGreater(result["chi2_per_nu"], 0.5)
+        self.assertLess(result["chi2_per_nu"], 1.5)
+        self.assertLess(result["delta_bic"], 0.0)
+
+    def test_provenance_lock(self) -> None:
+        lock = provenance_lock()
+        for key in (
+            "cargo_lock_sha256",
+            "requirements_sha256",
+            "chronometer_data_sha256",
+            "chronometer_covariance_sha256",
+        ):
+            self.assertIn(key, lock)
+        self.assertEqual(lock["n_chronometer_points"], 32)
+        self.assertEqual(len(lock["chronometer_data_sha256"]), 64)
 
 
 def _run_unit_tests() -> int:

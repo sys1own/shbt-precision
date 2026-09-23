@@ -1,5 +1,6 @@
 #![allow(non_snake_case)]
 
+use crate::shbt::baryogenesis::BaryogenesisOptimizer;
 use crate::shbt::boundary::{StaticBoundary, PREC};
 use crate::shbt::entropy_flow::{BulkMetricSlice, HolographicProjection};
 use pyo3::prelude::*;
@@ -666,6 +667,65 @@ impl CausalPoint {
         entries
     }
 
+    /// Continuous horizon-conditioned thermal history `eta_B(z)`.
+    ///
+    /// Integrates the differential transport equation
+    /// `d eta_B / dz = eta_B * d ln f_H / dz` with the horizon conditioning
+    /// `f_H(z) = (H_Lambda / H_eff(z))^3` and the anchor `eta_B(z_start)`
+    /// fixed by the topological baryogenesis identity. Returns `(z, eta_B)`
+    /// pairs over `[z_start, z_end]` in the order given.
+    pub fn thermal_history_trajectory(&self, z_start: f64, z_end: f64) -> Vec<(f64, f64)> {
+        const N_GRID: usize = 256;
+        if z_start == z_end {
+            return Vec::new();
+        }
+        let (lo, hi) = if z_start < z_end { (z_start, z_end) } else { (z_end, z_start) };
+
+        // Rebuild a light cone spanning the requested range at fine resolution.
+        let z_max = hi.max(self.redshift_max.to_f64());
+        let cp = CausalPoint::new_with_params(
+            self.boundary.clone(),
+            self.observer_radius_fraction.clone(),
+            self.xi.clone(),
+            Float::with_val(PREC, z_max),
+            self.redshift_samples.max(64),
+            self.seed,
+        );
+        let cone = cp.build_past_light_cone();
+        let grid_z: Vec<f64> = cone.iter().map(|s| s.redshift.to_f64()).collect();
+        let grid_h: Vec<f64> = cone.iter().map(|s| s.H_eff_per_s.to_f64()).collect();
+        let h_lambda = LIGHT_SPEED_M_PER_S / self.global_horizon_radius_m.to_f64();
+
+        let horizon_condition = |z: f64| -> f64 {
+            let h_eff = interpolate(&grid_z, &grid_h, z).max(h_lambda * f64::EPSILON);
+            (h_lambda / h_eff).powi(3)
+        };
+
+        let zs = linspace(lo, hi, N_GRID);
+        let ln_fh: Vec<f64> = zs.iter().map(|&z| horizon_condition(z).ln()).collect();
+        let dln_fh = gradient(&ln_fh, &zs);
+
+        let eta0 = BaryogenesisOptimizer::new(self.boundary.clone())
+            .baryogenesis_identity()
+            .eta_b
+            .to_f64();
+
+        // Trapezoid integration of d eta / dz = eta * d ln f_H / dz.
+        let mut eta = eta0;
+        let mut trajectory = vec![(lo, eta)];
+        for i in 1..N_GRID {
+            let dz = zs[i] - zs[i - 1];
+            let slope = 0.5 * (dln_fh[i - 1] + dln_fh[i]) * dz;
+            eta *= slope.exp();
+            trajectory.push((zs[i], eta));
+        }
+
+        if z_start > z_end {
+            trajectory.reverse();
+        }
+        trajectory
+    }
+
     pub fn verify_memory_budget(&self) -> MemoryReport {
         let past = self.build_past_light_cone();
         let packets = self.compute_property_packets();
@@ -717,6 +777,24 @@ mod tests {
         let cone = causal.build_past_light_cone();
         assert_eq!(cone.len(), 9);
     }
+
+    #[test]
+    fn thermal_history_trajectory_anchored_and_finite() {
+        let boundary = StaticBoundary::new();
+        let causal = CausalPoint::new(boundary);
+        let traj = causal.thermal_history_trajectory(0.0, 3.0);
+        assert_eq!(traj.len(), 256);
+        assert_eq!(traj[0].0, 0.0);
+        let last = traj[traj.len() - 1].0;
+        assert!((last - 3.0).abs() < 1e-12);
+        // Anchor at z = 0 matches the topological identity eta_b.
+        assert!((traj[0].1 - 6.449923359416e-10).abs() < 1e-20);
+        assert!(traj.iter().all(|(_, eta)| eta.is_finite() && *eta > 0.0));
+        // Reversed range returns the reversed ordering.
+        let rev = causal.thermal_history_trajectory(3.0, 0.0);
+        assert_eq!(rev.first().unwrap().0, 3.0);
+        assert_eq!(rev.last().unwrap().0, 0.0);
+    }
 }
 
 #[pymethods]
@@ -724,5 +802,10 @@ impl CausalPoint {
     #[new]
     fn py_new() -> Self {
         Self::new(StaticBoundary::new())
+    }
+
+    /// Continuous horizon-conditioned eta_B(z) trajectory over [z_start, z_end].
+    fn thermal_history_trajectory_py(&self, z_start: f64, z_end: f64) -> Vec<(f64, f64)> {
+        self.thermal_history_trajectory(z_start, z_end)
     }
 }
