@@ -71,6 +71,9 @@
 \newcommand{\debtentropy}{S_{\text{debt}}}
 \newcommand{\horizonentropy}{S_{\text{H}}}
 \newcommand{\GammaLock}{\Gamma_{\text{lock}}}
+\newcommand{\Padm}{\mathcal P_{\text{adm}}}
+\newcommand{\Radm}{\mathcal R_{\text{adm}}}
+\newcommand{\Rentropy}{R_{\text{entropy}}}
 \newcommand{\AH}{A_H}
 \newcommand{\kappad}{\kappa_{D_5}}
 \newcommand{\dd}{\mathcal D}
@@ -305,7 +308,18 @@ budget is nonnegative.  Observable time and crystallized history are therefore
 finite-register projections rather than primitive background parameters.  The
 required physical data are the past-light-cone sample, the local property
 packet, the coordinate-log entry, and the entropy-budget inequality defining
-the admissible history projection.
+the admissible history projection.  The closed-loop extension of this pillar
+adds the observer admissibility predicate $\Padm(A)$, a five-phase algorithmic
+lifecycle (Render, Crystallize, De-render, Relabel, Re-render), the macroscopic
+Stinespring de-rendering channel that shunts terminated pointer states into
+the dark sector with exact fraction $\eta_D=23/33$, and the succession
+transfer kernel $\mathcal T(A_{\text{term}}\to A_{\text{next}})$ evaluated over
+the coordinate lattice $\mathcal C=\{0,1,2\}\times\{0,1,2\}$ through symplectic
+boundary maps $T^\partial_{ij}\in\mathrm{Sp}(2g,\mathbb Z)$
+(Section~\ref{sec:observer-succession}).  In the saturated de Sitter limit the
+admissible observer set empties, $\mathcal R_{\text{adm}}\to\emptyset$, and the
+boundary freezes deterministically, resolving the cosmic heat-death paradox
+without a Friedmann bounce.
 
 \emph{Pillar V (Sub-Kelvin Address-Scaled Landauer Calorimetry).}  The same
 finite-memory postulate becomes a laboratory prediction: each admissible
@@ -3194,6 +3208,173 @@ Eqs.~\eqref{eq:section-seven-collapse-index}--\eqref{eq:section-seven-pointer-wa
 may act.  The software records implementing these quantities are documented in
 Section~\ref{sec:code-availability}.
 
+\subsection{Observer Succession, De-rendering, and the Asymptotic Freeze}
+\label{sec:observer-succession}
+
+A Causal Point is not a permanent register allocation.  The observer
+admissibility predicate of
+Section~\ref{sec:causal-point-history-crystallization} lifts to a Heaviside
+complexity floor,
+\begin{equation}
+\label{eq:observer-admissibility-predicate}
+ \boxed{
+ \Padm(A)
+ =
+ \Theta\!\left(
+ \min\!\left(
+ N_{\text{local}}(A),\,
+ \frac{A_{\text{local}}}{4\Lp^2\ln 2}
+ \right)
+ -
+ \max\!\left(
+ 1,\,
+ \log_2|\mathcal R|+\log_2|\Omega_A|,\,
+ C_{\text{req}}
+ \right)
+ \right),
+ }
+\end{equation}
+so that any node with $\Rentropy(A)<0$ cannot evaluate a rank-one history
+projector $\Pi_{A,\iota}$ and the projection aborts with
+\texttt{AnomalyClosureError}.
+
+The operational lifecycle of a Causal Point then unfolds over five closed
+algorithmic phases,
+\begin{equation}
+\label{eq:observer-five-phase-lifecycle}
+ \text{Render}
+ \longrightarrow
+ \text{Crystallize}
+ \longrightarrow
+ \text{De-render}
+ \longrightarrow
+ \text{Relabel}
+ \longrightarrow
+ \text{Re-render}.
+\end{equation}
+When a node exhausts its budget ($\Rentropy<0$, equivalently the pointer
+amplitude $p_\iota\to0$), the active pointer triad
+$\Psi_\iota=(A_\iota=\sqrt{p_\iota},\,c_{\text{vis}}=-p_\iota,\,
+c_{\text{dark}}=p_\iota)$ is shunted out of the active sector by the
+macroscopic Stinespring isometry
+\begin{equation}
+\label{eq:observer-stinespring-derendering}
+ \mathcal E_{\text{term}}(\rho)
+ =
+ \Tr_{\text{active}}\!\left(
+ V_{\text{unified}}^{\text{macro}}\,
+ \rho\,
+ (V_{\text{unified}}^{\text{macro}})^\dagger
+ \right)
+ \in\mathcal H_{\text{dark}},
+\end{equation}
+with exact dark carrying fraction $\eta_D=23/33$ and residual visible fraction
+$\eta_V=10/33$.  The channel preserves the trace norm and the Kojima
+topological entropy invariant $\operatorname{Ent}(\varphi)=0$, so the
+crystallized history enters $\mathcal H_{\text{dark}}$ as a frozen,
+inaccessible topological record rather than as transferable classical memory.
+
+Succession between a terminating address $A_{\text{term}}$ and an admissible
+successor $A_{\text{next}}$ is ordered by the modular flow, not by bulk time,
+and is weighted over the visible coordinate lattice
+$\mathcal C=\{0,1,2\}\times\{0,1,2\}$ by the normalized modular-overlap
+density $\rho_B(c)$ and entanglement density $\rho_E(c)$.  Mediated by
+Heegaard--Floer symplectic mapping class operations
+$T^\partial_{ij}\in\mathrm{Sp}(2g,\mathbb Z)$, the succession transfer kernel is
+\begin{equation}
+\label{eq:observer-succession-kernel}
+ \boxed{
+ \mathcal T(A_{\text{term}}\to A_{\text{next}})
+ =
+ \frac{
+ \Padm(A_{\text{next}})\,
+ \rho_B(c_{\text{next}})\,
+ \rho_E(c_{\text{next}})\,
+ \left|
+ \langle\Omega_{A_{\text{next}}}|T^\partial_{ij}|\Omega_{A_{\text{term}}}\rangle
+ \right|^2
+ }{
+ \displaystyle\sum_{A'\in\mathcal R}
+ \Padm(A')\,
+ \rho_B(c_{A'})\,
+ \rho_E(c_{A'})\,
+ \left|
+ \langle\Omega_{A'}|T^\partial_{ij}|\Omega_{A_{\text{term}}}\rangle
+ \right|^2
+ }.
+ }
+\end{equation}
+The kernel is normalized,
+$\sum_{A'}\mathcal T(A_{\text{term}}\to A')=1$, and because the symplectic
+boundary maps are non-local in the reconstructed bulk, the successor address
+is not confined to the future light cone of the terminating substrate.
+Table~\ref{tab:observer-lifecycle-phases} summarizes the five phases.
+
+\begin{table}[htbp]
+\centering
+\small
+\begin{tabularx}{\linewidth}{@{}lL{0.42\linewidth}YY@{}}
+\toprule
+Phase & Mathematical operation & Boundary sector & System state and output \\
+\midrule
+1. Render & $\Padm(A)\to1$; initialize $N_{\text{limit}},C_{\text{get}}$ & $\mathcal H_{\text{active}}$ & active Causal Point on cell $c\in\mathcal C$ \\
+2. Crystallize & $\Pi_{\text{history}}=\prod_k\Pi_{A,\iota_k}$; pointer $\Psi_\iota$ active & $\mathcal H_{\text{active}}$ & history recording, branch selection \\
+3. De-render & $\Rentropy<0$; apply $V_{\text{unified}}^{\text{macro}}$ & $\mathcal H_{\text{active}}\to\mathcal H_{\text{dark}}$ & isometric shunting, $\eta_D=23/33$ \\
+4. Relabel & sample $A_{\text{next}}\sim\mathcal T(A_{\text{term}}\to A_{\text{next}})$ & $\mathrm{Sp}(2g,\mathbb Z)$/modular & symplectic map over $\mathcal C$ \\
+5. Re-render & initialize $\Padm(A_{\text{next}})$; reset budget & $\mathcal H_{\text{active}}$ & successor Causal Point instantiated \\
+\bottomrule
+\end{tabularx}
+\caption{Closed five-phase Causal Point lifecycle
+(Eq.~\eqref{eq:observer-five-phase-lifecycle}).}
+\label{tab:observer-lifecycle-phases}
+\end{table}
+
+The late-time fate of the admissible observer set follows from the boundary
+loading fraction $\fload(z)=N_{\text{load}}(z)/\Nsat$.  As the bulk approaches
+de Sitter heat death ($z\to-1$), horizon thermal noise swamps the local
+boundary area, the usable local capacity
+$N_{\text{local}}(z)=N_{\text{local}}(0)\,(1-\fload(z))$ collapses below the
+retrieval floor $C_{\text{get}}$, and every remaining node fails the
+admissibility predicate:
+\begin{equation}
+\label{eq:observer-asymptotic-freeze}
+ \Radm(z\to-1)=\emptyset
+ \quad\Longrightarrow\quad
+ \sum_{A'}\Padm(A')\rho_B\rho_E\bigl|\langle\Omega_{A'}|T^\partial_{ij}|\Omega_{\text{term}}\rangle\bigr|^2=0.
+\end{equation}
+The kernel denominator vanishes and the boundary runtime halts further state
+projection with \texttt{AnomalyClosureError}: a deterministic horizon freeze
+rather than an oscillating Friedmann bounce.  The cutoff is audited across the
+ladder $z\in[1100,-0.9999]$ with $\Nsat\approx3.311998\times10^{122}$~bits and
+serialized under
+\pyvar{result.json:foundation_audit.asymptotic_observer_freeze}.
+Because the Wheeler--DeWitt block is stationary, the full observer spectrum
+already co-exists in the modular partition function
+$\Zboundary(\tau,\bar\tau)=\sum_{I,J}M_{IJ}\chi_I(\tau)\chi_J(\bar\tau)$ on
+the canonical branch $(26,8,312)$: subjective succession is a
+timeless, measure-theoretic indexing over $\Zboundary$ and not a cyclic
+resurrection of the bulk geometry (Table~\ref{tab:heat-death-comparison}).
+The kernel therefore does not transmit crystallized memory between nodes:
+succession is the non-local perpetuation of the localized observer function
+across the static boundary register.
+
+\begin{table}[htbp]
+\centering
+\small
+\begin{tabularx}{\linewidth}{@{}lYYl@{}}
+\toprule
+Cosmological framework & Spacetime topology & Observer renewal mechanism & Asymptotic late-time state \\
+\midrule
+Penrose CCC & infinite conformal eons & conformal rescaling $g_{\mu\nu}\to\Omega^2g_{\mu\nu}$ & scale-invariant Big Bang reset \\
+Steinhardt--Turok ekpyrotic & cyclic brane collisions & inelastic orbifold collision reheating & Friedmann turnaround bounce \\
+SHBT (canonical branch) & static boundary block & measure-theoretic indexing over $\Zboundary(\tau,\bar\tau)$ & boundary freeze via \texttt{AnomalyClosureError} \\
+\bottomrule
+\end{tabularx}
+\caption{Observer renewal mechanisms across cyclic and static boundary
+cosmologies.}
+\label{tab:heat-death-comparison}
+\end{table}
+
 
 \section{Numerical Verification of Closure}
 \label{sec:numerical-verification-performance}
@@ -3380,6 +3561,10 @@ Entropy limit & $N_{\text{limit}}^{\text{obs}}$ & $2.535748254483999\times10^{12
 Light-cone samples & $n_{\text{lightcone}}^{\text{obs}}$ & $9$ & redshift-grid matched \\
 Property packets & $n_{\text{packet}}$ & $9$ & one per sample \\
 Memory inequality & $N_{\text{hidden}}+C_A\le N_{\text{local}}$ & satisfied & admissible \\
+Admissibility predicate & $\Padm(A)=\Theta(\Rentropy(A))$, Eq.~\eqref{eq:observer-admissibility-predicate} & $\Padm=1$ & admissible \\
+De-rendering channel & $\mathcal E_{\text{term}}(\rho)$, Eq.~\eqref{eq:observer-stinespring-derendering} & $\eta_D=23/33$, $\operatorname{Ent}(\varphi)=0$ & trace-norm conserved \\
+Succession kernel & $\mathcal T(A_{\text{term}}\to A_{\text{next}})$, Eq.~\eqref{eq:observer-succession-kernel} & $\sum_{A'}\mathcal T=1$ & normalized \\
+Asymptotic freeze & $\Radm(z\to-1)=\emptyset$, Eq.~\eqref{eq:observer-asymptotic-freeze} & $\fload\to1$ & kernel denominator vanishes \\
 \bottomrule
 \end{tabular}
 \caption{Causal Point observables and finite-memory closure conditions.}
@@ -6800,6 +6985,10 @@ First-order transport, Eqs.~\eqref{eq:shbt-newtonian-gauge-metric}--\eqref{eq:sh
 Tensor transfer, Eqs.~\eqref{eq:shbt-tensor-mode-ode}--\eqref{eq:shbt-cmb-bb-spectrum} & \pyvar{boltzmann_shbt.py} & \pyvar{tensor_mode_rhs}, \pyvar{tensor_bmode_transfer} & \pyvar{shbt_run_tensor_cls.csv} \\
 Bispectrum and trispectrum, Eqs.~\eqref{eq:shbt-equilateral-shape}--\eqref{eq:shbt-suyama-johnston-proof} & \pyvar{boltzmann_shbt.py} & \pyvar{non_gaussianity_templates} & \pyvar{result.json:precision_pipeline.non_gaussianity} \\
 GET capacity and cutoff, Eqs.~\eqref{eq:calorimetry-operational-capacity} and \eqref{eq:calorimetry-capacity-signature} & \pyvar{src/shbt/causal_point.rs} & \pyvar{CausalPoint.crystallize_history} & \pyvar{result.json:foundation_audit.memory_report} \\
+Observer admissibility and lifecycle, Eqs.~\eqref{eq:observer-admissibility-predicate}--\eqref{eq:observer-five-phase-lifecycle} & \pyvar{src/shbt/causal_point.rs} & \pyvar{CausalPoint.is_admissible}, \pyvar{run_lifecycle_cycle} & \pyvar{result.json:succession} \\
+Stinespring de-rendering, Eq.~\eqref{eq:observer-stinespring-derendering} & \pyvar{src/shbt/causal_point.rs} & \pyvar{CausalPoint.terminate_and_derender} & \pyvar{result.json:succession.records} \\
+Succession transfer kernel, Eq.~\eqref{eq:observer-succession-kernel} & \pyvar{src/shbt/causal_point.rs} & \pyvar{CausalPoint.evaluate_succession_kernel}, \pyvar{ShbtSimulator.run_succession_cycles} & \pyvar{result.json:succession.records[].kernel_probabilities} \\
+Asymptotic observer freeze, Eq.~\eqref{eq:observer-asymptotic-freeze} & \pyvar{precision_cosmology.py} & \pyvar{asymptotic_observer_freeze}, \pyvar{observer_admissible_set} & \pyvar{result.json:foundation_audit.asymptotic_observer_freeze} \\
 Landauer regression, Eqs.~\eqref{eq:calorimetry-direct-slope-fit}--\eqref{eq:calorimetry-aic-decision-ledger} & \pyvar{shbt_simulate.py} & calorimetry OLS/MLE analysis pipeline & \pyvar{shbt_run_calorimetry_sim.csv} \\
 \bottomrule
 \end{tabularx}
@@ -6854,9 +7043,10 @@ Software interface & Physical role and principal accessors \\
 \pyvar{StaticBoundary} & branch arithmetic, visible and dark modular blocks, \(2901360\)-module dark pairing, RG charge trajectories, C-ABI export, partition evaluation, entropy densities, dominant sequence, and self-resolution \\
 \pyvar{ShbtSimulator} & full audit orchestration through \pyvar{ShbtSimulator.run_full_audit()} \\
 \pyvar{HolographicProjection} / \pyvar{BulkMetricSlice} & load-vector construction, Euler flux, metric synthesis, spatial projection, and slice spectra \\
-\pyvar{CausalPoint} & light-cone construction, local property packets, finite-memory admissibility, and history crystallization \\
+\pyvar{CausalPoint} & light-cone construction, local property packets, finite-memory admissibility, history crystallization, five-phase lifecycle state machine, Stinespring de-rendering (\pyvar{terminate_and_derender}), and succession kernel evaluation (\pyvar{evaluate_succession_kernel}, \pyvar{relabel_and_rerender}) \\
 \pyvar{AnomalyClosureError} & finite-capacity exception defined in \pyvar{src/shbt/causal_point.rs} and exported through \pyvar{src/lib.rs} \\
 \pyvar{LightConeSample}, \pyvar{LocalPropertyPacket}, \pyvar{CoordinateLogEntry}, \pyvar{MemoryReport} & observer-record types supporting the Causal Point closure conditions \\
+\pyvar{CausalPointCandidate}, \pyvar{DerenderingRecord}, \pyvar{SuccessionRecord}, \pyvar{LifecyclePhase} & observer-succession record types supporting the five-phase lifecycle and transfer kernel \\
 \pyvar{BaryogenesisIdentity} & \(C_{\text{sph}}\), \(J_{\text{CP}}^{\text{topo}}\), projector rank, restoration scale, and \(\eta_B\) \\
 \pyvar{BaryogenesisOptimizer}, \pyvar{FieldSimulation}, \pyvar{BenchmarkDelta} & anti-baryon charge decoupling, passive-source preservation, and implementation profiling \\
 \pyvar{precision_cosmology.py} & completed ledger, Hubble loading, growth, cluster collapse, dark matter, BBN, ISW, neutrinos, chronometers, entropy, and GET costs \\
@@ -6865,7 +7055,7 @@ Software interface & Physical role and principal accessors \\
 \pyvar{src/shbt/boundary.rs} & boundary branch, factorized dark Weil kernels, \pyvar{StaticBoundaryCAbi}, Virasoro trajectories, partition evaluator, and closure checks \\
 \pyvar{src/shbt/entropy_flow.rs} & entropy cascade and holographic metric projection \\
 \pyvar{src/shbt/baryogenesis.rs} & baryogenesis identity, \(\kappad\), state decoupling, and benchmark comparison \\
-\pyvar{src/shbt/causal_point.rs} & Causal Point light cone, finite-memory checks, and history crystallization \\
+\pyvar{src/shbt/causal_point.rs} & Causal Point light cone, finite-memory checks, history crystallization, admissibility predicate $\Padm$, Stinespring de-rendering, and the closed-loop succession engine \\
 \pyvar{src/lib.rs} & PyO3 exports and \pyvar{ShbtSimulator} orchestration \\
 \bottomrule
 \end{tabular}

@@ -1,6 +1,6 @@
 use pyo3::exceptions::{PyIndexError, PyValueError};
 use pyo3::prelude::*;
-use pyo3::types::{PyDict, PyList};
+use pyo3::types::PyDict;
 use rug::Assign;
 use rug::{Complex, Float, Rational};
 use std::collections::HashMap;
@@ -3623,6 +3623,50 @@ impl ShbtSimulator {
             .map(|s| slices[s.index.min(slices.len() - 1)].clone())
             .collect()
     }
+
+    /// Observer admissibility predicate P_adm(A) = Theta(R_entropy(A)).
+    fn is_observer_admissible(&self) -> bool {
+        self.causal_point.is_admissible()
+    }
+
+    /// Nine successor candidate addresses on the coordinate lattice C.
+    fn build_succession_candidates(&self) -> (Vec<CausalPointCandidate>, Vec<f64>, Vec<f64>) {
+        self.causal_point.build_succession_candidates()
+    }
+
+    /// Normalized succession kernel T(A_term -> A_next) over the lattice.
+    fn evaluate_succession_kernel(
+        &self,
+        candidates: Vec<CausalPointCandidate>,
+        modular_densities: Vec<f64>,
+        entanglement_densities: Vec<f64>,
+    ) -> Vec<f64> {
+        self.causal_point.evaluate_succession_kernel(
+            &candidates,
+            &modular_densities,
+            &entanglement_densities,
+        )
+    }
+
+    /// Macroscopic Stinespring de-rendering into H_dark (eta_D = 23/33).
+    fn terminate_and_derender(&mut self) -> DerenderingRecord {
+        self.causal_point.terminate_and_derender()
+    }
+
+    /// Run `cycles` closed observer lifecycle loops
+    /// (Render -> Crystallize -> De-render -> Relabel -> Re-render),
+    /// chaining each re-rendered successor into the next cycle.
+    fn run_succession_cycles(&mut self, cycles: usize, seed: u64) -> Vec<SuccessionRecord> {
+        let mut records = Vec::with_capacity(cycles);
+        for cycle in 0..cycles {
+            let (record, successor) = self
+                .causal_point
+                .run_lifecycle_cycle(cycle, seed);
+            records.push(record);
+            self.causal_point = successor;
+        }
+        records
+    }
 }
 
 #[pymodule]
@@ -3741,4 +3785,16 @@ mod shbt_simulator {
 
     #[pymodule_export]
     use super::shbt::CausalPoint;
+
+    #[pymodule_export]
+    use super::shbt::CausalPointCandidate;
+
+    #[pymodule_export]
+    use super::shbt::DerenderingRecord;
+
+    #[pymodule_export]
+    use super::shbt::SuccessionRecord;
+
+    #[pymodule_export]
+    use super::shbt::LifecyclePhase;
 }
