@@ -30,8 +30,8 @@ The **paper** (`main.pdf`) is the mathematical formulation. The **simulator** is
 Clone, build, and run the full paper audit:
 
 ```bash
-git clone https://github.com/sys1own/shbt-simulator.git
-cd shbt-simulator
+git clone https://github.com/sys1own/shbt-precision.git
+cd shbt-precision
 
 # Install Rust (if not already installed)
 curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
