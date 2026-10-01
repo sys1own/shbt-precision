@@ -1,6 +1,6 @@
 # SHBT Paper-to-Code Reference Mapping
 
-This file maps the major equations, audit tables, and numerical benchmarks in `main.pdf` (Sections 2–9, Tables 1–18) to the exact implemented code objects in the `shbt-precision` repository. It is intended as the single source of truth for later polishing passes (e.g. Prism) that replace generic code references with exact paths and names.
+This file maps the major equations, audit tables, and numerical benchmarks in `main.pdf` (Sections 2–9, Tables 1–18) to the exact implemented code objects in the `shbt-precision` repository.  
 
 **Repository layout**
 - Rust source: `src/shbt/` (boundary, entropy flow, baryogenesis, causal point) and `src/lib.rs` (module exports and `ShbtSimulator`).
