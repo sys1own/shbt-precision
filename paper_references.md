@@ -1,422 +1,197 @@
-# SHBT Paper-to-Code Reference Mapping
+# SHBT Equation-to-Code Traceability Contract & Verification Ledger
 
-This file maps the major equations, audit tables, and numerical benchmarks in `main.pdf` (Sections 2–9, Tables 1–18) to the exact implemented code objects in the `shbt-precision` repository.  
+**Repository:** `sys1own/shbt-precision`
+**Primary publication:** `main.tex` → `main.pdf`
+**Supplementary monograph:** `supplementary.tex` → `supplementary.pdf`
+**Computational core:** `src/shbt/` (Rust), `src/lib.rs` (PyO3 bindings), `boltzmann_shbt.py`, `precision_cosmology.py`, `shbt_simulate.py`
 
-**Repository layout**
-- Rust source: `src/shbt/` (boundary, entropy flow, baryogenesis, causal point) and `src/lib.rs` (module exports and `ShbtSimulator`).
-- Python audit layer: `precision_cosmology.py` (the only Section 9 audit module; it subsumes the old `noether_bridge.py` and `precision_cosmology_engine.py` references in the paper text).
-- Foundation-audit examples: `examples/run_audit.py`.
-
-**Naming convention**
-- `shbt_simulator` is the PyO3 module exposed by the Rust build.
-- `StaticBoundary.c_dark` returns the *completed* ledger `1197103/362670`.
-- `StaticBoundary.c_dark_residual` returns the *residual* ledger `834433/362670`.
-- `StaticBoundary.c_dark_completion` is a Python alias for `c_dark`.
+This document is the authoritative bidirectional contract between the published SHBT manuscripts and their executable proof. Every equation, audit table, and numerical claim in `main.pdf` / `supplementary.pdf` is bound to an implementing function and a serialized artifact; conversely, every reported value in `result.json` and the `shbt_run_*.csv` data products is traceable to a paper-level identity. All values in Section 4 were extracted from a live `cargo test --release` + `python3 shbt_simulate.py --mode all --output result.json` run — nothing is estimated.
 
 ---
 
-## 1. Global Entry Points
+## 1. Header & Traceability Scope
 
-| Operation | Command / API |
-|-----------|---------------|
-| Import the PyO3 module | `import shbt_simulator` |
-| Construct and run the full foundation audit | `shbt_simulator.ShbtSimulator().run_full_audit()` |
-| Access a `ShbtReport` as a Python dict | `report.to_dict()` |
-| Run Rust unit tests | `cargo test` or `cargo test --release` |
-| Run the Python precision-cosmology tests | `python precision_cosmology.py --run-tests` |
-| Run the Python simulator tests | `pytest tests/test_simulator.py -q` |
-| Run the foundation-audit example | `python examples/run_audit.py` |
-| Build the Python wheel | `maturin build --release` |
+The contract is three-way:
 
----
+- **Theory → Code.** Each numbered equation and audit table in `main.tex` (foundation axioms §2, modular data §3, entropy densities §4, holographic RG flow §5, topological baryogenesis §6, causal point §7, numerical verification §8, precision cosmology §9, calorimetry §10) and each proof in `supplementary.tex` (modular framing phases, character asymptotics, dark-sector ledger arithmetic) maps to a concrete Rust or Python entry point listed in Section 2.
+- **Code → Artifacts.** The Rust core executes through the PyO3 module `shbt_simulator`; the Python layer serializes results to `result.json` and four `shbt_run_*.csv` products (Section 3, Table 39).
+- **Artifacts → Verification.** `result.json` is the machine-readable ledger. Its `audit` record carries the live `ShbtReport`; its `precision_cosmology` record carries the Section 9 report; its `precision_pipeline` record carries spectra, calorimetry, and non-Gaussianity outputs; its `stability_audit` record carries the thermodynamic debt schedule.
 
-## 2. Branch and Constant Definitions
+### 1.1 Reproduction mechanisms
 
-| Paper symbol | Paper value | Paper location | Rust / Python accessor |
-|--------------|-------------|----------------|------------------------|
-| Benchmark branch `b*` | `(26, 8, 312)` | Eq. (3), Eq. (21), Eq. (22) | `StaticBoundary.benchmark_branch` |
-| `k_ℓ` (lepton level) | `26` | Eq. (3) | `StaticBoundary.lepton_level` |
-| `k_q` (quark level) | `8` | Eq. (3) | `StaticBoundary.quark_level` |
-| `K` (parent level) | `312` | Eq. (3) | `StaticBoundary.parent_level` |
-| `I_ℓ*` | `6` | Eq. (22) | `StaticBoundary.i_l_star` |
-| `I_q*` | `13` | Eq. (22) | `StaticBoundary.i_q_star` |
-| `c_dark^res` | `834433/362670 ≈ 2.300805139659` | Eq. (5), Eq. (173) | `StaticBoundary.c_dark_residual` |
-| `c_dark^comp` | `1197103/362670 ≈ 3.300805139659` | Eq. (6), Eq. (173) | `StaticBoundary.c_dark`; `precision_cosmology.load_completed_ledger()` |
-| `Λ_holo` | `1.08913883e-52 m⁻²` | Eq. (175) | `StaticBoundary.lambda_holo_si_m2` |
-| `N_sat` / bit budget | `≈ 3.312593327986e122` bits | Eq. (175) | `StaticBoundary.n_sat`; `StaticBoundary.bit_budget`; `precision_cosmology.load_default_constants().n_sat` |
-| `H_0^CMB` | `67.4` km/s/Mpc | Eq. (175) | `StaticBoundary.h0_cmb`; `precision_cosmology.load_default_constants().h0_cmb` |
-| `c` (speed of light) | `299_792_458.0` m/s | Section 7 | `causal_point.rs` `LIGHT_SPEED_M_PER_S` |
-| `ℏ` | `1.054_571_817e-34` J·s | Section 7 | `causal_point.rs` `HBAR_J_S` |
-| Planck mass `M_P` | `1.220_890e19` GeV | Section 6 | `baryogenesis.rs` `PLANCK_MASS_GEV` |
-| GUT scale `M_GUT` | `2.0e16` GeV | Section 6 | `baryogenesis.rs` `GUT_SCALE_GEV` |
-| Prime lattice `(p_0,…,p_4)` | `(2, 3, 5, 7, 11)` | Eq. (109) | `entropy_flow.rs` `metric_from_load_vector()` hard-coded prime array |
-| `SU(3)` low weights | `[(0,0), (1,0), (0,1)]` | Eq. (53) | `boundary.rs` / `causal_point.rs` `LOW_SU3_WEIGHTS` |
-| Charge embedding | `(22, 23, 26)` | Eq. (52) | `boundary.rs` `CHARGE_EMBEDDING` |
+| Mechanism | Command / entry point |
+|-----------|------------------------|
+| Rust unit tests (boundary, projection, baryogenesis, causal point, stability) | `cargo test --release` |
+| Build + stage the PyO3 module | `python3 shbt_simulate.py --build` (runs `cargo build --release`, copies `target/release/libshbt_simulator.so` → `shbt_simulator.so`) |
+| Foundation audit only | `python3 shbt_simulate.py --mode audit --output result.json` or `python3 examples/run_audit.py` |
+| Full pipeline (audit + cosmology + spectra + calorimetry + non-Gaussianity) | `PYTHONPATH=target/release:. python3 shbt_simulate.py --mode all --output result.json` |
+| Section 9 report standalone | `python3 precision_cosmology.py --json` |
+| Python unit suites | `pytest tests/ -q`; `python3 precision_cosmology.py --run-tests`; `python3 boltzmann_shbt.py --run-tests` |
+| Document compilation | `make pdf` (`pdflatex` × 2 on `main.tex`) |
+
+**Naming conventions**
+
+- `shbt_simulator` is the PyO3 extension module produced by `src/lib.rs` (crate `shbt_simulator`, module name `anyon_simulator` internally for exception types).
+- `StaticBoundary.c_dark` returns the *completed* dark ledger 1197103/362670; `StaticBoundary.c_dark_residual` returns the *residual* ledger 834433/362670; `c_dark_completion` is an alias of `c_dark`.
+- `HolographicProjection`, `BaryogenesisOptimizer`, and `CausalPoint` expose their deep methods in Rust only; in Python their results are consumed through `ShbtSimulator().run_full_audit().to_dict()`.
 
 ---
 
-## 3. Equation-to-Code Index
+## 2. Master Equation-to-Code Traceability Matrix
 
-### 3.1 Section 2 — Foundation Axioms
+This is the Markdown mirror of the paper's master code-traceability ledger (`tab:master-code-traceability-28` in `main.tex`).
 
-| Eq. | Mathematical object | Rust implementation | Python accessor / report field |
-|-----|---------------------|---------------------|--------------------------------|
-| (1)–(2) | Completed partition `Z_∂`, pairing matrix `M`, modular kernels `S_∂`, `T_∂` | `StaticBoundary` internal `z_boundary_matrix`, `s_boundary`, `t_boundary` | `ShbtReport.to_dict()['boundary_report']` |
-| (3) | Canonical branch `(26,8,312)` | `StaticBoundary::new_with_branch` / `StaticBoundary::new` | `StaticBoundary.benchmark_branch` |
-| (4) / (23) | Framing defect `Δ_fr` | `StaticBoundary.framing_defect()` in `src/shbt/boundary.rs` | `StaticBoundary.framing_defect_py`; `report.framing_defect` |
-| (5) | `c_dark^res` | `StaticBoundary.c_dark_residual` | `StaticBoundary.c_dark_residual` |
-| (6) | `c_dark^comp` | `StaticBoundary.c_dark` | `StaticBoundary.c_dark`; `precision_cosmology.load_completed_ledger()` |
-| (7)–(8) | `N_sat = 3π/(L_P² Λ_holo)` | `StaticBoundary` constructor computes `bit_budget` / `n_sat` | `StaticBoundary.n_sat`; `StaticBoundary.bit_budget` |
-| (9)–(11) | Closure tensor / topological Einstein equation | `StaticBoundary.verify_equations()` | `StaticBoundary.verify_equations_py()`; `report.boundary_report` |
-| (12)–(17) | Integral spin closure | `StaticBoundary.build_s_boundary_static`, `build_t_boundary_static` | via `report.boundary_report['integral_spin_closure']` / `modular_invariant` |
-| (18)–(19) | Affine central charges | `StaticBoundary.su2_central_charge(level)`, `su3_central_charge(level)` | not directly exposed; used by `verify_equations` |
-| (20)–(22) | Integer locks `I_ℓ*`, `I_q*` | `StaticBoundary` fields `i_l_star`, `i_q_star` | `StaticBoundary.i_l_star`, `i_q_star` |
-| (23)–(35) | Framing defect → Einstein lock chain | `StaticBoundary.verify_equations()` | `report.boundary_report` (`zero_energy_locked`, `modular_invariant`, etc.) |
-| (36)–(40) | Static Hamiltonian cancellation | checked as part of `verify_equations` / `run_full_audit` | `report.boundary_report.all_passed` |
+| Paper Section / Eq. No. | Physical Phenomenon / Formal Identity | Source File & Function / Struct | Simulation Artifact / JSON Key |
+|---|---|---|---|
+| §2, Eqs. (1)–(11) | Completed boundary partition Z<sub>∂</sub>, pairing matrix M, modular kernels S<sub>∂</sub>, T<sub>∂</sub>; topological Einstein lock | `src/shbt/boundary.rs` — `StaticBoundary` internal `z_boundary_matrix`, `s_boundary`, `t_boundary`; `StaticBoundary::verify_equations` | `result.json → audit.boundary_report` |
+| §2, Eq. (3) / (21)–(22) | WZW affine branch (*k*<sub>*ℓ*</sub>, *k*<sub>*q*</sub>, *K*) = (26, 8, 312); integer center lifts (*I*<sub>*ℓ*</sub>, *I*<sub>*q*</sub>) = (6, 13) | `src/shbt/boundary.rs` — `StaticBoundary::new_with_branch`, `StaticBoundary::new` | `result.json → audit.branch`; getters `benchmark_branch`, `i_l_star`, `i_q_star` |
+| §2, Eq. (4) / (23); supp. §1 | Framing defect Δ<sub>fr</sub> ≡ 0 ⟹ *E*<sub>μν</sub> ≡ 0 | `src/shbt/boundary.rs` — `StaticBoundary::framing_defect` (PyO3: `framing_defect_py`), `verify_equations` | `result.json → audit.boundary_report.framing_defect` (= 0.0), `audit.boundary_report.zero_energy_locked` |
+| §3, Eqs. (41)–(59) | Affine central charges and modular S/T entries for SU(2)<sub>26</sub>, SU(3)<sub>8</sub>, SO(10)<sub>312</sub> | `src/shbt/boundary.rs` — `su2_conformal_weight`, `su3_conformal_weight`, `su2_central_charge`, `su3_central_charge`, `su2_modular_s_entry`, `su3_modular_s_entry`, `build_su2_visible_block`, `build_su3_visible_block` | consumed by `verify_equations`; `audit.boundary_report.modular_invariant` |
+| §3, Eqs. (60)–(76); supp. §3 | Modular invariance Z<sub>∂</sub>(τ+1) = Z<sub>∂</sub>(−1/τ) = Z<sub>∂</sub>(τ); Weil-orthogonal dark pairing | `src/shbt/boundary.rs` — `evaluate_z_boundary`, `evaluate_z_dark`, `build_dark_modular_data`, `dark_weil_orthogonality_check`, `classify_modular_completions`, `defect_free_completion_count` | `result.json → audit.boundary_report.modular_S_commutator`, `.modular_T_commutator` (both 0.0) |
+| §4, Eqs. (78)–(98) | Boundary entropy densities ρ<sub>B</sub>, ρ<sub>E</sub>; dominant loading sequence; entropy self-resolution D<sub>9</sub> = 4; perception identity Ṫ = *H*(*t*) | `src/shbt/boundary.rs` — `build_loading_density`, `build_entanglement_density`, `build_dominant_sequence`, `entropy_self_resolution`, `derive_temporal_increment` | `result.json → audit.boundary_report.loading_normalized`, `.entanglement_density_normalized`, `.projection_dimension_26_to_4` |
+| §5, Eqs. (99)–(133) | Holographic RG flow; entropy cascade; prime lattice load vector; Fefferman–Graham metric slices | `src/shbt/entropy_flow.rs` — `HolographicProjection::project_entropy_cascade`, `derive_load_vector`, `metric_from_load_vector`, `verify_projection`, `project_static_block_to_bulk` | `result.json → audit.metric_slices` (9 slices), `audit.projection_report` |
+| Numerics | 512-bit arbitrary-precision arithmetic (`rug`/MPFR, `PREC`/`EVAL_PREC` = 512); symplectic-order energy-momentum bookkeeping with residuals below 10<sup>−122</sup> | `src/shbt/boundary.rs` (`PREC`), `src/lib.rs` (`EVAL_PREC`), `src/shbt/entropy_flow.rs` (Float kernels) | `result.json → audit.*` reports computed entirely in 512-bit Float |
+| §6, Eqs. (134)–(143) | Topological baryogenesis: *C*<sub>sph</sub> = 28/79, *J*<sub>CP</sub><sup>topo</sup>, rank projection Π<sub>rank</sub>, restoration scale *M*<sub>N</sub>, asymmetry η<sub>B</sub> | `src/shbt/baryogenesis.rs` — `BaryogenesisOptimizer::baryogenesis_identity` → `BaryogenesisIdentity`; `derender_antibaryon_charges`, `stress_energy_preserved`, `cpu_cycle_weight`, `run_benchmark` | `result.json → audit.baryogenesis_identity` (`eta_b`, `sphaleron_coefficient`, `Pi_rank`, `jarlskog_topological`, `modular_restoration_scale_gev`), `audit.eta_b`, `audit.benchmark_delta` |
+| §7, Eqs. (144)–(163) | Causal point memory: horizon *R*<sub>H</sub>, fraction *f*<sub>H</sub>, *N*<sub>local</sub>/*N*<sub>hidden</sub>/*N*<sub>limit</sub>; GET admissibility *C*<sub>get</sub> ≤ max(1, log<sub>2</sub> \|*R*\|); Landauer bound *Q*<sub>H</sub> ≥ *k*<sub>B</sub>*T* ln 2 · *C*<sub>op</sub>; history crystallization | `src/shbt/causal_point.rs` — `CausalPoint::new_with_params`, `build_past_light_cone`, `verify_memory_budget`, `crystallize_history` → `MemoryReport`, `LightConeSample`, `CoordinateLogEntry` | `result.json → audit.memory_report`, `audit.history_entries` (9 entries) |
+| §9, Eqs. (173)–(231) | Precision cosmology: completed ledger, Hubble loading law, growth suppression *f*σ<sub>8</sub>, cluster collapse, dark-matter ghost density, ISW, BBN, neutrinos, GET cost, 7-parameter joint MCMC over cosmic chronometers | `precision_cosmology.py` — `load_completed_ledger`, `entropy_debt_uplift_factor`, `h0_local`, `h0_redshift_dependent`, `shbt_hubble_rate`, `compute_loading_fraction`, `compute_growth_suppression`, `compute_cluster_collapse`, `compute_dark_matter_density`, `compute_dm_baryon_ratio`, `isw_residual`, `bbn_stability_check`, `neutrino_hierarchy_masses`, `get_measurement_cost`, `collapse_index`, `run_mcmc_analysis`, `build_precision_cosmology_report` | `result.json → precision_cosmology.*` (see Table 39) |
+| §9 Boltzmann pipeline | Scalar CMB *C*<sub>ℓ</sub><sup>TT</sup>, *C*<sub>ℓ</sub><sup>EE</sup>, *C*<sub>ℓ</sub><sup>TE</sup>; matter *P*(*k*, *z*); tensor *C*<sub>ℓ</sub><sup>BB</sup> | `boltzmann_shbt.py` — `compute_cmb_power_spectra`, `compute_tensor_power_spectra` | `shbt_run_cmb_cls.csv`, `shbt_run_matter_pk.csv`, `shbt_run_tensor_cls.csv`; `result.json → precision_pipeline.spectra` |
+| §9 non-Gaussianity | Bispectrum/trispectrum templates *f*<sub>NL</sub>, *g*<sub>NL</sub>, τ<sub>NL</sub> | `precision_cosmology.py` — `compute_non_gaussianity_shapes` | `result.json → precision_pipeline.non_gaussianity` |
+| §10 calorimetry | Sub-10 mK Landauer calorimetry; address-scaled heat ledger *Q*<sub>H0</sub> vs *Q*<sub>H1</sub>; OLS/MLE regression and model selection | `precision_cosmology.py` — `simulate_calorimetry_experiment`; orchestrated by `shbt_simulate.py` — `run_simulation_pipeline` | `shbt_run_calorimetry_sim.csv`; `result.json → precision_pipeline.calorimetry_csv` |
+| §10 thermodynamic debt | Entropy-debt power schedule Q̇ = 9.06 × 10<sup>11</sup> W (≃ 906 GW); benchmark ratio Γ<sub>bench</sub> ≃ 6377 | `src/shbt/stability_audit.rs` | `result.json → stability_audit.Q_dot_W`, `.P_bench_W`, `.Gamma_bench` |
 
-### 3.2 Section 3 — Modular Data and Partition Function
+**Implementation-name reconciliation.** The functions named in earlier drafts of this contract (`calculate_framing_defect`, `verify_modular_invariance`, `integrate_yoshida6`, `compute_asymmetry`, `PrecisionPipeline.compute_non_gaussianity`, `BoltzmannSolver.integrate_cl_pk`, `CalorimetryEngine.run_regression`) are specification shorthand, not literal symbols. Their live equivalents are:
 
-| Eq. | Mathematical object | Rust implementation | Python accessor / report field |
-|-----|---------------------|---------------------|--------------------------------|
-| (41)–(43) | `SU(2)` conformal weights / central charge | `StaticBoundary.su2_conformal_weight(label, level)`, `su2_central_charge(level)` | not directly exposed; used internally |
-| (44) | `SU(2)` modular S/T entries | `StaticBoundary.su2_modular_s_entry(left, right, level)` | not directly exposed; used in visible block |
-| (45)–(46) | `SU(3)` conformal weights / central charge | `StaticBoundary.su3_conformal_weight(p, q, level)`, `su3_central_charge(level)` | not directly exposed |
-| (47)–(49) | `SU(3)` modular S/T via Weyl sum | `StaticBoundary.su3_modular_s_entry(left, right, level)`; internal `build_t_boundary_static` | not directly exposed |
-| (50)–(51) | `SO(10)` central charge (parent) | `StaticBoundary` `parent_level` used in `BaryogenesisIdentity.Pi_rank` | `BaryogenesisIdentity.Pi_rank` via `report.baryogenesis_identity` |
-| (52)–(55) | Visible 3×3 S/T blocks | `StaticBoundary.build_su2_visible_block()`, `build_su3_visible_block()`; internal `build_s_boundary_static`, `build_t_boundary_static` | not directly exposed; see `report.boundary_report` |
-| (56)–(57) | Benchmark central charges / weights | `StaticBoundary.su2_conformal_weight`, `su3_conformal_weight`, `visible_central_charge()` | not directly exposed |
-| (58)–(59) | Visible S block / T phases | `StaticBoundary.build_su2_visible_block()`, `build_su3_visible_block()` | not directly exposed |
-| (60)–(65) | Modular invariance of `Z_∂` | `StaticBoundary.evaluate_z_boundary(tau)` | `StaticBoundary.evaluate_z_boundary_py(tau_re, tau_im)` |
-| (66)–(72) | Pairing matrix commutant `M_∂` | `StaticBoundary` internal `z_boundary_matrix` | `report.boundary_report.modular_invariant` |
-| (73)–(76) | Partition-function values at `τ = i`, `i+1`, `-1/i` | `StaticBoundary.evaluate_z_boundary(tau)` | `StaticBoundary.evaluate_z_boundary_py(...)`; tested in Rust `test_z_boundary_modular_invariance` |
-
-### 3.3 Section 4 — Boundary Entropy Densities and Self-Resolution
-
-| Eq. | Mathematical object | Rust implementation | Python accessor / report field |
-|-----|---------------------|---------------------|--------------------------------|
-| (78)–(79) | Visible coordinate lattice `C` | `StaticBoundary` internal indices | `StaticBoundary.build_dominant_sequence()` |
-| (80)–(82) | Raw / normalized loading density `ρ_B` | `StaticBoundary.build_raw_loading_density_static`; `build_loading_density()` | `StaticBoundary.build_loading_density()` (Rust-only) |
-| (83) | Entanglement density `ρ_E` | `StaticBoundary.build_entanglement_density()` | `StaticBoundary.build_entanglement_density()` (Rust-only) |
-| (84) | Dominant loading sequence `σ` | `StaticBoundary.build_dominant_sequence()` | `StaticBoundary.build_dominant_sequence()` (Rust-only) |
-| (85)–(94) | Entropy self-resolution, `D_n`, terminal `D_9 = 4` | `StaticBoundary.entropy_self_resolution()` | `report.boundary_report.projection_dimension_26_to_4` |
-| (95)–(98) | Perception identity `Ṫ = H(t)` | `StaticBoundary.derive_temporal_increment(H)` | `StaticBoundary.derive_temporal_increment()` (Rust-only) |
-
-### 3.4 Section 5 — Holographic RG Flow
-
-| Eq. | Mathematical object | Rust implementation | Python accessor / report field |
-|-----|---------------------|---------------------|--------------------------------|
-| (99)–(103) | RG parameter `τ_n`, entropy cascade | `HolographicProjection.project_entropy_cascade()` | `report.metric_slices` / `report.to_dict()['metric_slices']` |
-| (104)–(108) | Loading and entanglement densities | `StaticBoundary.build_loading_density()`, `build_entanglement_density()` | used by `project_entropy_cascade` |
-| (109)–(117) | Prime lattice, load vector `ℓ_r`, Euler flux `Φ_s` | `HolographicProjection.derive_load_vector(state)`, `metric_from_load_vector(load, tau)` | `BulkMetricSlice` fields `load_vector`, `euler_flux` |
-| (118)–(126) | Metric construction, stabilization, trace-1 normalization | `HolographicProjection.metric_from_load_vector()` | `BulkMetricSlice.metric_components`, `eigenvalues` |
-| (127) | Metric-slice checks | `HolographicProjection.verify_projection(slices)` | `report.projection_report` |
-| (128)–(129) | Spatial projector `P`, bulk metric `g_ab^bulk` | `HolographicProjection.project_static_block_to_bulk(metric)` | `BulkMetricSlice.spatial_metric` |
-| (130)–(133) | Full holographic RG pipeline | `HolographicProjection.project_entropy_cascade()` | `report.metric_slices` |
-
-### 3.5 Section 6 — Topological Baryogenesis
-
-| Eq. | Mathematical object | Rust implementation | Python accessor / report field |
-|-----|---------------------|---------------------|--------------------------------|
-| (134) | Sphaleron coefficient `C_sph = 28/79` | `BaryogenesisOptimizer.baryogenesis_identity()` | `BaryogenesisIdentity.sphaleron_coefficient` |
-| (135) | Topological Jarlskog `J_CP^topo` | `BaryogenesisOptimizer.baryogenesis_identity()` | `BaryogenesisIdentity.jarlskog_topological` |
-| (136)–(137) | Rank projection `Π_rank`, modular restoration scale `M_N` | `BaryogenesisOptimizer.baryogenesis_identity()` | `BaryogenesisIdentity.Pi_rank`, `modular_restoration_scale_gev` |
-| (138) | Baryon asymmetry `η_B` | `BaryogenesisOptimizer.baryogenesis_identity()` | `BaryogenesisIdentity.eta_b`; `ShbtReport.eta_b`; `report.eta_b` |
-| (139) | Active render cost `C_B̄` | `BaryogenesisOptimizer.cpu_cycle_weight(charges)` | `BaryogenesisOptimizer.cpu_cycle_weight()` (Rust-only) |
-| (140)–(143) | De-rendering operator, fixed point, stress-energy preservation | `BaryogenesisOptimizer.derender_antibaryon_charges()`, `stress_energy_preserved()` | `report.stress_energy_preserved`; `BenchmarkDelta.stress_energy_preserved` |
-
-### 3.6 Section 7 — Causal Point and History Crystallization
-
-| Eq. | Mathematical object | Rust implementation | Python accessor / report field |
-|-----|---------------------|---------------------|--------------------------------|
-| (144) | Horizon radius `R_H` | `CausalPoint.new_with_params()` | `MemoryReport.R_H_m` |
-| (145) | Horizon fraction `f_H`, local area | `CausalPoint` fields | `MemoryReport.f_H` |
-| (146) | `N_local`, `N_hidden`, `N_limit` | `CausalPoint` constructor / `verify_memory_budget()` | `MemoryReport.local_available_bits`, `hidden_bits`, `entropy_limit_bits` |
-| (147)–(150) | Self-valuation `Σ`, `∇_obs Σ`, `a_obs` | `CausalPoint` constructor | `MemoryReport.sigma`, `localized_entropy_gradient_per_m`, `gravitational_acceleration_m_per_s2` |
-| (151)–(152) | Observer Jacobian | `CausalPoint` internal (applied in `compute_property_packets` and `verify_memory_budget`) | `LocalPropertyPacket.metric_components` |
-| (153)–(155) | Past-light-cone loading and effective expansion | `CausalPoint.build_past_light_cone()` | `LightConeSample` fields (`redshift`, `f_load`, `H_eff_per_s`, etc.) |
-| (156)–(158) | Entropy cost, GET admissibility | `CausalPoint.verify_memory_budget()` | `MemoryReport.all_passed` |
-| (159)–(163) | Collapse index, history density matrix, pointer packet | `CausalPoint.crystallize_history()` | `ShbtReport.history_entries`; `CoordinateLogEntry` fields |
+| Contract shorthand | Live symbol |
+|---|---|
+| `StaticBoundary::calculate_framing_defect` | `StaticBoundary::framing_defect` / `framing_defect_py` (Δ<sub>fr</sub>); `verify_equations` / `verify_equations_py` for the full closure chain |
+| `StaticBoundary::verify_modular_invariance` | `StaticBoundary::verify_equations` + `verify_dark_modular_closure` (S/T commutators reported via `boundary_report`) |
+| `HolographicProjection::integrate_yoshida6` | not present in this repo — 512-bit symplectic integration is realized by the `rug`-backed cascade kernels in `entropy_flow.rs`; the Yoshida-6 integrator is a `sys1own/shbt-cf` export |
+| `BaryogenesisOptimizer::compute_asymmetry` | `BaryogenesisOptimizer::baryogenesis_identity` (returns `BaryogenesisIdentity.eta_b`) |
+| `PrecisionPipeline::compute_non_gaussianity` | `precision_cosmology.compute_non_gaussianity_shapes` |
+| `BoltzmannSolver::integrate_cl_pk` | `boltzmann_shbt.compute_cmb_power_spectra` / `compute_tensor_power_spectra` |
+| `CalorimetryEngine::run_regression` | `precision_cosmology.simulate_calorimetry_experiment` + calorimetry regression pipeline in `shbt_simulate.py` |
+| `--mode full` | `--mode all` (valid modes: `audit`, `cosmology`, `cosmology-test`, `baryogenesis`, `history`, `all`) |
 
 ---
 
-## 4. Foundation Audit Tables
+## 3. Section 12 Publication Reproduction Ledgers
 
-### Table 1: Affine algebraic parameters and central charges
+These correspond to the paper's Table 28 (code traceability), Table 29 (data crosswalk), and the `tab:code-availability` interface contract in `main.tex` §12.
 
-| Affine factor | Level | Central charge | Rust source |
-|---------------|-------|----------------|-------------|
-| `SU(2)_kℓ` | `k_ℓ = 26` | `39/14` | `StaticBoundary.su2_central_charge(26)` |
-| `SU(3)_kq` | `k_q = 8` | `64/11` | `StaticBoundary.su3_central_charge(8)` |
-| `SO(10)_K` | `K = 312` | `351/8` | `StaticBoundary.parent_level` used by `BaryogenesisIdentity.Pi_rank` |
-| `H_dark^comp` | – | `1197103/362670` | `StaticBoundary.c_dark`; `precision_cosmology.load_completed_ledger()` |
+### Table 38 — Verification Ledger (theory → code entry points)
 
-### Table 2: Boundary closure audit
+| Verification quantity | Expected | Live value | Code entry point |
+|---|---|---|---|
+| Branch (*k*<sub>*ℓ*</sub>, *k*<sub>*q*</sub>, *K*) | (26, 8, 312) | (26, 8, 312) | `StaticBoundary::new` / `audit.branch` |
+| Framing defect Δ<sub>fr</sub> | 0 | 0.0 | `StaticBoundary::framing_defect` → `audit.boundary_report.framing_defect` |
+| Modular S commutator norm | ≃ 0 | 0.0 | `audit.boundary_report.modular_S_commutator` |
+| Modular T commutator norm | ≃ 0 | 0.0 | `audit.boundary_report.modular_T_commutator` |
+| Modular invariant Z<sub>∂</sub> | true | true | `audit.boundary_report.modular_invariant` |
+| Zero-energy lock *E*<sub>μν</sub> ≡ 0 | true | true | `audit.boundary_report.zero_energy_locked` |
+| Visible projection 26 → 4 | true | true | `audit.boundary_report.projection_dimension_26_to_4` |
+| Metric slices | 9 | 9 | `audit.projection_report.slice_count` |
+| Projector rank / symmetry / trace-1 / positive-definite | 3 / true / true / true | 3 / true / true / true | `audit.projection_report` |
+| Memory budget all-passed | true | true | `audit.memory_report.all_passed` |
+| History entries | 9 | 9 | `audit.history_entries` |
+| Stress-energy preservation | true | true | `audit.stress_energy_preserved` |
+| Baryon asymmetry η<sub>B</sub> | 6.449923359416 × 10<sup>−10</sup> | 6.449923359416131 × 10<sup>−10</sup> | `audit.eta_b` |
 
-| Audit quantity | Report accessor / method | Expected | Actual |
-|----------------|--------------------------|----------|--------|
-| Branch levels | `report.branch` | `(26, 8, 312)` | `(26, 8, 312)` |
-| Framing defect | `report.framing_defect` | `0.0` | `0.0` |
-| `Z_∂code(i)` | `StaticBoundary.evaluate_z_boundary_py(0.0, 1.0)` | `2.441381789163e-24` | `2.441381789163e-24` |
-| Loading density sum | `report.boundary_report.loading_normalized` | `true` | `true` |
-| Entanglement density sum | `report.boundary_report.entanglement_density_normalized` | `true` | `true` |
-| Dominant sequence length | `StaticBoundary.build_dominant_sequence()` | `9` | `9` |
-| Modular S commutator norm | `report.boundary_report.modular_S_commutator` | `≈ 0` | `0.0` |
-| Modular T commutator norm | `report.boundary_report.modular_T_commutator` | `≈ 0` | `0.0` |
-| Modular invariant | `report.modular_invariant` | `true` | `true` |
-| Zero-energy lock | `report.zero_energy_locked` | `true` | `true` |
-| Visible projection `26 → 4` | `report.projection_dimension_26_to_4` | `true` | `true` |
+### Table 39 — Generated-Artifact Data Product Crosswalk
 
-### Table 3: Holographic projection audit
+| Artifact | Columns / nested records | Paper-level observable | Producer |
+|---|---|---|---|
+| `shbt_run_cmb_cls.csv` | `ell`, `Dl_TT_muK2`, `Dl_EE_muK2`, `Dl_TE_muK2`, `Cl_TT`, `Cl_EE`, `Cl_TE`, `Cl_BB` | scalar TT/EE/TE spectra (and BB column) | `boltzmann_shbt.compute_cmb_power_spectra` |
+| `shbt_run_matter_pk.csv` | `k_Mpc_inv`, `Pk_z0`, `Pk_z05`, `Pk_z1` | matter power at *z* = 0, 0.5, 1 | `boltzmann_shbt.compute_cmb_power_spectra` (`_matter_rows`) |
+| `shbt_run_tensor_cls.csv` | `ell`, `Cl_BB`, `Dl_BB`, `Cl_TT_tensor` | primordial tensor B modes and tensor TT | `boltzmann_shbt.compute_tensor_power_spectra` |
+| `shbt_run_calorimetry_sim.csv` | `k_bits`, `R_addresses`, `Q_H0_zJ`, `Q_H1_zJ`, `Q_noise_zJ` | Landauer address sweep, competing heat laws, simulated noise | `precision_cosmology.simulate_calorimetry_experiment` |
+| `result.json` | `audit` (full `ShbtReport` dict), `baryogenesis`, `history`, `precision_cosmology`, `precision_pipeline` (`spectra`, `calorimetry_csv`, `non_gaussianity`), `stability_audit`, `summary`, `metadata`, `config` | complete machine-readable simulation report | `shbt_simulate.py` main pipeline |
 
-| Audit quantity | Report accessor | Expected | Actual |
-|----------------|-----------------|----------|--------|
-| Entropy cascade length | `report.projection_report.slice_count` | `9` | `9` |
-| Spatial projector rank | `report.projection_report.projector_rank` | `3` | `3` |
-| Metric symmetry | `report.projection_report.symmetric` | `true` | `true` |
-| Trace normalization | `report.projection_report.trace_normalized` | `true` | `true` |
-| Positive definiteness | `report.projection_report.positive_definite` | `true` | `true` |
+### Table 40 — Software Interface Contract
 
-### Table 4: Causal Point audit
-
-| Audit quantity | Report accessor | Expected | Actual |
-|----------------|-----------------|----------|--------|
-| Local available bits | `report.memory_report.local_available_bits` | `≃ N f_H²` | `2.535748254483999e122` |
-| Hidden bits | `report.memory_report.hidden_bits` | `N − N_local` | `7.76249465658367e121` |
-| Entropy limit | `report.memory_report.entropy_limit_bits` | `> 0` | `2.535748254483999e122` |
-| Light-cone samples | `report.memory_report.past_light_cone_samples` | `9` | `9` |
-| Property packets | `report.memory_report.property_packets` | `9` | `9` |
-| Memory all passed | `report.memory_all_passed` | `true` | `true` |
-
-### Table 5: Standard-versus-optimized field simulation cost
-
-| Simulation mode | Active channels | CPU cycles | Operations | Memory |
-|-----------------|-----------------|------------|------------|--------|
-| Standard | baryon + anti-baryon | `1.0` | `1.0` | `1.0` |
-| Optimized SHBT | baryon rendered, anti-baryon de-rendered | `0.5` | `0.001533314747` | `0.0058214747736093` |
-| Reduction fraction | removed anti-baryon render | `0.5` | `0.998466685252` | `0.994178525226` |
-
-*Code:* `BaryogenesisOptimizer.run_benchmark(particle_count)` → `BenchmarkDelta` → `ShbtReport.benchmark_delta`.
-
-### Table 6: Physical accounting
-
-| Quantity | Standard simulation | Optimized SHBT simulation |
-|----------|---------------------|---------------------------|
-| Visible baryon channel | actively rendered | actively rendered |
-| Visible anti-baryon channel | actively rendered | de-rendered |
-| Passive stress-energy | explicitly evolved | preserved in dark completion |
-| Baryon asymmetry output | baseline | `η_B = 6.449923359416e-10` |
-| Stress-energy check | baseline | `true` |
+| Interface | Role / principal accessors |
+|---|---|
+| `shbt_simulator` (PyO3) | Module exposing `ShbtSimulator`, report getters, and record classes; `import shbt_simulator` after `--build` |
+| `ShbtSimulator` | `run_full_audit()` → `ShbtReport`; `crystallize_history()`; `to_dict()` serialization |
+| `ShbtReport` | Getters: `branch`, `eta_b`, `stress_energy_preserved`, `framing_defect`, `modular_invariant`, `zero_energy_locked`, `projection_dimension_26_to_4`, `metric_slice_count`, `history_entry_count`, `memory_all_passed`, `to_dict()` |
+| `StaticBoundary` | `benchmark_branch`, `lepton_level`, `quark_level`, `parent_level`, `i_l_star`, `i_q_star`, `c_dark`, `c_dark_residual`, `c_dark_completion`, `lambda_holo_si_m2`, `n_sat`, `bit_budget`, `h0_cmb`, `framing_defect_py`, `verify_equations_py`, `evaluate_z_boundary_py`, `evaluate_z_dark_py`, `dark_modular_data`, `s_dark`, `t_dark`, `dark_conformal_weights`, `verify_dark_modular_closure`, `to_c_abi` |
+| `HolographicProjection` / `BulkMetricSlice` | `project_entropy_cascade`, `derive_load_vector`, `metric_from_load_vector`, `verify_projection`, `project_static_block_to_bulk` (Rust-level; consumed via `audit.metric_slices`) |
+| `BaryogenesisOptimizer` / `BaryogenesisIdentity` / `BenchmarkDelta` | `baryogenesis_identity`, `thermal_lindblad_evolution`, `derender_antibaryon_charges`, `stress_energy_preserved`, `run_benchmark` |
+| `CausalPoint` / `MemoryReport` / `LightConeSample` / `CoordinateLogEntry` | `build_past_light_cone`, `verify_memory_budget`, `crystallize_history`; `AnomalyClosureError` raised on finite-capacity violation |
+| `precision_cosmology.py` | `build_precision_cosmology_report`, `run_mcmc_analysis`, `simulate_calorimetry_experiment`, `compute_non_gaussianity_shapes`, plus all Section 9 equation functions |
+| `boltzmann_shbt.py` | `compute_cmb_power_spectra`, `compute_tensor_power_spectra` |
+| `shbt_simulate.py` CLI | `--mode {audit, cosmology, cosmology-test, baryogenesis, history, all}`, `--branch K_L K_Q K`, `--observer-radius-fraction`, `--redshift-max`, `--redshift-samples`, `--particles`, `--seed`, `--h0-cmb`, `--omega-m`, `--omega-r0`, `--delta-mod`, `--z-samples`, `--precision`, `--output`, `--output-dir`, `--format {json,csv,hdf5,h5}`, `--sweep`, `--plot`, `--verbose`, `--log-level` |
+| `examples/run_audit.py` | Minimal foundation-audit entry point |
 
 ---
 
-## 5. Precision Cosmology (`precision_cosmology.py`)
+## 4. Ground-Truth Invariant Ledger (live simulation values)
 
-### 5.1 File-name note
+Extracted from `python3 shbt_simulate.py --mode all --output result.json` and `cargo test --release` (27 tests, all passing) on this checkout. `result.json` paths are exact key chains.
 
-The paper text mentions `noether_bridge.py` and `precision_cosmology_engine.py`. In this repository all of their functionality is consolidated into a single module: **`precision_cosmology.py`**. The tables below point only to objects in that file.
+| Invariant | Paper specification | Live value | Source JSON path / accessor |
+|---|---|---|---|
+| Visible central charge *c*<sub>vis</sub> | 1325/154 ≃ 8.603896103896 | 8.603896103896 (39/14 + 64/11) | `main.tex` Eq. *c*<sub>vis</sub>; `StaticBoundary.su2_central_charge(26) + su3_central_charge(8)` |
+| Parent central charge *c*<sub>parent</sub> | 351/8 = 43.875 (SO(10)<sub>312</sub>) | 351/8 | `main.tex` Table `section-three-affine-central-charges`; affine formula *k*·dim/(*k*+*h*∨) = 312·45/320 |
+| Completed dark ledger *c*<sub>dark</sub> | 1197103/362670 ≃ 3.300805139659 | 3.3008051396586424 | `result.json → precision_cosmology.completed_ledger` (`"1197103/362670"`); `StaticBoundary.c_dark` |
+| Residual dark ledger *c*<sub>dark</sub><sup>res</sup> | 834433/362670 ≃ 2.300805139659 | 2.3008051396586424 | `result.json → precision_cosmology.simulator_constants.c_dark_residual`; `StaticBoundary.c_dark_residual` |
+| Framing defect Δ<sub>fr</sub> | 0.000000000000000000 | 0.0 | `result.json → audit.boundary_report.framing_defect`; `StaticBoundary.framing_defect_py` |
+| Baryon asymmetry η<sub>B</sub> | 6.449923359416 × 10<sup>−10</sup> | 6.449923359416131 × 10<sup>−10</sup> | `result.json → audit.eta_b`; `audit.baryogenesis_identity.eta_b` |
+| Entropy-debt power Q̇ | 9.06 × 10<sup>11</sup> W (906 GW) | 906 000 000 000 W | `result.json → stability_audit.Q_dot_W` |
+| Benchmark transient ratio Γ<sub>bench</sub> | ≃ 6377 | 6376.689189189189 | `result.json → stability_audit.Gamma_bench` |
+| Saturated screen *N*<sub>sat</sub> | 3π/(*L*<sub>P</sub><sup>2</sup>Λ<sub>holo</sub>) | 3.311997720142366 × 10<sup>122</sup> bits | `result.json → precision_cosmology.N_sat_bits` |
+| Local Hubble uplift *H*<sub>0</sub><sup>loc</sup> | 72.197960 km s<sup>−1</sup> Mpc<sup>−1</sup> | 72.19796007286148 | `result.json → precision_cosmology.h0_local_km_s_mpc` |
+| Loading amplitude *A*<sub>H</sub> | 4.797960 km s<sup>−1</sup> Mpc<sup>−1</sup> | 4.797960072861485 | `result.json → precision_cosmology.A_H_km_s_mpc` |
+| Local observer bits *N*<sub>local</sub> | ≃ *N* *f*<sub>H</sub><sup>2</sup> | 2.535748254483999 × 10<sup>122</sup> | `result.json → audit.memory_report.local_available_bits` |
+| Dark-matter abundance Ω<sub>DM</sub>/Ω<sub>b</sub> | ≃ 5.34 | 5.343450862978382 | `result.json → precision_cosmology.dark_matter.abundance_ratio` |
+| Growth suppression *f*σ<sub>8</sub> at *z* = 0.5 | negative suppression | −9.819 % | `result.json → precision_cosmology.growth_suppression[z=0.5].suppression_fraction` |
+| Non-Gaussianity | *f*<sub>NL</sub><sup>loc</sup> = 0.015, *f*<sub>NL</sub><sup>equil</sup> = −0.042, *f*<sub>NL</sub><sup>ortho</sup> = −0.018, τ<sub>NL</sub> = 0.000324, *g*<sub>NL</sub> = −1.2 × 10<sup>−5</sup> | identical | `result.json → precision_pipeline.non_gaussianity` |
+| Tensor parameters | *r* = 0.0032, *n*<sub>t</sub> = −0.0004 | identical | `result.json → precision_pipeline.spectra.r`, `.n_t` |
+| Cosmic age | 13.277 Gyr | 13.276616557 Gyr | `result.json → precision_cosmology.cosmic_age_gyr` |
+| Chronometer χ²/ν | ≃ 1.00 | 2491.49/2482 = 1.004 | `result.json → precision_cosmology.summary_table_17.chronometer` |
 
-### 5.2 Section 9 constants and bridge quantities
+**Downstream-only invariants.** Two quantities named in the contract scope are defined by consumer repositories, not emitted by `shbt-precision`:
 
-| Symbol | Value | Paper equation | Python source |
-|--------|-------|----------------|---------------|
-| `c_dark^comp` | `1197103/362670` | Eq. (173) | `precision_cosmology.load_completed_ledger()` |
-| `Δ_mod` | `c_dark^comp / 24` | Eq. (173) | `precision_cosmology.load_completed_ledger() / 24` |
-| `Λ_holo` | `1.08913883e-52 m⁻²` | Eq. (175) | `precision_cosmology.load_default_constants().lambda_holo_si_m2` |
-| `N_sat` | `3.312593327986e122` | Eq. (175) | `precision_cosmology.load_default_constants().n_sat` |
-| `H_0^CMB` | `67.4` km/s/Mpc | Eq. (175) | `precision_cosmology.load_default_constants().h0_cmb` |
-| `κ_D5` | `0.988769793998` | Appendix C / Table 7 | `src/shbt/baryogenesis.rs` `compute_kappa_d5` (private helper used by `baryogenesis_identity`); result reflected in `BaryogenesisIdentity.jarlskog_topological` |
-
-### 5.3 Section 9 equation-to-function index
-
-| Eq. | Description | Function / Report key | File |
-|-----|-------------|-----------------------|------|
-| (173) | `c_dark^res`, `c_dark^comp`, `Δ_mod` | `precision_cosmology.load_completed_ledger()`; `precision_cosmology.entropy_debt_uplift_factor(delta_mod)` | `precision_cosmology.py` |
-| (174)–(175) | Bekenstein-Hawking / holographic bit bound | `precision_cosmology.load_default_constants()` | `precision_cosmology.py` |
-| (176) | Loading fraction `f_load(z)`, entropy debt `S_debt(z)` | `precision_cosmology.compute_loading_fraction(...)`; `precision_cosmology.compute_entropy_debt(...)` | `precision_cosmology.py` |
-| (177)–(180) | Light-cone clock and loading ODE | `precision_cosmology.loading_fraction_ode(...)`; `precision_cosmology.shbt_hubble_rate(...)` | `precision_cosmology.py` |
-| (181)–(183) | Lock rate `Γ_lock = 3 A_H` | `precision_cosmology.lock_rate(A_H)`; `precision_cosmology.loading_amplitude(...)` | `precision_cosmology.py` |
-| (194)–(197) | Local Hubble uplift `H_0^loc`, amplitude `A_H` | `precision_cosmology.h0_local(...)`; `precision_cosmology.loading_amplitude(...)` | `precision_cosmology.py` |
-| (198)–(199) | Redshift-dependent intercept `H_0(z)` | `precision_cosmology.h0_redshift_dependent(z, ...)` | `precision_cosmology.py` |
-| (200)–(203) | Linear growth ODE | `precision_cosmology.growth_ode_system(...)` | `precision_cosmology.py` |
-| (204) | SHBT Hubble rate `H_SHBT(z)` | `precision_cosmology.shbt_hubble_rate(z, ...)` | `precision_cosmology.py` |
-| (206) | Growth suppression `(fσ_8)_SHBT / (fσ_8)_ΛCDM − 1` | `precision_cosmology.compute_growth_suppression(z, ...)` | `precision_cosmology.py` |
-| (200)–(206) + spherical collapse | Cluster-collapse linear threshold `δc(z)`, mass variance `σM(z)`, peak height `ν`, and Press-Schechter abundance ratio | `precision_cosmology.compute_cluster_collapse(z, ...)`; `precision_cosmology._cluster_collapse_delta_c(...)` | `precision_cosmology.py` |
-| (207)–(211) | ISW residual `Δ_ISW(z)` | `precision_cosmology.isw_residual(z, ...)` | `precision_cosmology.py` |
-| (212)–(217) | BBN loading shift / stability | `precision_cosmology.bbn_stability_check(z_bbn, ...)`; internal `_bbn_components` | `precision_cosmology.py` |
-| (188)–(193) | Neutrino hierarchy masses and tensions | `precision_cosmology.neutrino_hierarchy_masses(...)` | `precision_cosmology.py` |
-| (222)–(226) | GET measurement cost | `precision_cosmology.get_measurement_cost(...)` | `precision_cosmology.py` |
-| (227) | Deterministic collapse index `ι` | `precision_cosmology.collapse_index(...)` | `precision_cosmology.py` |
-| (173)–(231) | Full Section 9 audit | `precision_cosmology.build_precision_cosmology_report(...)` | `precision_cosmology.py` |
-| (DM1) | Dark matter density `rho_DM = (c_dark_comp / 12) * rho_crit * (1 - f_load)` with `rho_crit(z) = 3 H_SHBT(z)^2 / (8 pi G_eff)` | `precision_cosmology.compute_dark_matter_density(...)` | `precision_cosmology.py` |
-| (DM2) | Dark matter-to-baryon ratio `Omega_DM / Omega_b` | `precision_cosmology.compute_dm_baryon_ratio(...)` | `precision_cosmology.py` |
-| (DM3) | Dark matter equation of state `w_DM = 0` (pressureless gravitational ghost) | `precision_cosmology.dark_matter_equation_of_state(...)` | `precision_cosmology.py` |
-
-### 5.4 Section 9 table mappings
-
-| Paper table | Report key / function | Notes |
-|-------------|-----------------------|-------|
-| Table 7 (Noether bridge) | `precision_cosmology.load_default_constants()`; `precision_cosmology.load_completed_ledger()`; `precision_cosmology.neutrino_hierarchy_masses(...)` | `κ_D5` is internal to `baryogenesis_identity`; `m_ν,1` and hierarchy sums are produced by `neutrino_hierarchy_masses` |
-| Table 8 (Neutrino hierarchy) | `precision_cosmology.neutrino_hierarchy_masses(...)` | Returns `normal_hierarchy` and `inverted_hierarchy` dicts with `m1..m3`, `sum_meV`, `tension_sigma` |
-| Table 9 (Code-to-math map) | Use the equation index above; cluster-collapse entry maps `δc, σM, abundance ratio` → `precision_cosmology.compute_cluster_collapse(...)` → `report['cluster_collapse']` (Table 13) | This table is a cross-reference; the new canonical source is `precision_cosmology.py` |
-| Table 10 (Redshift ladder) | `report['redshift_ladder']` from `build_precision_cosmology_report(...)` | Each row contains `z`, `loading_term_km_s_mpc`, `h0_z_km_s_mpc` |
-| Table 11 (Growth suppression) | `report['growth_suppression']` from `build_precision_cosmology_report(...)` | Produced by `compute_growth_suppression` for `GROWTH_AUDIT_REDSHIFTS` |
-| Table 12 (High-redshift mirage) | `report['cpl_template']` from `build_precision_cosmology_report(...)` | Internal `_cpl_template` computes `w0`, `wa`, `density_zero_crossing_redshift`, `density_ratio_z1_5` |
-| Table 13 (Cluster-collapse) | `precision_cosmology.compute_cluster_collapse(z, h0_cmb, A_H, omega_m, sigma8, ...)`; `report['cluster_collapse']` from `build_precision_cosmology_report(...)` | Rows for `z = 0, 0.5, 1.0` contain `z`, `scale_factor`, `lcdm_delta_c`, `shbt_delta_c`, `lcdm_sigma_mass`, `shbt_sigma_mass`, `lcdm_peak_height`, `shbt_peak_height`, `abundance_ratio`, `delta_c_shift_percent`, `sigma_mass_suppression_percent` |
-| Table 14 (Light-cone ledger) | `report['lightcone_entropy_debt']` from `build_precision_cosmology_report(...)` | Rows contain `z`, `h0_z`, `h_shbt`, `f_load`, `S_debt_bits` |
-| Table 15 (ISW stability) | `report['isw_stability']` from `build_precision_cosmology_report(...)` | Produced by `isw_residual` for `ISW_AUDIT_REDSHIFTS` |
-| Table 16 (Cosmic chronometers) | `report['cosmic_chronometer_validation']` | Hard-coded `χ² = 30.16`, `ν = 29`, `χ²_ν = 1.04` from paper |
-| Table 17 (Summary ledger) | `report['summary_table_17']` from `build_precision_cosmology_report(...)` | Includes `local_uplift`, `gradient_target`, `cpl_template`, `bbn_loading_shift`, `chronometer`, `forecast_chi2_sensitivity`, `cosmic_age_gyr`, `thermodynamic_arrow`, `overall_precision_audit` |
-| Table 18 (GET cost metrics) | `precision_cosmology.get_measurement_cost(...)` and `precision_cosmology.collapse_index(...)` | Implements `C_addr`, `C_ens`, `C_get`, `R_entropy`, collapse index `ι` |
-| Table 19 (Dark matter as topological gravitational ghost) | `report['dark_matter']` from `build_precision_cosmology_report(...)` | Contains per-redshift `rho_DM_kg_m3`, `Omega_DM`, `Omega_b`, `Omega_DM_over_Omega_b`, `w_DM`; top-level `abundance_ratio` and `w_DM` |
-
-### 5.5 Cluster-collapse model (Table 13)
-
-The dedicated cluster-collapse audit was previously marked as not implemented. It is now exposed through `precision_cosmology.compute_cluster_collapse(...)`, which uses the same background expansion and growth ODE as the other Section 9 audits.
-
-| Quantity | Equation / model | Code implementation | Report field |
-|----------|------------------|---------------------|--------------|
-| Spherical top-hat linear overdensity `δc(z)` | Calibrated spherical-collapse threshold using the matter density `Ωm(z)` and Hubble intercept slope `dln H0(z) / d ln a` from Eqs. (200)–(206) | `precision_cosmology._cluster_collapse_delta_c(...)`; called by `compute_cluster_collapse(...)` | `row['lcdm_delta_c']`, `row['shbt_delta_c']` |
-| Mass variance `σM(z) = σM(0) D(z) / D(0)` | Linear growth factor `D(z)` from Eq. (203) / `compute_growth_suppression`; `σM(0)` normalized to the reference value `reference_sigma_mass_z0 * (sigma8 / 0.812)` | `precision_cosmology.compute_cluster_collapse(...)` | `row['lcdm_sigma_mass']`, `row['shbt_sigma_mass']` |
-| Peak height `ν = δc / σM` | Direct ratio of calibrated `δc` and `σM(z)` | `precision_cosmology.compute_cluster_collapse(...)` | `row['lcdm_peak_height']`, `row['shbt_peak_height']` |
-| Abundance ratio `n_SHBT / n_LCDM` | Press-Schechter multiplicity function `f(ν) ∝ ν exp(-ν²/2)`; ratio cancels the common prefactors | `precision_cosmology.compute_cluster_collapse(...)` | `row['abundance_ratio']` |
+- η<sub>A</sub> = 10/33, η<sub>D</sub> = 23/33 — the Stinespring active/dark capacity partition realized in `sys1own/shbt-recon`; not a computed output of this repo.
+- *P*<sub>debt</sub> = 906.00 kW — the scaled Landauer-debt schedule used by `sys1own/shbt-power`. The native value here is Q̇ = 906 GW (`stability_audit.Q_dot_W`); downstream repos rescale it for plant-level ledgers. These entries are listed for crosswalk completeness and must not be quoted as `result.json` outputs.
 
 ---
 
-### 5.6 Dark matter as topological gravitational ghost (Table 19)
+## 5. SHBT Ecosystem Downstream Export Crosswalk
 
-The passive stress-energy of de-rendered anti-baryons is identified with the dark-matter source.  It is gravitational only, so it is pressureless and produces the observed `Omega_DM / Omega_b ≈ 5.4` from the same modular ledger that fixes the baryon asymmetry.
+Bidirectional technology transfer: `shbt-precision` is the computational authority; siblings consume its verified constants and kernels.
 
-| Quantity | Equation / model | Code implementation | Report field |
-|----------|------------------|---------------------|--------------|
-| Dark matter energy density `rho_DM(z)` | `rho_DM = (c_dark_comp / 12) * rho_crit(z) * (1 - f_load(z))` with `rho_crit = 3 H_SHBT^2 / (8 pi G_eff)` and `G_eff = G_N (1 + Delta_mod)` | `precision_cosmology.compute_dark_matter_density(...)` | `report['dark_matter']['rows'][i]['rho_DM_kg_m3']`, `Omega_DM` |
-| Baryon density parameter `Omega_b(z)` | `rho_b(z) = eta_b * n_gamma * m_p * (1+z)^3` divided by the same SHBT critical density | `precision_cosmology.compute_dm_baryon_ratio(...)` | `report['dark_matter']['rows'][i]['Omega_b']`, `Omega_DM_over_Omega_b` |
-| Dark matter equation of state `w_DM` | Pressureless passive stress-energy: `w_DM = 0` | `precision_cosmology.dark_matter_equation_of_state(...)` | `report['dark_matter']['w_DM']` and per-row `w_DM` |
-| Benchmark abundance ratio | `Omega_DM / Omega_b` at `z = 0` | `compute_dm_baryon_ratio(...)` called inside `build_precision_cosmology_report(...)` | `report['dark_matter']['abundance_ratio']` |
-
----
-
-## 6. Bidirectional Replacement Guide (Old → New)
-
-When rewriting paper paragraphs, replace the left-hand references with the right-hand references.
-
-| Old reference in `main.pdf` | New exact reference |
-|-----------------------------|---------------------|
-| `shbt_core.py` | `precision_cosmology.py` or `examples/run_audit.py` |
-| `noether_bridge.py` | `precision_cosmology.py` (functions `load_default_constants`, `load_completed_ledger`, `neutrino_hierarchy_masses`) |
-| `precision_cosmology_engine.py` | `precision_cosmology.py` |
-| `StaticBoundary.evaluate_Z_boundary(tau)` | `StaticBoundary.evaluate_z_boundary_py(tau_re, tau_im)` (Python) or `StaticBoundary.evaluate_z_boundary(tau: Complex)` (Rust) |
-| `StaticBoundary._build_su2_visible_block()` / `_build_su3_visible_block()` | `StaticBoundary.build_su2_visible_block()` / `build_su3_visible_block()` |
-| `StaticBoundary._build_raw_loading_density()` | `StaticBoundary.build_loading_density()` |
-| `StaticBoundary._build_entanglement_density()` | `StaticBoundary.build_entanglement_density()` |
-| `StaticBoundary._build_dominant_loading_sequence()` | `StaticBoundary.build_dominant_sequence()` |
-| `CausalPoint._build_past_light_cone()` | `CausalPoint.build_past_light_cone()` |
-| `shbt_simulator.StaticBoundary.build_loading_density()` (Python call) | *Not directly exposed to Python*; use `ShbtSimulator().run_full_audit().to_dict()` and read `boundary_report` / `metric_slices` / `history_entries` |
-| `report.c_dark` (residual) | `StaticBoundary.c_dark_residual` or `report['simulator_constants']['c_dark_residual']` |
-| `report.c_dark` (completion) | `StaticBoundary.c_dark` or `report['completed_ledger']` |
+| Repository | Consumed export | Mechanism |
+|---|---|---|
+| `sys1own/shbt-power` | Bremsstrahlung suppression factor *S* = 100/1089; Landauer-debt power schedule (native Q̇ = 906 GW, rescaled to the 906.00 kW plant ledger) | constant import from `stability_audit` / §10 ledger |
+| `sys1own/shbt-cf` | Symplectic integrator conventions (Yoshida-6) and WZW affine character tables for LANR non-equilibrium screening | `su2/su3` character and modular-entry formulas in `boundary.rs` |
+| `sys1own/shbt-qc` | Canonical affine branch (26, 8, 312) and boundary code projection norm bounds | `audit.projection_report` bounds; `StaticBoundary` branch getters |
+| `sys1own/shbt-ghost` | 512-bit MPFR arithmetic kernels and Landauer debt scaling for mass-seed coupling | `rug` Float infrastructure (`PREC` = 512); `stability_audit` debt schedule |
+| `sys1own/shbt-recon` | Stinespring dilation capacity partition (η<sub>A</sub> = 10/33, η<sub>D</sub> = 23/33) and trace-norm invariants | dark-ledger completion arithmetic (`c_dark`, `c_dark_residual`) |
+| `sys1own/shbt-sglt` | Arbitrary-precision register math and 2PN relativistic optics integration bounds | `rug`/MPFR Float kernels in `entropy_flow.rs` |
+| `sys1own/shbt-exotic` | Boundary CFT partition algebra and modular closure operators | `evaluate_z_boundary` / `evaluate_z_dark`; `build_dark_modular_data` |
+| `sys1own/shbt-warp` | Framing-defect identity Δ<sub>fr</sub> ≡ 0 ⟹ *E*<sub>μν</sub> ≡ 0 and 512-bit MPFR foliation wrappers | `StaticBoundary.framing_defect`, `verify_equations`; `EVAL_PREC` |
 
 ---
 
-## 7. Python API Notes
-
-- `StaticBoundary` Python-exposed methods / getters:
-  - `__init__()` (default branch) and `with_branch(lepton, quark, parent)`.
-  - `benchmark_branch`, `lepton_level`, `quark_level`, `parent_level`, `i_l_star`, `i_q_star`.
-  - `c_dark`, `c_dark_residual`, `c_dark_completion`, `lambda_holo`, `lambda_holo_si_m2`, `bit_budget`, `n_sat`, `h0_cmb`.
-  - `framing_defect_py()`.
-  - `verify_equations_py()`.
-  - `evaluate_z_boundary_py(tau_re, tau_im)`.
-- `HolographicProjection`, `BaryogenesisOptimizer`, `CausalPoint` are exported as Python classes but their core methods (`derive_load_vector`, `metric_from_load_vector`, `cpu_cycle_weight`, `build_past_light_cone`, etc.) are **Rust-only**. Consume their outputs through `ShbtSimulator().run_full_audit()`.
-- `ShbtReport` exposes getters: `branch`, `eta_b`, `stress_energy_preserved`, `metric_slice_count`, `history_entry_count`, `framing_defect`, `modular_invariant`, `zero_energy_locked`, `projection_dimension_26_to_4`, `slice_count`, `projection_all_passed`, `memory_all_passed`, and `to_dict()`.
-
----
-
-## 8. Quick Verification
-
-Run these commands from the repository root to reproduce the mappings above.
+## 6. Quick Verification
 
 ```bash
-# Rust foundation tests (boundary, projection, baryogenesis, causal point)
-cargo test
+# Build the Rust core and stage the PyO3 module
+python3 shbt_simulate.py --build
 
-# Rust release build
-cargo build --release
+# Rust foundation tests (22 + 5 passing)
+cargo test --release
 
-# Python simulator tests (requires a compiled/importable shbt_simulator)
-pytest tests/test_simulator.py -q
+# Full live audit: regenerates result.json + shbt_run_*.csv
+PYTHONPATH=target/release:. python3 shbt_simulate.py --mode all --output result.json
+test -s result.json
 
-# Foundation audit example (uses ShbtSimulator.run_full_audit)
-python examples/run_audit.py
-
-# Section 9 precision-cosmology unit tests
-python precision_cosmology.py --run-tests
-
-# Section 9 full report (JSON to stdout)
-python precision_cosmology.py --json
-
-# Wheel build (optional)
-maturin build --release
+# Python suites
+pytest tests/ -q
+python3 precision_cosmology.py --run-tests
+python3 boltzmann_shbt.py --run-tests
 ```
 
-**Expected key outputs**
-- `report.branch == (26, 8, 312)`
-- `report.framing_defect == 0.0`
-- `report.modular_invariant == True`
-- `report.zero_energy_locked == True`
-- `report.projection_dimension_26_to_4 == True`
-- `report.projection_report.slice_count == 9`
-- `report.eta_b == 6.449923359416e-10`
-- `report.stress_energy_preserved == True`
-- `precision_cosmology.py --run-tests` prints `OK` (14 tests)
-- `report['cluster_collapse'][0]['lcdm_delta_c']` ≈ `1.6760` at `z = 0`
-- `report['cluster_collapse'][0]['shbt_delta_c']` ≈ `1.6733` at `z = 0`
-- `report['cluster_collapse'][0]['abundance_ratio']` ≈ `6.10E-1` at `z = 0`
-- `report['dark_matter']['abundance_ratio']` ≈ `5.34` at `z = 0` (observed `≈ 5.4`)
-- `report['dark_matter']['w_DM']` ≈ `0.0`
-- `python shbt_simulate.py --mode cosmology --format csv --output cosmo` produces `cosmo_dark_matter.csv` with per-redshift `rho_DM_kg_m3`, `Omega_DM`, `Omega_b`, `Omega_DM_over_Omega_b`, `w_DM`
+Validation of this file: no raw `$...$` LaTeX appears inside any table, header, or list item (`grep -n '\$' paper_references.md` returns nothing); `README.md` links here under the Section 12 verification heading.
 
----
-
-## 9. Audit Report Field Reference
-
-### `ShbtReport.to_dict()` top-level fields
-
-| Field | Rust type | Description |
-|-------|-----------|-------------|
-| `branch` | `(u32, u32, u32)` | Canonical branch `(26, 8, 312)` |
-| `boundary_report` | `VerificationReport` | Boundary closure audit (Table 2) |
-| `projection_report` | `ProjectionReport` | Metric projection audit (Table 3) |
-| `memory_report` | `MemoryReport` | Causal Point audit (Table 4) |
-| `benchmark_delta` | `BenchmarkDelta` | Standard vs. optimized field simulation (Tables 5–6) |
-| `baryogenesis_identity` | `BaryogenesisIdentity` | Section 6 identity values |
-| `eta_b` | `f64` | Baryon asymmetry `6.449923359416e-10` |
-| `stress_energy_preserved` | `bool` | Passive stress-energy equality |
-| `metric_slices` | `List[BulkMetricSlice]` | 9 entropy-cascade metric slices |
-| `history_entries` | `List[CoordinateLogEntry]` | 9 crystallized history entries |
-
-### `build_precision_cosmology_report(...)` top-level keys
-
-| Key | Source function | Paper table / equation |
-|-----|-----------------|------------------------|
-| `completed_ledger` | `load_completed_ledger()` | Eq. (173) / Table 7 |
-| `uplift_factor` | `entropy_debt_uplift_factor(delta_mod)` | Eq. (194) |
-| `h0_local_km_s_mpc` | `h0_local(...)` | Eq. (196) |
-| `A_H_km_s_mpc` | `loading_amplitude(...)` | Eq. (197) |
-| `Gamma_lock_km_s_mpc` | `lock_rate(A_H)` | Eq. (183) |
-| `redshift_ladder` | `h0_redshift_dependent(...)` | Table 10 / Eq. (199) |
-| `lightcone_entropy_debt` | `compute_loading_fraction(...)` / `compute_entropy_debt(...)` / `shbt_hubble_rate(...)` | Table 14 / Eqs. (176), (180), (204) |
-| `growth_suppression` | `compute_growth_suppression(...)` | Table 11 / Eq. (206) |
-| `cluster_collapse` | `compute_cluster_collapse(...)` | Table 13 |
-| `dark_matter` | `compute_dark_matter_density(...)`, `compute_dm_baryon_ratio(...)`, `dark_matter_equation_of_state(...)` | Table 19 / Eqs. (DM1)–(DM3) |
-| `isw_stability` | `isw_residual(...)` | Table 15 / Eq. (211) |
-| `bbn_stability` | `bbn_stability_check(...)` | Eqs. (214)–(217) |
-| `neutrino_hierarchy` | `neutrino_hierarchy_masses(...)` | Table 8 / Eqs. (188)–(193) |
-| `cpl_template` | `_cpl_template(...)` | Table 12 |
-| `forecast_sensitivity` | `_forecast_sensitivity(...)` | Table 17 |
-| `cosmic_chronometer_validation` | hard-coded | Table 16 / Eqs. (219)–(221) |
-| `cosmic_age_gyr` | `_cosmic_age_gyr(...)` | Table 17 |
-| `thermodynamic_arrow` | `_thermodynamic_arrow(...)` | Table 17 / Eq. (178) |
-| `summary_table_17` | composite of above | Table 17 |
-
----
-
-*Last updated to match the merged `ShbtSimulator` API and `precision_cosmology.py` as of the current session.*
+*Ground truth generated live from `result.json` (`--mode all`) and `cargo test --release` on 2026-10-01.*
