@@ -242,6 +242,8 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "redshift_samples": 9,
     "particles": 512,
     "seed": 0,
+    "enable_succession": False,
+    "succession_cycles": 3,
     "output_dir": "./simulation_results",
     "output_name": "result",
     "export_formats": ["json"],
@@ -269,6 +271,8 @@ SHBT_CONFIG_SCHEMA: dict[str, Any] = {
         "redshift_samples": {"type": "integer"},
         "particles": {"type": "integer"},
         "seed": {"type": "integer"},
+        "enable_succession": {"type": "boolean"},
+        "succession_cycles": {"type": "integer"},
         "output_dir": {"type": "string"},
         "output_name": {"type": "string"},
         "export_formats": {
@@ -380,6 +384,10 @@ def _merge_with_cli(args: argparse.Namespace) -> dict[str, Any]:
         config["particles"] = args.particles
     if args.seed != DEFAULT_CONFIG["seed"]:
         config["seed"] = args.seed
+    if args.enable_succession:
+        config["enable_succession"] = True
+    if args.succession_cycles is not None:
+        config["succession_cycles"] = args.succession_cycles
     if args.h0_cmb is not None:
         config["h0_cmb"] = args.h0_cmb
     if args.omega_m is not None:
@@ -1064,8 +1072,22 @@ def simulate(config: dict[str, Any]) -> dict[str, Any]:
         }
 
     if mode in ("history", "all"):
-        entries = sim.crystallize_history()
-        result["history"] = [e.to_dict() for e in entries]
+        if config.get("enable_succession"):
+            # Closed-loop lifecycle: Render -> Crystallize -> De-render ->
+            # Relabel -> Re-render over multi-cycle observer succession.
+            cycles = int(config.get("succession_cycles", 3))
+            records = [r.to_dict() for r in sim.run_succession_cycles(cycles, seed)]
+            result["succession"] = {
+                "cycles": cycles,
+                "records": records,
+                "kernel_normalized": all(
+                    abs(sum(r["kernel_probabilities"]) - 1.0) < 1e-9
+                    for r in records
+                ),
+            }
+        else:
+            entries = sim.crystallize_history()
+            result["history"] = [e.to_dict() for e in entries]
 
     if mode in ("audit", "all"):
         # Ensure a top-level numeric eta_b is available for every mode that
@@ -1336,6 +1358,21 @@ def _build_arg_parser() -> argparse.ArgumentParser:
         help="particle count for the baryogenesis benchmark (default: 512)",
     )
     parser.add_argument(
+        "--enable-succession",
+        action="store_true",
+        help=(
+            "in history/all mode, run the closed-loop observer lifecycle "
+            "(Render -> Crystallize -> De-render -> Relabel -> Re-render) "
+            "instead of single-pass history crystallization"
+        ),
+    )
+    parser.add_argument(
+        "--succession-cycles",
+        type=int,
+        default=None,
+        help="number of observer succession cycles with --enable-succession (default: 3)",
+    )
+    parser.add_argument(
         "--seed",
         type=int,
         default=DEFAULT_CONFIG["seed"],
@@ -1559,6 +1596,10 @@ def main(argv: list[str] | None = None) -> int:
         pc_result = run_precision_cosmology(config)
         pc_report = pc_result["precision_cosmology"]
         result["precision_cosmology"] = pc_report
+        # Promote the observer-capacity audit to the top-level contract key
+        # `foundation_audit.asymptotic_observer_freeze` (observer-succession spec).
+        if pc_report.get("foundation_audit"):
+            result["foundation_audit"] = pc_report["foundation_audit"]
         result["summary"] = pc_result.get("summary", pc_report.get("summary_table_17", {}))
         result["metadata"]["precision_cosmology_duration_s"] = time.time() - pc_start
         summary_table = pc_result.get("summary") or pc_report.get("summary_table_17", {})

@@ -485,6 +485,168 @@ def compute_entropy_debt(
         )
 
 
+def loading_fraction_asymptotic(
+    z: Number,
+    h0_cmb: Number,
+    A_H: Number,
+    omega_m: Number,
+    omega_r0: Number = DEFAULT_OMEGA_R0,
+    *,
+    precision: int = DEFAULT_PRECISION,
+) -> Decimal:
+    """Saturated loading fraction ``f_load(z)`` on ``z in (-1, +inf)``.
+
+    For ``z >= 0`` this is the Eq. (180) integral capped at the screen
+    capacity ``f_load <= 1``. For ``-1 < z < 0`` (the late-time de Sitter
+    asymptote) the cumulative boundary bit allocation grows with the
+    horizon volume as ``f_load(z) = 1 - (1+z)^3``, saturating the screen
+    at ``z -> -1``. See the observer-succession derivation in ``shbt2.txt``.
+    """
+
+    redshift = _decimal(z)
+    if redshift <= Decimal("-1"):
+        raise ValueError("z must exceed -1")
+    if redshift < 0:
+        return Decimal("1") - (Decimal("1") + redshift) ** 3
+    loading = compute_loading_fraction(
+        redshift,
+        h0_cmb,
+        A_H,
+        omega_m,
+        omega_r0,
+        precision=precision,
+    )
+    return min(loading, Decimal("1"))
+
+
+def observer_admissible_set(
+    z: Number,
+    h0_cmb: Number,
+    A_H: Number,
+    omega_m: Number,
+    n_local_bits: Number,
+    c_get_bits: Number,
+    *,
+    omega_r0: Number = DEFAULT_OMEGA_R0,
+    precision: int = DEFAULT_PRECISION,
+) -> dict[str, Any]:
+    """Evaluate ``R_adm(z)`` for a localized observer node at redshift ``z``.
+
+    The usable local bit capacity degrades as the screen saturates:
+    ``N_local(z) = N_local(0) * (1 - f_load(z))``. The node is admissible
+    when the entropy residual ``R_entropy = N_local(z) - C_get`` is
+    nonnegative, matching the ``CausalPoint::is_admissible`` predicate in
+    ``src/shbt/causal_point.rs``.
+    """
+
+    f_load = loading_fraction_asymptotic(
+        z,
+        h0_cmb,
+        A_H,
+        omega_m,
+        omega_r0,
+        precision=precision,
+    )
+    n_local = _decimal(n_local_bits) * (Decimal("1") - f_load)
+    c_get = _decimal(c_get_bits)
+    residual = n_local - c_get
+    return {
+        "redshift": _decimal(z),
+        "f_load": f_load,
+        "n_local_bits": n_local,
+        "c_get_bits": c_get,
+        "entropy_residual_bits": residual,
+        "admissible": residual >= 0,
+    }
+
+
+# Redshift ladder over which the admissible observer set is audited, from
+# recombination down to the saturated de Sitter asymptote ``z -> -1``.
+FREEZE_AUDIT_REDSHIFTS: tuple[Decimal, ...] = tuple(
+    Decimal(s)
+    for s in (
+        "1100", "100", "10", "2", "1", "0.5", "0",
+        "-0.25", "-0.5", "-0.75", "-0.9", "-0.99", "-0.999", "-0.9999",
+    )
+)
+
+
+def asymptotic_observer_freeze(
+    h0_cmb: Number,
+    A_H: Number,
+    omega_m: Number,
+    n_sat: Number = DEFAULT_N_SAT,
+    *,
+    c_get_bits: Number | None = None,
+    omega_r0: Number = DEFAULT_OMEGA_R0,
+    precision: int = DEFAULT_PRECISION,
+) -> dict[str, Any]:
+    """Audit the saturated-boundary freeze of the admissible observer set.
+
+    As ``z -> -1`` the loading fraction ``f_load -> 1``, the usable local
+    entropy of every node drops below ``C_get``, and ``R_adm`` empties: the
+    succession kernel denominator vanishes and the boundary runtime halts
+    projection with ``AnomalyClosureError``. This is the SHBT resolution of
+    the cosmic heat-death paradox — a deterministic information-theoretic
+    cutoff rather than a Friedmann bounce.
+    """
+
+    capacity = _decimal(n_sat)
+    # Local share of the screen for the canonical observer (f_H = 7/8 of
+    # the global horizon): N_local(0) = N_sat * f_H^2.
+    n_local0 = capacity * Decimal("49") / Decimal("64")
+    c_get = (
+        _decimal(c_get_bits)
+        if c_get_bits is not None
+        else Decimal(str(max(1.0, math.log2(9) + math.log2(9))))
+    )
+    rows = [
+        observer_admissible_set(
+            redshift,
+            h0_cmb,
+            A_H,
+            omega_m,
+            n_local0,
+            c_get,
+            omega_r0=omega_r0,
+            precision=precision,
+        )
+        for redshift in FREEZE_AUDIT_REDSHIFTS
+    ]
+    # Analytic freeze point: N_local(z) = N_local0 (1 - f_load) drops below
+    # C_get when 1 - f_load < C_get / N_local0. With the saturated law
+    # 1 - f_load = (1+z)^3 this yields z_freeze = -1 + (C_get/N_local0)^(1/3).
+    with localcontext() as context:
+        context.prec = max(int(precision), 28)
+        ratio = c_get / n_local0
+        freeze_offset = ratio ** (Decimal("1") / Decimal("3"))
+        freeze_redshift = Decimal("-1") + freeze_offset
+    # Saturated limit row: at z -> -1 the screen is full (f_load = 1),
+    # N_local -> 0 < C_get, and every admissible node vanishes.
+    asymptote = {
+        "redshift": Decimal("-1"),
+        "f_load": Decimal("1"),
+        "n_local_bits": Decimal("0"),
+        "c_get_bits": c_get,
+        "entropy_residual_bits": -c_get,
+        "admissible": False,
+    }
+    rows.append(asymptote)
+    ladder_inadmissible = next((row for row in rows if not row["admissible"]), None)
+    return {
+        "mechanism": "saturated_boundary_capacity",
+        "n_sat_bits": capacity,
+        "n_local0_bits": n_local0,
+        "c_get_bits": c_get,
+        "ladder": rows,
+        "freeze_redshift": freeze_redshift,
+        "freeze_row": ladder_inadmissible,
+        "asymptotic_admissible_set_empty": not asymptote["admissible"],
+        "kernel_denominator_vanishes": not asymptote["admissible"],
+        "f_load_asymptote": asymptote["f_load"],
+    }
+
+
 def growth_ode_system(x: Number, D: Number, dDdx: Number, h0_cmb: Number, A_H: Number, omega_m: Number) -> tuple[mpmath.mpf, mpmath.mpf]:
     """Return the Eq. (203) first-order system for ``D(x)`` with ``x = ln(a)``."""
 
@@ -1564,6 +1726,14 @@ def build_precision_cosmology_report(
     # Resolve eta_b from the foundation audit when available; otherwise use the
     # benchmark baryon-asymmetry value.
     foundation = _foundation_audit_summary()
+    foundation["asymptotic_observer_freeze"] = asymptotic_observer_freeze(
+        h0_value,
+        amplitude,
+        matter,
+        constants.n_sat,
+        omega_r0=radiation,
+        precision=precision,
+    )
     eta_b_value = DEFAULT_ETA_B
     if foundation.get("available") and isinstance(foundation.get("result"), dict):
         eta_b_value = _decimal(foundation["result"].get("eta_b", DEFAULT_ETA_B))
@@ -1654,7 +1824,7 @@ def build_precision_cosmology_report(
         "N_sat_bits": constants.n_sat,
         "omega_r0": radiation,
         "simulator_constants": constants,
-        "foundation_audit": _foundation_audit_summary(),
+        "foundation_audit": foundation,
         "redshift_ladder": ladder,
         "growth_suppression": growth_rows,
         "cluster_collapse": cluster_collapse_rows,
@@ -1838,6 +2008,27 @@ class PrecisionCosmologyTests(unittest.TestCase):
         debt = compute_entropy_debt("2", self.h0_cmb, self.A_H, DEFAULT_OMEGA_M, DEFAULT_N_SAT)
         expected_debt = DEFAULT_N_SAT * compute_loading_fraction("2", self.h0_cmb, self.A_H, DEFAULT_OMEGA_M)
         self.assertDecimalClose(debt / Decimal("1e121"), str(expected_debt / Decimal("1e121")), "1e-18")
+
+    def test_asymptotic_observer_freeze(self) -> None:
+        freeze = asymptotic_observer_freeze(self.h0_cmb, self.A_H, DEFAULT_OMEGA_M, DEFAULT_N_SAT)
+        # Past and deep-future nodes remain admissible down to z = -0.9999.
+        self.assertTrue(freeze["ladder"][0]["admissible"])
+        self.assertTrue(freeze["ladder"][-2]["admissible"])
+        # The saturated z -> -1 limit empties the admissible observer set.
+        asymptote = freeze["ladder"][-1]
+        self.assertFalse(asymptote["admissible"])
+        self.assertTrue(freeze["asymptotic_admissible_set_empty"])
+        self.assertTrue(freeze["kernel_denominator_vanishes"])
+        self.assertDecimalClose(freeze["f_load_asymptote"], "1", "1e-30")
+        # Freeze redshift sits within the de Sitter asymptote (-1, 0).
+        self.assertGreater(freeze["freeze_redshift"], Decimal("-1"))
+        self.assertLess(freeze["freeze_redshift"], Decimal("-0.9999"))
+        # Loading fraction asymptotic law for negative redshift.
+        self.assertDecimalClose(
+            loading_fraction_asymptotic("-0.5", self.h0_cmb, self.A_H, DEFAULT_OMEGA_M),
+            str(Decimal("1") - Decimal("0.5") ** 3),
+            "1e-18",
+        )
 
     def test_growth_ode_system_and_suppression(self) -> None:
         first, second = growth_ode_system("0", "1", "1", self.h0_cmb, self.A_H, DEFAULT_OMEGA_M)

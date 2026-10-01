@@ -121,6 +121,53 @@ def test_simulate_history_seed_changes_output() -> None:
     assert c1 != c2
 
 
+def test_simulate_history_succession_lifecycle() -> None:
+    shbt_simulate = _import_simulate()
+    result = shbt_simulate.simulate(
+        {"mode": "history", "enable_succession": True, "succession_cycles": 3, "seed": 7}
+    )
+    assert "history" not in result
+    succession = result["succession"]
+    assert succession["cycles"] == 3
+    assert succession["kernel_normalized"] is True
+    assert len(succession["records"]) == 3
+    for record in succession["records"]:
+        assert record["phase"] == "re_rendered"
+        assert len(record["kernel_probabilities"]) == 9
+        assert abs(sum(record["kernel_probabilities"]) - 1.0) < 1e-9
+        assert all(p >= 0.0 for p in record["kernel_probabilities"])
+        assert abs(record["eta_dark"] - 23.0 / 33.0) < 1e-15
+        assert record["admissible_candidates"] > 0
+
+
+def test_simulate_history_succession_deterministic() -> None:
+    shbt_simulate = _import_simulate()
+    cfg = {"mode": "history", "enable_succession": True, "succession_cycles": 2, "seed": 11}
+    r1 = shbt_simulate.simulate(dict(cfg))
+    r2 = shbt_simulate.simulate(dict(cfg))
+    t1 = [r["to_coordinate"] for r in r1["succession"]["records"]]
+    t2 = [r["to_coordinate"] for r in r2["succession"]["records"]]
+    assert t1 == t2
+
+
+def test_simulator_derender_and_kernel_bindings() -> None:
+    _ensure_extension()
+    import shbt_simulator as rs
+
+    sim = rs.ShbtSimulator()
+    assert sim.is_observer_admissible() is True
+    candidates, rho_b, rho_e = sim.build_succession_candidates()
+    assert len(candidates) == 9 and len(rho_b) == 9 and len(rho_e) == 9
+    kernel = sim.evaluate_succession_kernel(candidates, rho_b, rho_e)
+    assert abs(sum(kernel) - 1.0) < 1e-12
+    record = sim.terminate_and_derender().to_dict()
+    assert abs(record["eta_dark"] - 23.0 / 33.0) < 1e-15
+    assert abs(record["eta_visible"] - 10.0 / 33.0) < 1e-15
+    assert record["topological_entropy"] == 0.0
+    assert record["trace_norm"] == 1.0
+    assert record["pointer_wavefunction"][2] == 1.0
+
+
 def test_invalid_branch_raises() -> None:
     shbt_simulate = _import_simulate()
     with pytest.raises(ValueError):

@@ -53,6 +53,11 @@ This is the Markdown mirror of the paper's master code-traceability ledger (`tab
 | Numerics | 512-bit arbitrary-precision arithmetic (`rug`/MPFR, `PREC`/`EVAL_PREC` = 512); symplectic-order energy-momentum bookkeeping with residuals below 10<sup>−122</sup> | `src/shbt/boundary.rs` (`PREC`), `src/lib.rs` (`EVAL_PREC`), `src/shbt/entropy_flow.rs` (Float kernels) | `result.json → audit.*` reports computed entirely in 512-bit Float |
 | §6, Eqs. (134)–(143) | Topological baryogenesis: *C*<sub>sph</sub> = 28/79, *J*<sub>CP</sub><sup>topo</sup>, rank projection Π<sub>rank</sub>, restoration scale *M*<sub>N</sub>, asymmetry η<sub>B</sub> | `src/shbt/baryogenesis.rs` — `BaryogenesisOptimizer::baryogenesis_identity` → `BaryogenesisIdentity`; `derender_antibaryon_charges`, `stress_energy_preserved`, `cpu_cycle_weight`, `run_benchmark` | `result.json → audit.baryogenesis_identity` (`eta_b`, `sphaleron_coefficient`, `Pi_rank`, `jarlskog_topological`, `modular_restoration_scale_gev`), `audit.eta_b`, `audit.benchmark_delta` |
 | §7, Eqs. (144)–(163) | Causal point memory: horizon *R*<sub>H</sub>, fraction *f*<sub>H</sub>, *N*<sub>local</sub>/*N*<sub>hidden</sub>/*N*<sub>limit</sub>; GET admissibility *C*<sub>get</sub> ≤ max(1, log<sub>2</sub> \|*R*\|); Landauer bound *Q*<sub>H</sub> ≥ *k*<sub>B</sub>*T* ln 2 · *C*<sub>op</sub>; history crystallization | `src/shbt/causal_point.rs` — `CausalPoint::new_with_params`, `build_past_light_cone`, `verify_memory_budget`, `crystallize_history` → `MemoryReport`, `LightConeSample`, `CoordinateLogEntry` | `result.json → audit.memory_report`, `audit.history_entries` (9 entries) |
+| §7, observer-succession eqs. | Admissibility predicate *P*<sub>adm</sub>(*A*) = Θ(*R*<sub>entropy</sub>) with complexity floor *C*<sub>get</sub> = max(1, log<sub>2</sub>\|*R*\| + log<sub>2</sub>\|Ω<sub>A</sub>\|, *C*<sub>req</sub>); sub-threshold nodes abort with `AnomalyClosureError` | `src/shbt/causal_point.rs` — `CausalPoint::is_admissible`, `entropy_budget_residual`, `retrieval_cost_bits`; `CausalPointCandidate` | `result.json → succession.records[].entropy_residual_bits` |
+| §7, observer-succession eqs. | Stinespring de-rendering channel *E*<sub>term</sub>(ρ) = Tr<sub>active</sub>(V ρ V†) ∈ *H*<sub>dark</sub>; pointer triad Ψ<sub>ι</sub> → (0, 0, 1); η<sub>D</sub> = 23/33, η<sub>V</sub> = 10/33; Kojima Ent(φ) = 0 | `src/shbt/causal_point.rs` — `CausalPoint::terminate_and_derender` → `DerenderingRecord` | `result.json → succession.records[].eta_dark`, `.trace_norm` |
+| §7, observer-succession eqs. | Succession transfer kernel *T*(*A*<sub>term</sub> → *A*<sub>next</sub>) over lattice C = {0,1,2}² mediated by symplectic *T*<sup>∂</sup><sub>ij</sub> ∈ Sp(2g, ℤ); Σ<sub>*A*′</sub> *T* = 1 | `src/shbt/causal_point.rs` — `CausalPoint::build_succession_candidates`, `evaluate_succession_kernel`, `relabel_and_rerender`, `run_lifecycle_cycle`; `ShbtSimulator::run_succession_cycles` | `result.json → succession.records[].kernel_probabilities`, `.kernel_normalized` |
+| §7, observer-succession eqs. | Five-phase closed lifecycle Render → Crystallize → De-render → Relabel → Re-render | `src/shbt/causal_point.rs` — `LifecyclePhase`, `phase` field on `CausalPoint` | `result.json → succession.records[].phase` |
+| §7, observer-succession eqs. | Cosmological horizon saturated freeze: *R*<sub>adm</sub>(z) → ∅ as z → −1 (f<sub>load</sub> → 1); deterministic horizon freeze without Friedmann bounce | `precision_cosmology.py` — `loading_fraction_asymptotic`, `observer_admissible_set`, `asymptotic_observer_freeze` | `result.json → foundation_audit.asymptotic_observer_freeze` (freeze redshift, kernel denominator → 0) |
 | §9, Eqs. (173)–(231) | Precision cosmology: completed ledger, Hubble loading law, growth suppression *f*σ<sub>8</sub>, cluster collapse, dark-matter ghost density, ISW, BBN, neutrinos, GET cost, 7-parameter joint MCMC over cosmic chronometers | `precision_cosmology.py` — `load_completed_ledger`, `entropy_debt_uplift_factor`, `h0_local`, `h0_redshift_dependent`, `shbt_hubble_rate`, `compute_loading_fraction`, `compute_growth_suppression`, `compute_cluster_collapse`, `compute_dark_matter_density`, `compute_dm_baryon_ratio`, `isw_residual`, `bbn_stability_check`, `neutrino_hierarchy_masses`, `get_measurement_cost`, `collapse_index`, `run_mcmc_analysis`, `build_precision_cosmology_report` | `result.json → precision_cosmology.*` (see Table 39) |
 | §9 Boltzmann pipeline | Scalar CMB *C*<sub>ℓ</sub><sup>TT</sup>, *C*<sub>ℓ</sub><sup>EE</sup>, *C*<sub>ℓ</sub><sup>TE</sup>; matter *P*(*k*, *z*); tensor *C*<sub>ℓ</sub><sup>BB</sup> | `boltzmann_shbt.py` — `compute_cmb_power_spectra`, `compute_tensor_power_spectra` | `shbt_run_cmb_cls.csv`, `shbt_run_matter_pk.csv`, `shbt_run_tensor_cls.csv`; `result.json → precision_pipeline.spectra` |
 | §9 non-Gaussianity | Bispectrum/trispectrum templates *f*<sub>NL</sub>, *g*<sub>NL</sub>, τ<sub>NL</sub> | `precision_cosmology.py` — `compute_non_gaussianity_shapes` | `result.json → precision_pipeline.non_gaussianity` |
@@ -95,6 +100,9 @@ These correspond to the paper's Table 28 (code traceability), Table 29 (data cro
 | History entries | 9 | 9 | `audit.history_entries` |
 | Stress-energy preservation | true | true | `audit.stress_energy_preserved` |
 | Baryon asymmetry η<sub>B</sub> | 6.449923359416 × 10<sup>−10</sup> | 6.449923359416131 × 10<sup>−10</sup> | `audit.eta_b` |
+| Dark-sector fraction η<sub>D</sub> after de-rendering | 23/33 | 23/33 = 0.696969… | `succession.records[].eta_dark` / `CausalPoint::terminate_and_derender` |
+| Succession kernel normalization Σ<sub>*A*′</sub> *T* | 1.0 | 1.0 (all cycles) | `succession.kernel_normalized` / `evaluate_succession_kernel` |
+| Admissible observer set *R*<sub>adm</sub> at z → −1 | ∅ (freeze) | empty | `foundation_audit.asymptotic_observer_freeze.asymptotic_admissible_set_empty` |
 
 ### Table 39 — Generated-Artifact Data Product Crosswalk
 
@@ -104,22 +112,24 @@ These correspond to the paper's Table 28 (code traceability), Table 29 (data cro
 | `shbt_run_matter_pk.csv` | `k_Mpc_inv`, `Pk_z0`, `Pk_z05`, `Pk_z1` | matter power at *z* = 0, 0.5, 1 | `boltzmann_shbt.compute_cmb_power_spectra` (`_matter_rows`) |
 | `shbt_run_tensor_cls.csv` | `ell`, `Cl_BB`, `Dl_BB`, `Cl_TT_tensor` | primordial tensor B modes and tensor TT | `boltzmann_shbt.compute_tensor_power_spectra` |
 | `shbt_run_calorimetry_sim.csv` | `k_bits`, `R_addresses`, `Q_H0_zJ`, `Q_H1_zJ`, `Q_noise_zJ` | Landauer address sweep, competing heat laws, simulated noise | `precision_cosmology.simulate_calorimetry_experiment` |
-| `result.json` | `audit` (full `ShbtReport` dict), `baryogenesis`, `history`, `precision_cosmology`, `precision_pipeline` (`spectra`, `calorimetry_csv`, `non_gaussianity`), `stability_audit`, `summary`, `metadata`, `config` | complete machine-readable simulation report | `shbt_simulate.py` main pipeline |
+| `result.json` | `audit` (full `ShbtReport` dict), `baryogenesis`, `history`, `succession` (with `--enable-succession`: `cycles`, `records`, `kernel_normalized`), `foundation_audit` (`asymptotic_observer_freeze`), `precision_cosmology`, `precision_pipeline` (`spectra`, `calorimetry_csv`, `non_gaussianity`), `stability_audit`, `summary`, `metadata`, `config` | complete machine-readable simulation report | `shbt_simulate.py` main pipeline |
 
 ### Table 40 — Software Interface Contract
 
 | Interface | Role / principal accessors |
 |---|---|
 | `shbt_simulator` (PyO3) | Module exposing `ShbtSimulator`, report getters, and record classes; `import shbt_simulator` after `--build` |
-| `ShbtSimulator` | `run_full_audit()` → `ShbtReport`; `crystallize_history()`; `to_dict()` serialization |
+| `ShbtSimulator` | `run_full_audit()` → `ShbtReport`; `crystallize_history()`; `is_observer_admissible()`; `build_succession_candidates()`; `evaluate_succession_kernel()`; `terminate_and_derender()`; `run_succession_cycles(cycles, seed)` → `SuccessionRecord` list; `to_dict()` serialization |
 | `ShbtReport` | Getters: `branch`, `eta_b`, `stress_energy_preserved`, `framing_defect`, `modular_invariant`, `zero_energy_locked`, `projection_dimension_26_to_4`, `metric_slice_count`, `history_entry_count`, `memory_all_passed`, `to_dict()` |
 | `StaticBoundary` | `benchmark_branch`, `lepton_level`, `quark_level`, `parent_level`, `i_l_star`, `i_q_star`, `c_dark`, `c_dark_residual`, `c_dark_completion`, `lambda_holo_si_m2`, `n_sat`, `bit_budget`, `h0_cmb`, `framing_defect_py`, `verify_equations_py`, `evaluate_z_boundary_py`, `evaluate_z_dark_py`, `dark_modular_data`, `s_dark`, `t_dark`, `dark_conformal_weights`, `verify_dark_modular_closure`, `to_c_abi` |
 | `HolographicProjection` / `BulkMetricSlice` | `project_entropy_cascade`, `derive_load_vector`, `metric_from_load_vector`, `verify_projection`, `project_static_block_to_bulk` (Rust-level; consumed via `audit.metric_slices`) |
 | `BaryogenesisOptimizer` / `BaryogenesisIdentity` / `BenchmarkDelta` | `baryogenesis_identity`, `thermal_lindblad_evolution`, `derender_antibaryon_charges`, `stress_energy_preserved`, `run_benchmark` |
 | `CausalPoint` / `MemoryReport` / `LightConeSample` / `CoordinateLogEntry` | `build_past_light_cone`, `verify_memory_budget`, `crystallize_history`; `AnomalyClosureError` raised on finite-capacity violation |
+| `CausalPoint` (succession) | `is_admissible`, `entropy_budget_residual`, `retrieval_cost_bits`, `terminate_and_derender`, `build_succession_candidates`, `evaluate_succession_kernel`, `relabel_and_rerender`, `run_lifecycle_cycle` |
+| `CausalPointCandidate` / `DerenderingRecord` / `SuccessionRecord` / `LifecyclePhase` | Observer-succession record types; `DerenderingRecord` carries `eta_dark`, `pointer_triad`, `trace_norm`; `SuccessionRecord` carries `kernel_probabilities`, `successor_index`, `phase`; `to_dict()` on all |
 | `precision_cosmology.py` | `build_precision_cosmology_report`, `run_mcmc_analysis`, `simulate_calorimetry_experiment`, `compute_non_gaussianity_shapes`, plus all Section 9 equation functions |
 | `boltzmann_shbt.py` | `compute_cmb_power_spectra`, `compute_tensor_power_spectra` |
-| `shbt_simulate.py` CLI | `--mode {audit, cosmology, cosmology-test, baryogenesis, history, all}`, `--branch K_L K_Q K`, `--observer-radius-fraction`, `--redshift-max`, `--redshift-samples`, `--particles`, `--seed`, `--h0-cmb`, `--omega-m`, `--omega-r0`, `--delta-mod`, `--z-samples`, `--precision`, `--output`, `--output-dir`, `--format {json,csv,hdf5,h5}`, `--sweep`, `--plot`, `--verbose`, `--log-level` |
+| `shbt_simulate.py` CLI | `--mode {audit, cosmology, cosmology-test, baryogenesis, history, all}`, `--enable-succession`, `--succession-cycles N`, `--branch K_L K_Q K`, `--observer-radius-fraction`, `--redshift-max`, `--redshift-samples`, `--particles`, `--seed`, `--h0-cmb`, `--omega-m`, `--omega-r0`, `--delta-mod`, `--z-samples`, `--precision`, `--output`, `--output-dir`, `--format {json,csv,hdf5,h5}`, `--sweep`, `--plot`, `--verbose`, `--log-level` |
 | `examples/run_audit.py` | Minimal foundation-audit entry point |
 
 ---
@@ -151,7 +161,7 @@ Extracted from `python3 shbt_simulate.py --mode all --output result.json` and `c
 
 **Downstream-only invariants.** Two quantities named in the contract scope are defined by consumer repositories, not emitted by `shbt-precision`:
 
-- η<sub>A</sub> = 10/33, η<sub>D</sub> = 23/33 — the Stinespring active/dark capacity partition realized in `sys1own/shbt-recon`; not a computed output of this repo.
+- η<sub>A</sub> = 10/33 — the Stinespring active capacity fraction; η<sub>D</sub> = 23/33 is now computed in-repo by `CausalPoint::terminate_and_derender` (`succession.records[].eta_dark`) in addition to its downstream use in `sys1own/shbt-recon`.
 - *P*<sub>debt</sub> = 906.00 kW — the scaled Landauer-debt schedule used by `sys1own/shbt-power`. The native value here is Q̇ = 906 GW (`stability_audit.Q_dot_W`); downstream repos rescale it for plant-level ledgers. These entries are listed for crosswalk completeness and must not be quoted as `result.json` outputs.
 
 ---
@@ -166,7 +176,7 @@ Bidirectional technology transfer: `shbt-precision` is the computational authori
 | `sys1own/shbt-cf` | Symplectic integrator conventions (Yoshida-6) and WZW affine character tables for LANR non-equilibrium screening | `su2/su3` character and modular-entry formulas in `boundary.rs` |
 | `sys1own/shbt-qc` | Canonical affine branch (26, 8, 312) and boundary code projection norm bounds | `audit.projection_report` bounds; `StaticBoundary` branch getters |
 | `sys1own/shbt-ghost` | 512-bit MPFR arithmetic kernels and Landauer debt scaling for mass-seed coupling | `rug` Float infrastructure (`PREC` = 512); `stability_audit` debt schedule |
-| `sys1own/shbt-recon` | Stinespring dilation capacity partition (η<sub>A</sub> = 10/33, η<sub>D</sub> = 23/33) and trace-norm invariants | dark-ledger completion arithmetic (`c_dark`, `c_dark_residual`) |
+| `sys1own/shbt-recon` | Stinespring dilation capacity partition (η<sub>A</sub> = 10/33, η<sub>D</sub> = 23/33) and trace-norm invariants | dark-ledger completion arithmetic (`c_dark`, `c_dark_residual`); `CausalPoint::terminate_and_derender` records |
 | `sys1own/shbt-sglt` | Arbitrary-precision register math and 2PN relativistic optics integration bounds | `rug`/MPFR Float kernels in `entropy_flow.rs` |
 | `sys1own/shbt-exotic` | Boundary CFT partition algebra and modular closure operators | `evaluate_z_boundary` / `evaluate_z_dark`; `build_dark_modular_data` |
 | `sys1own/shbt-warp` | Framing-defect identity Δ<sub>fr</sub> ≡ 0 ⟹ *E*<sub>μν</sub> ≡ 0 and 512-bit MPFR foliation wrappers | `StaticBoundary.framing_defect`, `verify_equations`; `EVAL_PREC` |
@@ -183,7 +193,8 @@ python3 shbt_simulate.py --build
 cargo test --release
 
 # Full live audit: regenerates result.json + shbt_run_*.csv
-PYTHONPATH=target/release:. python3 shbt_simulate.py --mode all --output result.json
+# (add --enable-succession to run the closed-loop observer succession engine)
+PYTHONPATH=target/release:. python3 shbt_simulate.py --mode all --enable-succession --output result.json
 test -s result.json
 
 # Python suites

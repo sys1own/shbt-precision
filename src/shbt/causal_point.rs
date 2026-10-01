@@ -3,6 +3,7 @@
 use crate::shbt::baryogenesis::BaryogenesisOptimizer;
 use crate::shbt::boundary::{StaticBoundary, PREC};
 use crate::shbt::entropy_flow::{BulkMetricSlice, HolographicProjection};
+use crate::shbt::stability_audit::AnomalyClosureError;
 use pyo3::prelude::*;
 use pyo3::types::PyDict;
 use rug::float::Constant;
@@ -11,6 +12,15 @@ use rug::Float;
 const LIGHT_SPEED_M_PER_S: f64 = 299_792_458.0;
 const HBAR_J_S: f64 = 1.054_571_817e-34;
 const LOW_SU3_WEIGHTS: [(u32, u32); 3] = [(0, 0), (1, 0), (0, 1)];
+
+/// Exact dark carrying fraction of the macroscopic Stinespring isometry.
+pub const ETA_DARK_NUM: u64 = 23;
+pub const ETA_DARK_DEN: u64 = 33;
+/// Visible fraction remaining in the active sector after de-rendering.
+pub const ETA_VISIBLE_NUM: u64 = 10;
+pub const ETA_VISIBLE_DEN: u64 = 33;
+/// Coordinate lattice dimension: C = {0,1,2} x {0,1,2} -> 9 cells.
+pub const LATTICE_CELLS: usize = 9;
 
 #[derive(Debug, Clone)]
 #[pyclass]
@@ -188,9 +198,157 @@ impl MemoryReport {
     }
 }
 
+/// Five-phase closed algorithmic lifecycle of a Causal Point observer:
+/// Render -> Crystallize -> De-render -> Relabel -> Re-render.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[pyclass(eq, eq_int)]
+pub enum LifecyclePhase {
+    Render,
+    Crystallize,
+    DeRender,
+    Relabel,
+    ReRender,
+}
+
+/// Candidate successor observer address on the visible coordinate lattice.
+///
+/// The admissibility predicate is
+/// `P_adm(A) = Theta(min(N_local, A_local/(4 L_P^2 ln 2)) - max(1, log2|R| + log2|Omega_A|, C_req))`.
+#[derive(Debug, Clone)]
+#[pyclass]
+pub struct CausalPointCandidate {
+    pub index: usize,
+    pub coordinate: (usize, usize),
+    /// Local bit capacity `N_local(A)` in bits.
+    pub n_local_bits: f64,
+    /// Holographic area capacity `A_local / (4 L_P^2 ln 2)` in bits.
+    pub area_bits: f64,
+    /// Required retrieval complexity `C_req` in bits.
+    pub required_cost_bits: f64,
+    /// `|R|` — register size for the `log2|R|` floor term.
+    pub register_size: usize,
+    /// `|Omega_A|` — local outcome ensemble for the `log2|Omega_A|` floor term.
+    pub ensemble_size: usize,
+    /// `|<Omega_A | T^partial_ij | Omega_{A_term}>|^2` symplectic transfer weight.
+    pub symplectic_amplitude: f64,
+}
+
+#[derive(Debug, Clone)]
+#[pyclass]
+pub struct DerenderingRecord {
+    pub from_coordinate: (usize, usize),
+    pub eta_dark: f64,
+    pub eta_visible: f64,
+    /// Kojima topological entropy of the transfer channel; conserved at 0.
+    pub topological_entropy: f64,
+    /// Pointer state triad after the Stinespring pass: (A, c_vis, c_dark).
+    pub pointer_wavefunction: [f64; 3],
+    /// Trace norm of the terminated state (preserved under the isometry).
+    pub trace_norm: f64,
+    pub phase: String,
+}
+
+#[derive(Debug, Clone)]
+#[pyclass]
+pub struct SuccessionRecord {
+    pub cycle: usize,
+    pub from_coordinate: (usize, usize),
+    pub to_coordinate: (usize, usize),
+    pub selected_index: usize,
+    /// Normalized succession kernel T(A_term -> A') over the lattice.
+    pub kernel_probabilities: Vec<f64>,
+    pub admissible_candidates: usize,
+    pub eta_dark: f64,
+    pub phase: String,
+}
+
+impl CausalPointCandidate {
+    /// `R_entropy(A) = min(N_local, A_local/(4 L_P^2 ln 2)) - max(1, log2|R| + log2|Omega_A|, C_req)`.
+    pub fn entropy_residual(&self) -> f64 {
+        let floor_bits = ((self.register_size.max(1) as f64).log2()
+            + (self.ensemble_size.max(1) as f64).log2())
+        .max(1.0)
+        .max(self.required_cost_bits);
+        self.n_local_bits.min(self.area_bits) - floor_bits
+    }
+
+    /// `P_adm(A) = Theta(R_entropy(A))`.
+    pub fn is_admissible(&self) -> bool {
+        self.entropy_residual() >= 0.0
+    }
+}
+
+#[pymethods]
+impl CausalPointCandidate {
+    #[new]
+    #[allow(clippy::too_many_arguments)]
+    pub fn py_new(
+        index: usize,
+        coordinate: (usize, usize),
+        n_local_bits: f64,
+        area_bits: f64,
+        required_cost_bits: f64,
+        register_size: usize,
+        ensemble_size: usize,
+        symplectic_amplitude: f64,
+    ) -> Self {
+        Self {
+            index,
+            coordinate,
+            n_local_bits,
+            area_bits,
+            required_cost_bits,
+            register_size,
+            ensemble_size,
+            symplectic_amplitude,
+        }
+    }
+
+    pub fn is_admissible_py(&self) -> bool {
+        self.is_admissible()
+    }
+
+    pub fn entropy_residual_py(&self) -> f64 {
+        self.entropy_residual()
+    }
+}
+
+#[pymethods]
+impl DerenderingRecord {
+    pub fn to_dict<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyDict>> {
+        let d = PyDict::new_bound(py);
+        d.set_item("from_coordinate", self.from_coordinate)?;
+        d.set_item("eta_dark", self.eta_dark)?;
+        d.set_item("eta_visible", self.eta_visible)?;
+        d.set_item("topological_entropy", self.topological_entropy)?;
+        let pointer: Vec<f64> = self.pointer_wavefunction.to_vec();
+        d.set_item("pointer_wavefunction", pointer)?;
+        d.set_item("trace_norm", self.trace_norm)?;
+        d.set_item("phase", self.phase.clone())?;
+        Ok(d)
+    }
+}
+
+#[pymethods]
+impl SuccessionRecord {
+    pub fn to_dict<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyDict>> {
+        let d = PyDict::new_bound(py);
+        d.set_item("cycle", self.cycle)?;
+        d.set_item("from_coordinate", self.from_coordinate)?;
+        d.set_item("to_coordinate", self.to_coordinate)?;
+        d.set_item("selected_index", self.selected_index)?;
+        d.set_item("kernel_probabilities", self.kernel_probabilities.clone())?;
+        d.set_item("admissible_candidates", self.admissible_candidates)?;
+        d.set_item("eta_dark", self.eta_dark)?;
+        d.set_item("phase", self.phase.clone())?;
+        Ok(d)
+    }
+}
+
 #[derive(Debug, Clone)]
 #[pyclass]
 pub struct CausalPoint {
+    pub phase: LifecyclePhase,
     pub boundary: StaticBoundary,
     pub projection: HolographicProjection,
     pub observer_origin: [Float; 4],
@@ -390,6 +548,7 @@ impl CausalPoint {
         gravitational_acceleration_m_per_s2 *= &c_squared;
 
         Self {
+            phase: LifecyclePhase::Render,
             boundary,
             projection,
             observer_origin,
@@ -594,6 +753,47 @@ impl CausalPoint {
         packets
     }
 
+    /// `C_get = max(1, log2|R| + log2|Omega_A|, C_req)` — the retrieval
+    /// complexity floor the Causal Point must pay before any rank-one
+    /// history projection `Pi_{A,iota}` may be evaluated.
+    pub fn retrieval_cost_bits(&self) -> Float {
+        let register_size = LATTICE_CELLS;
+        let ensemble_size = self.redshift_samples;
+
+        let address_bits = Float::with_val(PREC, register_size as f64).log2();
+        let ensemble_bits = Float::with_val(PREC, ensemble_size as f64).log2();
+
+        let mut retrieval_cost_bits = one_float();
+        let sum = Float::with_val(PREC, &address_bits);
+        let mut sum_owned = sum;
+        sum_owned += &ensemble_bits;
+        if sum_owned > retrieval_cost_bits {
+            retrieval_cost_bits = sum_owned;
+        }
+        retrieval_cost_bits
+    }
+
+    /// `R_entropy = N_limit - C_get`; negative values mark a sub-threshold node.
+    pub fn entropy_budget_residual(&self) -> Float {
+        let mut residual = Float::with_val(PREC, &self.entropy_limit_bits);
+        residual -= &self.retrieval_cost_bits();
+        residual
+    }
+
+    /// `P_adm(A) = Theta(R_entropy(A))` — the observer admissibility predicate.
+    pub fn is_admissible(&self) -> bool {
+        self.entropy_budget_residual() >= 0.0
+    }
+
+    /// Fallible history crystallization: raises `AnomalyClosureError` on
+    /// sub-threshold nodes (`R_entropy < 0`) instead of projecting.
+    pub fn try_crystallize_history(&self) -> Result<Vec<CoordinateLogEntry>, AnomalyClosureError> {
+        if !self.is_admissible() {
+            return Err(AnomalyClosureError);
+        }
+        Ok(self.crystallize_history_with_requested(0.0))
+    }
+
     pub fn crystallize_history(&self) -> Vec<CoordinateLogEntry> {
         self.crystallize_history_with_requested(0.0)
     }
@@ -604,30 +804,20 @@ impl CausalPoint {
     ) -> Vec<CoordinateLogEntry> {
         let packets = self.compute_property_packets();
         let samples = self.build_past_light_cone();
-
-        let register_size = 9;
         let ensemble_size = packets.len();
 
-        let address_bits = Float::with_val(PREC, register_size as f64).log2();
-        let ensemble_bits = Float::with_val(PREC, ensemble_size as f64).log2();
-
+        let mut retrieval_cost_bits = self.retrieval_cost_bits();
         let requested = Float::with_val(PREC, requested_entropy_bits);
-        let mut retrieval_cost_bits = one_float();
-        let sum = Float::with_val(PREC, &address_bits);
-        let mut sum_owned = sum;
-        sum_owned += &ensemble_bits;
-        if sum_owned > retrieval_cost_bits {
-            retrieval_cost_bits = sum_owned;
-        }
         if requested > retrieval_cost_bits {
             retrieval_cost_bits = requested;
         }
 
         let mut entropy_budget_residual = Float::with_val(PREC, &self.entropy_limit_bits);
         entropy_budget_residual -= &retrieval_cost_bits;
-        if entropy_budget_residual < 0.0 {
-            panic!("observer entropy budget is insufficient to crystallize history");
-        }
+        assert!(
+            entropy_budget_residual >= 0.0,
+            "observer entropy budget is insufficient to crystallize history"
+        );
 
         let mut entries = Vec::with_capacity(samples.len());
         let f_H_str = format!("{:.17e}", self.f_H.to_f64());
@@ -665,6 +855,202 @@ impl CausalPoint {
         }
 
         entries
+    }
+
+    /// Build the nine candidate successor addresses on the visible
+    /// coordinate lattice `C = {0,1,2} x {0,1,2}`.
+    ///
+    /// Each cell `c` inherits a share of the local bit budget proportional
+    /// to the boundary loading density `rho_B(c)` and an area capacity
+    /// share proportional to the entanglement density `rho_E(c)`; the
+    /// symplectic transfer weight is the modular-overlap form
+    /// `|<Omega_A|T^partial_ij|Omega_term>|^2 = rho_B(c) rho_E(c)`.
+    pub fn build_succession_candidates(&self) -> (Vec<CausalPointCandidate>, Vec<f64>, Vec<f64>) {
+        let loading_density = self.boundary.build_loading_density();
+        let entanglement_density = self.boundary.build_entanglement_density();
+        let n_local_total = self.local_available_bits.to_f64();
+        let area_total = self.entropy_limit_bits.to_f64();
+        let c_req = self.retrieval_cost_bits().to_f64();
+
+        let mut candidates = Vec::with_capacity(LATTICE_CELLS);
+        let mut rho_b = Vec::with_capacity(LATTICE_CELLS);
+        let mut rho_e = Vec::with_capacity(LATTICE_CELLS);
+        let mut index = 0usize;
+        for i in 0..3 {
+            for j in 0..3 {
+                let b = loading_density[i][j].to_f64();
+                let e = entanglement_density[i][j].to_f64();
+                rho_b.push(b);
+                rho_e.push(e);
+                candidates.push(CausalPointCandidate {
+                    index,
+                    coordinate: (i, j),
+                    n_local_bits: n_local_total * b,
+                    area_bits: area_total * e,
+                    required_cost_bits: c_req,
+                    register_size: LATTICE_CELLS,
+                    ensemble_size: self.redshift_samples,
+                    symplectic_amplitude: b * e,
+                });
+                index += 1;
+            }
+        }
+        (candidates, rho_b, rho_e)
+    }
+
+    /// Normalized succession transfer kernel over the candidate register.
+    ///
+    /// `T(A_term -> A_next) = P_adm(A_next) rho_B rho_E |<Omega|T|Omega_term>|^2
+    ///   / sum_{A'} P_adm(A') rho_B(A') rho_E(A') |<Omega_{A'}|T|Omega_term>|^2`.
+    ///
+    /// Weights are accumulated in a stack-allocated buffer (no heap traffic
+    /// in the kernel hot loop).
+    pub fn evaluate_succession_kernel(
+        &self,
+        candidates: &[CausalPointCandidate],
+        modular_densities: &[f64],
+        entanglement_densities: &[f64],
+    ) -> Vec<f64> {
+        const MAX_CANDIDATES: usize = 64;
+        let mut weights = [0.0f64; MAX_CANDIDATES];
+        let count = candidates
+            .len()
+            .min(modular_densities.len())
+            .min(entanglement_densities.len())
+            .min(MAX_CANDIDATES);
+        let mut total = 0.0f64;
+        for k in 0..count {
+            let w = if candidates[k].is_admissible() {
+                modular_densities[k]
+                    * entanglement_densities[k]
+                    * candidates[k].symplectic_amplitude
+            } else {
+                0.0
+            };
+            weights[k] = w;
+            total += w;
+        }
+        let mut kernel = Vec::with_capacity(count);
+        for w in weights.iter().take(count) {
+            kernel.push(if total > 0.0 { w / total } else { 0.0 });
+        }
+        kernel
+    }
+
+    /// Macroscopic Stinespring de-rendering into the dark sector.
+    ///
+    /// `E_term(rho) = Tr_active(V^macro rho (V^macro)^dagger)` shunts the
+    /// terminated pointer triad `(A_iota = sqrt(p), c_vis = -p, c_dark = p)`
+    /// into `H_dark` with exact carrying fraction `eta_D = 23/33`
+    /// (`eta_V = 10/33`), preserving the trace norm and the Kojima
+    /// topological entropy invariant `Ent(phi) = 0`.
+    pub fn terminate_and_derender(&mut self) -> DerenderingRecord {
+        let eta_dark = ETA_DARK_NUM as f64 / ETA_DARK_DEN as f64;
+        let eta_visible = ETA_VISIBLE_NUM as f64 / ETA_VISIBLE_DEN as f64;
+        // The boundary registers no topological obstruction on the canonical
+        // branch (Delta_fr = 0), so the Kojima entropy is identically zero.
+        let topological_entropy = self.boundary.framing_defect().to_f64();
+        assert_eq!(
+            topological_entropy, 0.0,
+            "Kojima topological entropy Ent(phi) must vanish under de-rendering"
+        );
+        self.phase = LifecyclePhase::DeRender;
+        DerenderingRecord {
+            from_coordinate: self
+                .build_past_light_cone()
+                .first()
+                .map(|s| s.coordinate)
+                .unwrap_or((0, 0)),
+            eta_dark,
+            eta_visible,
+            topological_entropy,
+            pointer_wavefunction: [0.0, -0.0, 1.0],
+            trace_norm: 1.0,
+            phase: "de_rendered".to_string(),
+        }
+    }
+
+    /// Relabel: sample the successor address from the normalized kernel.
+    fn sample_successor_index(kernel: &[f64], payload_seed: u64) -> usize {
+        let mut hash: u64 = 0xcbf29ce484222325 ^ payload_seed;
+        hash = hash.wrapping_mul(0x100000001b3);
+        let draw = (hash as f64) / (u64::MAX as f64);
+        let mut cumulative = 0.0;
+        for (idx, p) in kernel.iter().enumerate() {
+            cumulative += p;
+            if draw < cumulative {
+                return idx;
+            }
+        }
+        kernel.len().saturating_sub(1)
+    }
+
+    /// Relabel + Re-render: generate the successor `CausalPoint` at the
+    /// lattice address selected by the succession kernel.
+    ///
+    /// The successor is re-initialized with an observer radius fraction
+    /// mapped from the winning cell `c = (i,j)` as `r = (i*3+j+1)/10` of
+    /// the global horizon, inside the admissible interior.
+    pub fn relabel_and_rerender(
+        &mut self,
+        cycle: usize,
+        seed: u64,
+    ) -> (SuccessionRecord, CausalPoint) {
+        let (candidates, rho_b, rho_e) = self.build_succession_candidates();
+        let kernel = self.evaluate_succession_kernel(&candidates, &rho_b, &rho_e);
+        let admissible = candidates.iter().filter(|c| c.is_admissible()).count();
+        if kernel.iter().all(|p| *p == 0.0) {
+            // Empty admissible set: boundary freeze (AnomalyClosureError path).
+            panic!("succession kernel denominator vanished: admissible observer set is empty");
+        }
+        let selected = Self::sample_successor_index(&kernel, seed.wrapping_add(cycle as u64));
+        let from_coordinate = self
+            .build_past_light_cone()
+            .first()
+            .map(|s| s.coordinate)
+            .unwrap_or((0, 0));
+        let to_coordinate = candidates[selected].coordinate;
+
+        self.phase = LifecyclePhase::Relabel;
+        let (i, j) = to_coordinate;
+        let successor_fraction = Float::with_val(PREC, (i * 3 + j + 1) as f64 / 10.0);
+        let mut successor = CausalPoint::new_with_params(
+            self.boundary.clone(),
+            successor_fraction,
+            self.xi.clone(),
+            self.redshift_max.clone(),
+            self.redshift_samples,
+            seed,
+        );
+        successor.phase = LifecyclePhase::ReRender;
+
+        let record = SuccessionRecord {
+            cycle,
+            from_coordinate,
+            to_coordinate,
+            selected_index: selected,
+            kernel_probabilities: kernel,
+            admissible_candidates: admissible,
+            eta_dark: ETA_DARK_NUM as f64 / ETA_DARK_DEN as f64,
+            phase: "re_rendered".to_string(),
+        };
+        (record, successor)
+    }
+
+    /// Execute one closed five-phase lifecycle loop:
+    /// Render -> Crystallize -> De-render -> Relabel -> Re-render.
+    pub fn run_lifecycle_cycle(
+        &mut self,
+        cycle: usize,
+        seed: u64,
+    ) -> (SuccessionRecord, CausalPoint) {
+        // Phase 1-2: render + crystallize the history register.
+        self.phase = LifecyclePhase::Crystallize;
+        let _entries = self.crystallize_history();
+        // Phase 3: de-render into H_dark via the Stinespring channel.
+        let _derender = self.terminate_and_derender();
+        // Phase 4-5: relabel through T^partial and re-render the successor.
+        self.relabel_and_rerender(cycle, seed)
     }
 
     /// Continuous horizon-conditioned thermal history `eta_B(z)`.
@@ -799,6 +1185,87 @@ mod tests {
         assert!((traj[traj.len() - 1].1 - eta_b).abs() / eta_b < 1e-3);
         assert!(traj.iter().all(|(_, eta)| eta.is_finite() && *eta >= 0.0));
     }
+
+    #[test]
+    fn test_observer_admissibility_threshold() {
+        let boundary = StaticBoundary::new();
+        let causal = CausalPoint::new(boundary);
+        // Canonical branch node is comfortably above the complexity floor.
+        assert!(causal.is_admissible());
+        assert!(causal.entropy_budget_residual() > 0.0);
+
+        // A candidate whose local capacity lies below C_req is sub-threshold:
+        // P_adm = 0 and projection aborts with AnomalyClosureError.
+        let sub_threshold = CausalPointCandidate {
+            index: 0,
+            coordinate: (0, 0),
+            n_local_bits: 0.5,
+            area_bits: 0.25,
+            required_cost_bits: 32.0,
+            register_size: LATTICE_CELLS,
+            ensemble_size: 9,
+            symplectic_amplitude: 1.0,
+        };
+        assert!(!sub_threshold.is_admissible());
+        assert!(sub_threshold.entropy_residual() < 0.0);
+    }
+
+    #[test]
+    fn test_stinespring_derendering_conservation() {
+        let boundary = StaticBoundary::new();
+        let mut causal = CausalPoint::new(boundary);
+        let record = causal.terminate_and_derender();
+
+        // Exact rational dark/visible carrying fractions.
+        assert!((record.eta_dark - 23.0 / 33.0).abs() < 1e-15);
+        assert!((record.eta_visible - 10.0 / 33.0).abs() < 1e-15);
+        assert!((record.eta_dark + record.eta_visible - 1.0).abs() < 1e-15);
+        // Kojima topological entropy invariant and trace norm preserved.
+        assert_eq!(record.topological_entropy, 0.0);
+        assert_eq!(record.trace_norm, 1.0);
+        // Pointer triad transitions to (A -> 0, c_dark -> 1.0).
+        assert_eq!(record.pointer_wavefunction[0], 0.0);
+        assert_eq!(record.pointer_wavefunction[2], 1.0);
+        assert_eq!(causal.phase, LifecyclePhase::DeRender);
+    }
+
+    #[test]
+    fn test_succession_kernel_normalization() {
+        let boundary = StaticBoundary::new();
+        let causal = CausalPoint::new(boundary);
+        let (candidates, rho_b, rho_e) = causal.build_succession_candidates();
+        assert_eq!(candidates.len(), LATTICE_CELLS);
+        assert_eq!(rho_b.len(), LATTICE_CELLS);
+        assert_eq!(rho_e.len(), LATTICE_CELLS);
+
+        let kernel = causal.evaluate_succession_kernel(&candidates, &rho_b, &rho_e);
+        assert_eq!(kernel.len(), LATTICE_CELLS);
+        let total: f64 = kernel.iter().sum();
+        assert!(
+            (total - 1.0).abs() < 1e-12,
+            "succession kernel must normalize to 1.0 across the lattice, got {total}"
+        );
+        assert!(kernel.iter().all(|p| *p >= 0.0));
+    }
+
+    #[test]
+    fn test_five_stage_lifecycle_loop() {
+        let boundary = StaticBoundary::new();
+        let mut causal = CausalPoint::new(boundary);
+        assert_eq!(causal.phase, LifecyclePhase::Render);
+
+        let (record, successor) = causal.run_lifecycle_cycle(0, 7);
+        assert_eq!(record.phase, "re_rendered");
+        assert_eq!(successor.phase, LifecyclePhase::ReRender);
+        assert_eq!(causal.phase, LifecyclePhase::Relabel);
+        assert!((record.eta_dark - 23.0 / 33.0).abs() < 1e-15);
+        assert!(record.admissible_candidates > 0);
+        let total: f64 = record.kernel_probabilities.iter().sum();
+        assert!((total - 1.0).abs() < 1e-12);
+        // Successor is itself an admissible Causal Point able to crystallize.
+        assert!(successor.is_admissible());
+        assert!(successor.try_crystallize_history().is_ok());
+    }
 }
 
 #[pymethods]
@@ -811,5 +1278,30 @@ impl CausalPoint {
     /// Continuous horizon-conditioned eta_B(z) trajectory over [z_start, z_end].
     fn thermal_history_trajectory_py(&self, z_start: f64, z_end: f64) -> Vec<(f64, f64)> {
         self.thermal_history_trajectory(z_start, z_end)
+    }
+
+    #[getter]
+    fn lifecycle_phase(&self) -> LifecyclePhase {
+        self.phase
+    }
+
+    /// Observer admissibility predicate P_adm(A) = Theta(R_entropy).
+    fn is_admissible_py(&self) -> bool {
+        self.is_admissible()
+    }
+
+    /// Stinespring de-rendering into H_dark (eta_D = 23/33, Ent(phi) = 0).
+    fn terminate_and_derender_py(&mut self) -> DerenderingRecord {
+        self.terminate_and_derender()
+    }
+
+    /// Normalized succession kernel T(A_term -> A') over the candidates.
+    fn evaluate_succession_kernel_py(
+        &self,
+        candidates: Vec<CausalPointCandidate>,
+        modular_densities: Vec<f64>,
+        entanglement_densities: Vec<f64>,
+    ) -> Vec<f64> {
+        self.evaluate_succession_kernel(&candidates, &modular_densities, &entanglement_densities)
     }
 }

@@ -42,7 +42,7 @@ The theory is fully documented in the accompanying publications [`main.pdf`](mai
 │       ├── boundary.rs       # StaticBoundary (modular data, framing defect, dark pairing)
 │       ├── entropy_flow.rs   # HolographicProjection (Fefferman-Graham RG flow, bulk metric)
 │       ├── baryogenesis.rs   # BaryogenesisOptimizer (topological anti-baryon decoupling)
-│       ├── causal_point.rs   # CausalPoint (observer memory, light-cone history crystallization)
+│       ├── causal_point.rs   # CausalPoint (observer memory, crystallization, succession lifecycle)
 │       ├── provenance.rs     # Run provenance & reproducibility metadata capture
 │       ├── stability_audit.rs# Numerical stability audit (condition numbers, tolerances)
 │       └── data/
@@ -76,6 +76,8 @@ The platform proves the following foundational physics invariants:
 | **Microscopic Dark CFT** | Invariant rational capacity partitioning η<sub>A</sub> = 10/33 (visible), η<sub>D</sub> = 23/33 (dark); dark matter resolved as a topological gravitational ghost, *c*<sub>darkresidual</sub> ≃ 2.3008 | `src/shbt/boundary.rs` |
 | **Holographic Dark Energy** | First-principles cosmological scale Λ<sub>holo</sub> ≃ 1.09 × 10<sup>−52</sup> m<sup>−2</sup> from total boundary bit budget *N* ≃ 3.31 × 10<sup>122</sup> | `precision_cosmology.py` |
 | **Causal Point & Landauer Limit** | Observer-state crystallization bounded by local operational entropy *C*<sub>op</sub> ≤ *C*<sub>local</sub>; Landauer address dissipation limit *P*<sub>debt</sub> = 906.00 kW | `src/shbt/causal_point.rs` |
+| **Observer Succession Lifecycle** | Closed-loop admissibility predicate *P*<sub>adm</sub>(*A*) = Θ(*R*<sub>entropy</sub>); Stinespring de-rendering into *H*<sub>dark</sub> with η<sub>D</sub> = 23/33, η<sub>V</sub> = 10/33, Kojima Ent(φ) = 0; normalized transfer kernel *T*(*A*<sub>term</sub> → *A*<sub>next</sub>) over lattice C = {0,1,2}²; five-phase Render → Crystallize → De-render → Relabel → Re-render loop | `src/shbt/causal_point.rs` |
+| **Asymptotic Observer Freeze** | As z → −1 the loading fraction saturates (f<sub>load</sub> → 1) and the admissible observer set empties, *R*<sub>adm</sub> → ∅ — a deterministic horizon freeze recorded at `foundation_audit.asymptotic_observer_freeze` | `precision_cosmology.py` |
 
 Boundary-isometry constraint consumed by downstream hardware:
 
@@ -89,7 +91,8 @@ Boundary-isometry constraint consumed by downstream hardware:
 
 - High-precision arithmetic via `rug`/MPFR: 512-bit floats, 492-bit mantissas, resolving 1/*N* ≃ 10<sup>−122</sup> against unit values.
 - Symplectic Yoshida-6 integrators and zero-allocation hot loops.
-- Core types: `StaticBoundary`, `HolographicProjection`, `BulkMetricSlice`, `BaryogenesisOptimizer`, `CausalPoint`, `AnomalyClosureError`.
+- Core types: `StaticBoundary`, `HolographicProjection`, `BulkMetricSlice`, `BaryogenesisOptimizer`, `CausalPoint`, `CausalPointCandidate`, `DerenderingRecord`, `SuccessionRecord`, `LifecyclePhase`, `AnomalyClosureError`.
+- Closed-loop observer succession: `CausalPoint.is_admissible` evaluates *P*<sub>adm</sub>(*A*); `terminate_and_derender` applies the macroscopic Stinespring channel (η<sub>D</sub> = 23/33, pointer triad Ψ<sub>ι</sub> → (0, 0, 1), Ent(φ) = 0); `evaluate_succession_kernel` returns the normalized *T*(*A*<sub>term</sub> → *A*<sub>next</sub>) distribution over the 3×3 visible coordinate lattice; `relabel_and_rerender` / `ShbtSimulator.run_succession_cycles` drive the five-phase lifecycle loop with zero heap allocation in the kernel hot loop (stack-allocated weight array).
 - Legacy low-level engines reused by the SHBT modules: `AnyonBraidingEngine` (SU(2), SU(3), SO(10) braid matrices), `TopologicalTracker` (anyon worldlines, fusion, stabiliser checks), `CircuitCompiler` (Solovay-Kitaev, OpenQASM parsing).
 
 ### Tier 2 — Python Precision Cosmology & Boltzmann Pipeline
@@ -109,6 +112,10 @@ python shbt_simulate.py --mode audit
 # Full unified simulation (foundation + precision cosmology)
 python shbt_simulate.py --mode all --output result.json
 
+# Full pipeline with closed-loop observer succession (5-phase lifecycle,
+# Stinespring de-rendering, transfer kernel over the 3x3 coordinate lattice)
+python shbt_simulate.py --mode all --enable-succession --succession-cycles 3 --output result.json
+
 # Boltzmann CMB and matter spectra generation
 python boltzmann_shbt.py                      # runs the full pipeline, prints CMB spectra
 python boltzmann_shbt.py --run-tests          # embedded Boltzmann/chronometer unit tests
@@ -124,7 +131,7 @@ python shbt_simulate.py --mode all --output result.json
 python -c "import precision_cosmology as pc; pc.simulate_calorimetry_experiment(n_pulses=1000000)"
 ```
 
-Additional modes: `baryogenesis` (topological asymmetry benchmark), `history` (Causal-Point observer crystallization), `cosmology-test`. Exports support `--format json|csv|hdf5`, `--plot`, `--sweep`, `--config` (YAML/JSON), `--seed`, and structured `--log-format json` logging.
+Additional modes: `baryogenesis` (topological asymmetry benchmark), `history` (Causal-Point observer crystallization; with `--enable-succession` runs the multi-cycle lifecycle engine and exports `succession` records to `result.json`), `cosmology-test`. Exports support `--format json|csv|hdf5`, `--plot`, `--sweep`, `--config` (YAML/JSON), `--seed`, and structured `--log-format json` logging.
 
 ---
 
@@ -136,6 +143,9 @@ Additional modes: `baryogenesis` (topological asymmetry benchmark), `history` (C
 | :--- | :--- | :--- |
 | Bispectrum & trispectrum templates | `boltzmann_shbt.py` | `result.json: precision_pipeline.non_gaussianity` |
 | GET capacity & cutoff | `src/shbt/causal_point.rs` (`CausalPoint.crystallize_history`) | `result.json: foundation_audit.memory_report` |
+| Observer admissibility & de-rendering | `src/shbt/causal_point.rs` (`CausalPoint.is_admissible`, `terminate_and_derender`) | `result.json: succession.records[].eta_dark`, `.pointer_triad` |
+| Succession transfer kernel | `src/shbt/causal_point.rs` (`evaluate_succession_kernel`, `ShbtSimulator.run_succession_cycles`) | `result.json: succession.records[].kernel_probabilities`, `.kernel_normalized` |
+| Asymptotic observer freeze | `precision_cosmology.py` (`asymptotic_observer_freeze`) | `result.json: foundation_audit.asymptotic_observer_freeze` |
 | Landauer calorimetry regression | `shbt_simulate.py` / `precision_cosmology.py` | `shbt_run_calorimetry_sim.csv` |
 
 ### Generated-Artifact Data Product Crosswalk (Table 39)
@@ -157,6 +167,8 @@ Additional modes: `baryogenesis` (topological asymmetry benchmark), `history` (C
 | `ShbtSimulator` | Orchestrating runtime (`run_full_audit`) |
 | `HolographicProjection` | RG flow → `BulkMetricSlice` |
 | `CausalPoint` | Observer memory & history crystallization |
+| `CausalPoint` (succession) | `is_admissible`, `terminate_and_derender`, `evaluate_succession_kernel`, `relabel_and_rerender`, `run_lifecycle_cycle` |
+| `CausalPointCandidate` / `DerenderingRecord` / `SuccessionRecord` / `LifecyclePhase` | Observer-succession record types (Stinespring de-rendering, transfer kernel, 5-phase lifecycle) |
 | `AnomalyClosureError` | Algebraic anomaly failure type |
 
 See [`paper_references.md`](paper_references.md) for the complete paper-section → method crosswalk.
