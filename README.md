@@ -6,7 +6,7 @@
 [![Python](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 
-**`shbt-precision`** is the definitive computational mathematics core and foundational physics authority for the eight-repository SHBT ecosystem. It provides 512-bit arbitrary-precision proofs (via `rug`/MPFR, 492-bit mantissa) and symplectic Yoshida-6 integrators verifying boundary Conformal Field Theory (CFT) projections, baryogenesis, dark-matter topological ghosts, first-principles inflation, and precision cosmology.
+**`shbt-precision`** is the definitive computational mathematics core and foundational physics authority for the nine-repository SHBT ecosystem. It provides 512-bit arbitrary-precision proofs (via `rug`/MPFR, 492-bit mantissa) and symplectic Yoshida-6 integrators verifying boundary Conformal Field Theory (CFT) projections, baryogenesis, dark-matter topological ghosts, first-principles inflation, and precision cosmology.
 
 The theory is fully documented in the accompanying publications [`main.pdf`](main.pdf) and [`supplementary.pdf`](supplementary.pdf). This repository is the **executable proof** of the theory: every claim, equation, and numerical prediction in the papers is audited by the Rust/Python code herein.
 
@@ -191,7 +191,7 @@ make all
 
 ## Sibling Repository Crosswalk
 
-The SHBT program is a federated ecosystem of eight configuration-controlled repositories. `shbt-precision` is the mathematical core; downstream repositories consume its audited invariants.
+The SHBT program is a federated ecosystem of nine configuration-controlled repositories. `shbt-precision` is the mathematical core; downstream repositories consume its audited invariants.
 
 | Repository | Primary Domain | Interface to `shbt-precision` |
 | :--- | :--- | :--- |
@@ -202,6 +202,7 @@ The SHBT program is a federated ecosystem of eight configuration-controlled repo
 | [**`sys1own/shbt-exotic`**](https://github.com/sys1own/shbt-exotic) | Boundary CFT & spacetime engineering | Heegaard-Floer relabeling, dark ledger partition η<sub>D</sub> = 23/33 |
 | [**`sys1own/shbt-recon`**](https://github.com/sys1own/shbt-recon) | Macroscopic Stinespring state translocation | 128-byte dual-cacheline C-ABI DMA streaming |
 | [**`sys1own/shbt-sglt`**](https://github.com/sys1own/shbt-sglt) | Synthetic gravitational lensing telescope array at SE-L2 | 2PN beam optics, sub-SQL squeezed heterodyne metrology |
+| [**`sys1own/shbt-warp`**](https://github.com/sys1own/shbt-warp) | Holographic Warp Drive & Spacetime Engine | Consumes 512-bit MPFR arithmetic, canonical WZW (26, 8, 312) characters, modular S-matrix unitarity, and the framing defect identity Δ<sub>fr</sub> ≡ 0 to eliminate bulk stress-energy projection anomalies (E<sub>μν</sub> ≡ 0) in Alcubierre-class metric foliation. |
 | **`sys1own/shbt-precision`** (this repo) | Computational mathematics core | 512-bit MPFR framework, cosmological closure, verification ledgers |
 
 ---
