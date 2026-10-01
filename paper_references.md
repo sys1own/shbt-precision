@@ -191,7 +191,3 @@ pytest tests/ -q
 python3 precision_cosmology.py --run-tests
 python3 boltzmann_shbt.py --run-tests
 ```
-
-Validation of this file: no raw `$...$` LaTeX appears inside any table, header, or list item (`grep -n '\$' paper_references.md` returns nothing); `README.md` links here under the Section 12 verification heading.
-
-*Ground truth generated live from `result.json` (`--mode all`) and `cargo test --release` on 2026-10-01.*
