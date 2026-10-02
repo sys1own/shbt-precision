@@ -34,3 +34,4 @@ shbt_tensor_cls.csv
 *.bbl
 *.blg
 sim_results.tex
+.xwin-cache/

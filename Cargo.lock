@@ -232,6 +232,7 @@ checksum = "cf54715a573b99ac80df0bc206da022bcd442c974952c7b9720069370852e21f"
 name = "shbt_simulator"
 version = "0.1.0"
 dependencies = [
+ "gmp-mpfr-sys",
  "pyo3",
  "rayon",
  "rug",

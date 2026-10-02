@@ -1,4 +1,4 @@
-use shbt_simulator::shbt::stability_audit::{mass_congestion_coupling, AnomalyClosureError};
+use shbt_simulator::shbt::stability_audit::mass_congestion_coupling;
 
 #[test]
 fn mass_congestion_coupling_zero_detuning_passes() {

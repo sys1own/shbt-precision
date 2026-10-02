@@ -7,7 +7,7 @@
 //! at the requested bit precision so conservation residuals stay below the
 //! 10^-120 manuscript gate.
 
-use rug::{Assign, Float};
+use rug::Float;
 
 use crate::shbt::boundary::StaticBoundary;
 use crate::shbt::causal_point::{ETA_DARK_DEN, ETA_DARK_NUM, ETA_VISIBLE_DEN, ETA_VISIBLE_NUM};

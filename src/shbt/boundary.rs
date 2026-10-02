@@ -8,12 +8,15 @@ use std::collections::HashMap;
 
 pub(crate) const PREC: u32 = 512;
 
+#[allow(dead_code)]
 const BENCHMARK_BRANCH: (u32, u32, u32) = (26, 8, 312);
 const LEPTON_LEVEL: u32 = 26;
 const QUARK_LEVEL: u32 = 8;
 const PARENT_LEVEL: u32 = 312;
+#[allow(dead_code)]
 const C_DARK_NUM: u32 = 1197103;
 const C_DARK_RES_NUM: u32 = 834433;
+#[allow(dead_code)]
 const C_DARK_DEN: u32 = 362670;
 pub const C_DARK_COMP_NUM: i64 = 1197103;
 pub const C_DARK_COMP_DEN: i64 = 362670;
@@ -26,6 +29,7 @@ const TOLERANCE: f64 = 1.0e-12;
 const H0_CMB: f64 = 67.4;
 
 const LOW_SU3_WEIGHTS: [(u32, u32); 3] = [(0, 0), (1, 0), (0, 1)];
+#[allow(dead_code)]
 const CHARGE_EMBEDDING: [u32; 3] = [LEPTON_LEVEL - 4, LEPTON_LEVEL - 3, LEPTON_LEVEL];
 
 #[derive(Debug, Clone)]
@@ -203,7 +207,9 @@ pub struct StaticBoundary {
     charge_embedding: [u32; 3],
     su2_visible_block: [[Float; 3]; 3],
     su3_visible_block: [[Complex; 3]; 3],
+    #[allow(dead_code)]
     su2_visible_phases: [Complex; 3],
+    #[allow(dead_code)]
     su3_visible_phases: [Complex; 3],
     loading_density: [[Float; 3]; 3],
     entanglement_density: [[Float; 3]; 3],

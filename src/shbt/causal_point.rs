@@ -2,7 +2,7 @@
 
 use crate::shbt::baryogenesis::BaryogenesisOptimizer;
 use crate::shbt::boundary::{StaticBoundary, PREC};
-use crate::shbt::entropy_flow::{BulkMetricSlice, HolographicProjection};
+use crate::shbt::entropy_flow::HolographicProjection;
 use crate::shbt::stability_audit::AnomalyClosureError;
 use pyo3::prelude::*;
 use pyo3::types::PyDict;

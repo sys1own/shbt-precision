@@ -1,3 +1,5 @@
+#![allow(unexpected_cfgs)]
+
 use pyo3::exceptions::{PyIndexError, PyValueError};
 use pyo3::prelude::*;
 use pyo3::types::PyDict;
@@ -13,10 +15,15 @@ use crate::shbt::*;
 pyo3::create_exception!(anyon_simulator, NonAbelianLeakageError, pyo3::exceptions::PyException);
 
 const EVAL_PREC: u32 = 512;
+#[allow(dead_code)]
 const PARENT: u32 = 312;
+#[allow(dead_code)]
 const LEPTON: u32 = 26;
+#[allow(dead_code)]
 const QUARK: u32 = 8;
+#[allow(dead_code)]
 const C_DARK_NUM: u32 = 1197103;
+#[allow(dead_code)]
 const C_DARK_DEN: u32 = 362670;
 const MAX_LOGICAL_QUBITS: usize = 4;
 const MAX_DIMENSION: usize = 1 << (2 * MAX_LOGICAL_QUBITS); // 256 channels
@@ -111,7 +118,7 @@ impl FusionNode {
     }
 }
 
-#[pyclass]
+#[pyclass(eq, eq_int)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum StabilizerType {
     Plaquette,
@@ -149,7 +156,7 @@ impl StabilizerGenerator {
     }
 }
 
-#[pyclass]
+#[pyclass(eq, eq_int)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum LieSectorType {
     SU2_26,
@@ -272,9 +279,11 @@ impl AnyonBraidingEngine {
 #[derive(Debug, Clone)]
 struct LieSector {
     name: &'static str,
+    #[allow(dead_code)]
     rank: usize,
     level: u32,
     dual_coxeter_number: u32,
+    #[allow(dead_code)]
     cartan_matrix: Vec<Vec<i32>>,
     rho: Vec<i32>,
 }
@@ -291,6 +300,7 @@ impl LieSector {
         }
     }
 
+    #[allow(dead_code)]
     fn su3_8() -> Self {
         LieSector {
             name: "SU(3)_8",
@@ -302,6 +312,7 @@ impl LieSector {
         }
     }
 
+    #[allow(dead_code)]
     fn so10_312() -> Self {
         LieSector {
             name: "SO(10)_312",
@@ -415,7 +426,7 @@ fn su2_q_number(n: u32, level: u32) -> Float {
     pi = pi.acos();
 
     let mut theta = Float::with_val(EVAL_PREC, n);
-    let mut denom = Float::with_val(EVAL_PREC, level + 2);
+    let denom = Float::with_val(EVAL_PREC, level + 2);
     theta *= &pi;
     theta /= &denom;
 
@@ -455,7 +466,7 @@ fn su2_q_triangle(a: i32, b: i32, c: i32, level: u32) -> Float {
     numerator *= su2_q_factorial(x2, level);
     numerator *= su2_q_factorial(x3, level);
 
-    let mut denominator = su2_q_factorial(x4, level);
+    let denominator = su2_q_factorial(x4, level);
     numerator /= denominator;
     numerator.sqrt()
 }
@@ -531,7 +542,7 @@ fn su2_topological_spin(label: i32, level: u32) -> Float {
     let spin = Float::with_val(EVAL_PREC, label as f64 / 2.0);
     let mut numer = Float::with_val(EVAL_PREC, &spin);
     numer *= Float::with_val(EVAL_PREC, &spin + 2);
-    let mut denom = Float::with_val(EVAL_PREC, 4 * (level + 2));
+    let denom = Float::with_val(EVAL_PREC, 4 * (level + 2));
     numer /= denom;
     numer
 }
@@ -618,12 +629,13 @@ fn su2_braid_matrix_4x4(level: u32) -> [[Complex; 4]; 4] {
 // Phase 7: Polymorphic sector R-phases and braid matrices
 // ---------------------------------------------------------------------------
 
+#[allow(dead_code)]
 fn su3_r_phases(level: u32) -> [Complex; 4] {
     let su2_phases = su2_r_phases(level);
     let sector = LieSector::su3_8();
     let deform: Float = {
         let mut d = Float::with_val(EVAL_PREC, sector.dual_coxeter_number as i64);
-        let mut l = Float::with_val(EVAL_PREC, (level + sector.dual_coxeter_number) as i64);
+        let l = Float::with_val(EVAL_PREC, (level + sector.dual_coxeter_number) as i64);
         d /= &l;
         d
     };
@@ -643,6 +655,7 @@ fn su3_r_phases(level: u32) -> [Complex; 4] {
     out
 }
 
+#[allow(dead_code)]
 fn so10_r_phases(level: u32) -> [Complex; 4] {
     let su2_phases = su2_r_phases(level);
     let sector = LieSector::so10_312();
@@ -1403,8 +1416,8 @@ fn get_exact_ledger_dict(py: Python<'_>) -> PyResult<Bound<'_, PyDict>> {
 }
 
 #[pyfunction]
-fn get_framing_defect(k_l: usize, k_q: usize, K: usize) -> PyResult<f64> {
-    Ok(verify_framing_defect(k_l, k_q, K))
+fn get_framing_defect(k_l: usize, k_q: usize, k: usize) -> PyResult<f64> {
+    Ok(verify_framing_defect(k_l, k_q, k))
 }
 
 #[pyfunction]
@@ -1558,7 +1571,7 @@ impl SKScratchpadMultiQubit {
         magic_m[3][2] = i_val.clone() * Complex::with_val(EVAL_PREC, (&inv_sqrt2, 0));
         magic_m[3][3] = Complex::with_val(EVAL_PREC, (&inv_sqrt2, 0));
 
-        let mut math = MatrixMath4x4::new();
+        let math = MatrixMath4x4::new();
         let mut magic_m_dag = init_mat();
         math.dagger(&magic_m, &mut magic_m_dag);
 
@@ -1715,7 +1728,7 @@ impl SKScratchpadMultiQubit {
             // Three real roots — trigonometric method
             let mut cos_arg = Float::with_val(EVAL_PREC, &self.dep_q);
             cos_arg *= Float::with_val(EVAL_PREC, 27);
-            let mut denom_factor = {
+            let denom_factor = {
                 let mut v = Float::with_val(EVAL_PREC, &self.dep_p);
                 v *= Float::with_val(EVAL_PREC, -1);
                 v /= Float::with_val(EVAL_PREC, 3);
@@ -1767,13 +1780,13 @@ impl SKScratchpadMultiQubit {
             // cube root preserving sign
             let u_val = {
                 let sign = if u_base >= 0 { 1i32 } else { -1i32 };
-                let mut abs_v = Float::with_val(EVAL_PREC, u_base.clone().abs());
+                let abs_v = Float::with_val(EVAL_PREC, u_base.clone().abs());
                 let cr = abs_v.root(3);
                 Float::with_val(EVAL_PREC, sign) * cr
             };
             let v_val = {
                 let sign = if v_base >= 0 { 1i32 } else { -1i32 };
-                let mut abs_v = Float::with_val(EVAL_PREC, v_base.clone().abs());
+                let abs_v = Float::with_val(EVAL_PREC, v_base.clone().abs());
                 let cr = abs_v.root(3);
                 Float::with_val(EVAL_PREC, sign) * cr
             };
@@ -2315,7 +2328,7 @@ impl TopologicalTracker {
                                 let seg_j = &segments[j];
                                 if seg_i.owner == seg_j.owner { continue; }
                                 // Midpoint separation vector.
-                                let mut rdiff = [
+                                let rdiff = [
                                     Float::with_val(EVAL_PREC, &seg_i.mid[0] - &seg_j.mid[0]),
                                     Float::with_val(EVAL_PREC, &seg_i.mid[1] - &seg_j.mid[1]),
                                     Float::with_val(EVAL_PREC, &seg_i.mid[2] - &seg_j.mid[2]),
@@ -3671,11 +3684,17 @@ impl ShbtSimulator {
 
 #[pymodule]
 mod shbt_simulator {
+    #[allow(dead_code)]
     pub const PARENT: u32 = super::PARENT;
+    #[allow(dead_code)]
     pub const LEPTON: u32 = super::LEPTON;
+    #[allow(dead_code)]
     pub const QUARK: u32 = super::QUARK;
+    #[allow(dead_code)]
     pub const C_DARK_NUM: u32 = super::C_DARK_NUM;
+    #[allow(dead_code)]
     pub const C_DARK_DEN: u32 = super::C_DARK_DEN;
+    #[allow(dead_code)]
     pub const C_DARK: &str = "1197103/362670";
 
     #[pymodule_export]

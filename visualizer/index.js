@@ -56,19 +56,19 @@ function refreshHud(m) {
   const banner = $("phase-banner");
   if (m.z <= -0.95) {
     banner.className = "ph-freeze";
-    banner.textContent = "PHASE: ASYMPTOTIC DE SITTER OBSERVER FREEZE (R_adm \u2192 \u2205)";
+    banner.innerHTML = "PHASE 5: ASYMPTOTIC DE SITTER OBSERVER FREEZE &nbsp;|&nbsp; <em>R</em><sub>adm</sub> &rarr; &empty; &nbsp;|&nbsp; <em>E</em><sub>&mu;&nu;</sub> = 0 &nbsp;|&nbsp; &Delta;<sub>fr</sub> = 0";
   } else if (m.z > 1e12) {
     banner.className = "ph-load";
-    banner.textContent = "PHASE: CONFORMAL SCREEN BIT LOADING (\u1e6a = H(t))";
+    banner.innerHTML = "PHASE 1: CONFORMAL SCREEN BIT LOADING &nbsp;|&nbsp; Ṡ = <em>H</em>(<em>t</em>) &middot; <em>C</em><sub>max</sub> &nbsp;|&nbsp; <em>N</em><sub>sat</sub> = 3.312&times;10<sup>122</sup> bits";
   } else if (m.z >= 1e9) {
     banner.className = "ph-bary";
-    banner.textContent = "PHASE: TOPOLOGICAL BARYOGENESIS (STINESPRING DE-RENDERING 23/33)";
+    banner.innerHTML = "PHASE 2: TOPOLOGICAL BARYOGENESIS &nbsp;|&nbsp; Stinespring De-Rendering 23/33 &nbsp;|&nbsp; &eta;<sub>B</sub> = 6.1&times;10<sup>&minus;10</sup>";
   } else if (m.z >= 7) {
     banner.className = "ph-seed";
-    banner.textContent = "PHASE: TOPOLOGICAL GHOST SEED CONDENSATION (M_seed = 10^9 M\u2609)";
+    banner.innerHTML = "PHASE 3: TOPOLOGICAL GHOST SEED CONDENSATION &nbsp;|&nbsp; <em>M</em><sub>seed</sub> &asymp; 10<sup>9</sup> <em>M</em><sub>&#9737;</sub> &nbsp;|&nbsp; <em>K</em> = 312, &Delta;<em>N</em> = 6.0&times;10<sup>59</sup> bits";
   } else {
     banner.className = "ph-get";
-    banner.textContent = "PHASE: CAUSAL POINT GET CLUSTERING & PROTO-GALAXY COLLAPSE";
+    banner.innerHTML = "PHASE 4: CAUSAL POINT GET CLUSTERING &nbsp;|&nbsp; <strong>a</strong><sub>GET</sub> = &minus;&kappa;<sub>GET</sub> &nabla; ln &rho;<sub>proj</sub> &nbsp;|&nbsp; <em>R</em><sub>entropy</sub> &ge; 0";
   }
   if (document.activeElement !== $("timeline")) {
     $("timeline").value = zToSlider(m.z);

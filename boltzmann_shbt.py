@@ -324,3 +324,36 @@ def export_webgpu_telemetry(
     Path(path).parent.mkdir(parents=True, exist_ok=True)
     Path(path).write_bytes(frame)
     return path
+
+
+if __name__ == "__main__":
+    import argparse
+    parser = argparse.ArgumentParser(description="First-order SHBT perturbation pipeline.")
+    parser.add_argument("--run-tests", action="store_true", help="Execute verification tests")
+    args = parser.parse_args()
+
+    if args.run_tests:
+        print("[TEST] Running boltzmann_shbt verification tests...")
+        fn_tensor, rows_tensor = compute_tensor_power_spectra(l_max=50, output_prefix="test_shbt")
+        assert len(rows_tensor) == 49
+        print(f"[PASS] Tensor power spectra calculated ({len(rows_tensor)} multipoles).")
+
+        fn_matter, rows_matter = compute_matter_transfer(output_prefix="test_shbt")
+        assert len(rows_matter) == 300
+        print(f"[PASS] Matter transfer grid computed ({len(rows_matter)} k modes).")
+
+        fn_telem = export_webgpu_telemetry("data/test_telemetry.bin", redshift=15.0)
+        assert Path(fn_telem).stat().st_size > 128
+        print(f"[PASS] Telemetry frame exported ({Path(fn_telem).stat().st_size} bytes).")
+
+        # Cleanup test artifacts
+        for p in [fn_tensor, fn_matter, fn_telem]:
+            try:
+                Path(p).unlink()
+            except OSError:
+                pass
+        print("All boltzmann_shbt tests passed successfully.")
+    else:
+        compute_tensor_power_spectra()
+        compute_matter_transfer()
+

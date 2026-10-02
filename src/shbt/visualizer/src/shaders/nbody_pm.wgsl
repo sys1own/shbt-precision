@@ -68,8 +68,35 @@ fn cs_advance_particles(@builtin(global_invocation_id) global_id: vec3<u32>) {
     // strengthened softened gravity funnels particles into seed wells.
     let seed_gain = select(1.0, 3.0, z_current >= 2.0 && z_current <= 20.0);
 
-    // Symplectic Kick-Drift step under loaded background
-    let kick = (force * seed_gain / (cosmo.a * cosmo.a * friction)) * cosmo.dt;
+    // Ghost-seed point-mass wells in normalized comoving box units [0, 1]
+    // with respective defect mass weights (M_seed ~ 10^9 M_sun)
+    var seed_wells = array<vec4<f32>, 4>(
+        vec4<f32>(0.25, 0.25, 0.25, 1.0),
+        vec4<f32>(0.75, 0.75, 0.25, 0.8),
+        vec4<f32>(0.25, 0.75, 0.75, 0.9),
+        vec4<f32>(0.75, 0.25, 0.75, 0.7),
+    );
+
+    var a_seed = vec3<f32>(0.0);
+    // Point-mass gravitational acceleration active during condensation and cosmic web collapse (z <= 30)
+    if (z_current <= 30.0) {
+        let softening = 0.025; // softening length in normalized box units
+        for (var wi = 0; wi < 4; wi = wi + 1) {
+            let w_pos = seed_wells[wi].xyz;
+            let w_mass = seed_wells[wi].w;
+            var r_vec = w_pos - uvw;
+            // Minimum image convention for periodic torus
+            r_vec = r_vec - round(r_vec);
+            let r2 = dot(r_vec, r_vec) + softening * softening;
+            let inv_r3 = 1.0 / (r2 * sqrt(r2));
+            // a_seed = G * M_seed * (x_seed - x) / (|x_seed - x|^2 + eps^2)^(3/2)
+            a_seed += r_vec * (w_mass * inv_r3 * 0.015);
+        }
+    }
+
+    // Symplectic Kick-Drift step under loaded background with both PM grid force and point-mass a_seed
+    let total_force = force * seed_gain + a_seed;
+    let kick = (total_force / (cosmo.a * cosmo.a * friction)) * cosmo.dt;
     p.velocity += kick;
     p.position += (p.velocity / (cosmo.a * cosmo.hubble)) * cosmo.dt;
 

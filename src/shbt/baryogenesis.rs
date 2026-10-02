@@ -14,7 +14,9 @@ pub const M_N_GEV: f64 = 1.22e16;
 const SU2_DUAL_COXETER: u32 = 2;
 const SU3_DUAL_COXETER: u32 = 3;
 const SO10_DUAL_COXETER: u32 = 8;
+#[allow(dead_code)]
 const SU3_DIMENSION: u32 = 8;
+#[allow(dead_code)]
 const SO10_DIMENSION: u32 = 45;
 
 #[derive(Debug, Clone)]

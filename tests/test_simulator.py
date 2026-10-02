@@ -19,13 +19,26 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 TARGET_RELEASE = REPO_ROOT / "target" / "release"
 SO_NAME = TARGET_RELEASE / "shbt_simulator.so"
 LIBSO_NAME = TARGET_RELEASE / "libshbt_simulator.so"
+PYD_NAME = TARGET_RELEASE / "shbt_simulator.pyd"
+DLL_NAME = TARGET_RELEASE / "shbt_simulator.dll"
+LIBDLL_NAME = TARGET_RELEASE / "libshbt_simulator.dll"
 
 
 def _ensure_extension() -> None:
     """Copy the compiled extension to the import name if needed and add to path."""
+    try:
+        import shbt_simulator
+        return
+    except ImportError:
+        pass
     if not SO_NAME.exists() and LIBSO_NAME.exists():
         shutil.copy(LIBSO_NAME, SO_NAME)
-    if not SO_NAME.exists():
+    if not PYD_NAME.exists():
+        if DLL_NAME.exists():
+            shutil.copy(DLL_NAME, PYD_NAME)
+        elif LIBDLL_NAME.exists():
+            shutil.copy(LIBDLL_NAME, PYD_NAME)
+    if not SO_NAME.exists() and not PYD_NAME.exists():
         pytest.skip("compiled shbt_simulator extension not found; run `cargo build --release`")
     if str(TARGET_RELEASE) not in sys.path:
         sys.path.insert(0, str(TARGET_RELEASE))
@@ -46,7 +59,7 @@ def _import_simulate():
 
 def _run_cli(args: list[str]) -> subprocess.CompletedProcess:
     env = os.environ.copy()
-    env["PYTHONPATH"] = f"{REPO_ROOT}:{TARGET_RELEASE}"
+    env["PYTHONPATH"] = os.pathsep.join([str(REPO_ROOT), str(TARGET_RELEASE)])
     return subprocess.run(
         [sys.executable, "shbt_simulate.py", *args],
         cwd=REPO_ROOT,

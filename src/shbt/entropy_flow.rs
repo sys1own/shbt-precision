@@ -1,7 +1,7 @@
 #![allow(non_snake_case)]
 
 use crate::shbt::boundary::PREC;
-use crate::shbt::boundary::{EntropyUpdate, StaticBoundary};
+use crate::shbt::boundary::StaticBoundary;
 use pyo3::prelude::*;
 use pyo3::types::PyDict;
 use rug::Float;

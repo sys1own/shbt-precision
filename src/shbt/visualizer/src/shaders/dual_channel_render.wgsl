@@ -127,15 +127,18 @@ fn fs_render_dual_channel(in: VertexOutput) -> GBufferOutput {
     // anti-baryons de-render electric-violet -> deep ghost across the
     // Stinespring window z in [1e9, 1e12].
     let is_dark_branch = in.branch_hash < (23.0 / 33.0);
-    var emit = vec3<f32>(1.0, 0.72, 0.18) * 1.6;
+    var emit = vec3<f32>(1.0, 0.85, 0.45) * 1.8;
+    let dark_ghost_weight = (1.0 - in.vis_factor) * in.mass;
+
     if (is_dark_branch) {
         if (z > 1.0e12) {
-            emit = vec3<f32>(0.8, 0.2, 1.0);
+            emit = vec3<f32>(0.85, 0.25, 1.0);
         } else if (z > 1.0e9) {
             let blend = clamp((12.0 - log2(max(z, 1.0)) / 3.321928) / 3.0, 0.0, 1.0);
-            emit = mix(vec3<f32>(0.8, 0.2, 1.0), vec3<f32>(0.15, 0.05, 0.35), blend);
+            let quenched_violet = vec3<f32>(0.12, 0.04, 0.28) * max(dark_ghost_weight, 0.35);
+            emit = mix(vec3<f32>(0.85, 0.25, 1.0), quenched_violet, blend);
         } else {
-            emit = vec3<f32>(0.15, 0.05, 0.35);
+            emit = vec3<f32>(0.12, 0.04, 0.28) * dark_ghost_weight;
         }
     }
     let pulse = 0.75 + 0.25 * sin(in.branch_hash * 40.0 + z * 0.7);
@@ -153,27 +156,35 @@ fn fs_render_dual_channel(in: VertexOutput) -> GBufferOutput {
     var glow_rgb = emission + ionization_halo;
     var glow_a = in.vis_factor * core_intensity;
 
-    // Ghost-seed attractor marker: amber core + cyan event-horizon ring.
+    // Ghost-seed attractor marker: glowing white/gold cores with caustic lensing rings (M_seed ~ 10^9 M_sun)
     if (in.seed_glow > 0.0) {
-        let ring = smoothstep(0.38, 0.5, dist_from_center);
-        let seed_core = vec3<f32>(1.0, 0.75, 0.2) * core_intensity * pulse * 2.0;
-        let seed_ring = vec3<f32>(0.4, 1.0, 1.0) * ring * pulse;
+        // High-contrast caustic lensing rings
+        let ring_dist = abs(dist_from_center - 0.40);
+        let caustic_fringe = exp(-pow(ring_dist * 30.0, 2.0)) * (0.85 + 0.15 * sin(dist_from_center * 45.0 + z * 0.4));
+        let seed_core = vec3<f32>(1.0, 0.98, 0.85) * exp(-dist_from_center * 12.0) * pulse * 4.5;
+        let seed_ring = vec3<f32>(1.0, 0.85, 0.35) * caustic_fringe * pulse * 3.0 + vec3<f32>(0.3, 0.8, 1.0) * caustic_fringe * 1.8;
         glow_rgb += (seed_core + seed_ring) * in.seed_glow;
-        glow_a = max(glow_a, in.seed_glow * core_intensity);
+        glow_a = max(glow_a, in.seed_glow * (core_intensity + caustic_fringe));
     }
     output.visible_gauge_glow = vec4<f32>(glow_rgb, glow_a);
 
     // Channel B: Passive Gravitational Ghost Distortion
     // Persists regardless of vis_factor, tracking total stress-energy E_munu = 0
-    let dark_ghost_weight = (1.0 - in.vis_factor) * in.mass;
     var shear_dir = vec2<f32>(0.0);
     if (length(in.world_pos.xy) > 1.0e-4) {
         shear_dir = normalize(in.world_pos.xy);
     }
-    let gravitational_shear = vec2<f32>(
+    var gravitational_shear = vec2<f32>(
         shear_dir.x * core_intensity * 0.05,
         shear_dir.y * core_intensity * 0.05
     );
+
+    // Enhanced caustic lensing shear for condensed seed cores
+    if (in.seed_glow > 0.0) {
+        let seed_caustic_shear = 0.20 * in.seed_glow * exp(-dist_from_center * 6.0);
+        gravitational_shear.x += shear_dir.x * seed_caustic_shear;
+        gravitational_shear.y += shear_dir.y * seed_caustic_shear;
+    }
 
     // Store shear in RG, ghost density in B, total invariant mass in A.
     // Causal-point projection envelopes land in the ghost channel as faint
@@ -181,7 +192,7 @@ fn fs_render_dual_channel(in: VertexOutput) -> GBufferOutput {
     output.passive_metric_distortion = vec4<f32>(
         gravitational_shear.x + in.causal_env * 0.02,
         gravitational_shear.y + in.causal_env * 0.02,
-        dark_ghost_weight * core_intensity + in.causal_env * 0.35,
+        dark_ghost_weight * core_intensity + in.causal_env * 0.35 + in.seed_glow * 1.2 * core_intensity,
         in.mass
     );
 
