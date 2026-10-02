@@ -43,10 +43,9 @@ fn vs_particle_billboard(
 
     // Comoving box [0, box] -> centered world coordinates [-box/2, box/2].
     var world = p.position - vec3<f32>(camera.params.y * 0.5);
-    // 2D boundary projection: collapse the depth coordinate onto the screen.
-    if (camera.params.z > 0.5) {
-        world.z = 0.0;
-    }
+    // Boundary unwrapping: blend the depth coordinate onto the screen as
+    // unwrap_transition (camera.params.z) goes 0 -> 1.
+    world.z *= 1.0 - camera.params.z;
 
     var corners = array<vec2<f32>, 6>(
         vec2<f32>(-1.0, -1.0), vec2<f32>(1.0, -1.0), vec2<f32>(1.0, 1.0),

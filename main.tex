@@ -6007,6 +6007,9 @@ Hubble expansion rate,
 \end{equation}
 so the completed boundary register generates the expansion history without
 an inflaton sector: no $(\phi,V)$ degree of freedom enters the ledger.
+The loaded fraction along backward light-cone geodesics obeys the loading
+law of Eq.~\eqref{eq:inflation-loading-ode},
+$d\fload/dz=3\AH/[(1+z)^2H_{\mathrm{SHBT}}(z)]$.
 \end{theorem}
 
 \begin{proof}[Implementation statement]
@@ -6072,6 +6075,50 @@ frame carry $(\mathbf x,M_{\mathrm{seed}},P_{\mathrm{debt}},\nu,z_f)$
 to the visualizer.
 \end{proof}
 
+\begin{theorem}[Causal-Point History Crystallization and GET Clustering]
+\label{thm:causal-point-get-clustering}
+Each causal-point observer address $A$ is admissible if and only if its
+entropy margin is non-negative,
+\begin{equation}
+\label{eq:get-clustering-admissibility}
+ \Rentropy(A)
+ \;\equiv\;
+ N_{\mathrm{limit}}(A)-C_{\mathrm{get}}(A)
+ \;\ge\;0,
+\end{equation}
+which is exactly the predicate $\Padm(A)$ of
+Eq.~\eqref{eq:observer-admissibility-predicate}.  An admissible observer
+executes the rank-one history projector
+$\Pi_{A,\iota}=\vert{}A,\omega_\iota\rangle\langle A,\omega_\iota\vert{}$
+on its past light cone, crystallizing the regional density field
+$\rho_{\mathrm{proj}}(\mathbf x)$ and inducing the emergent clustering
+acceleration
+\begin{equation}
+\label{eq:get-clustering-acceleration}
+ \mathbf a_{\mathrm{GET}}(\mathbf x)
+ \;=\;
+ -\kappa_{\mathrm{GET}}\,\nabla\ln\rho_{\mathrm{proj}}(\mathbf x).
+\end{equation}
+As $z\to-1$ the register load saturates ($\fload\to1$), the local
+capacity vanishes ($N_{\mathrm{limit}}\to0$), and the admissible
+observer set freezes to the empty set,
+$\mathcal R_{\mathrm{adm}}\to\emptyset$.
+\end{theorem}
+
+\begin{proof}[Implementation statement]
+\pyvar{src/shbt/visualizer/src/shaders/causal_point_get.wgsl} implements
+the gate: \pyvar{evaluate_causal_points} evaluates
+Eq.~\eqref{eq:get-clustering-admissibility} per observer node and
+\pyvar{apply_get_acceleration} evaluates
+Eq.~\eqref{eq:get-clustering-acceleration} per particle against the CIC
+density grid.  \pyvar{WasmShbtEngine.update_epoch} and
+\pyvar{HorizonLedger} drive the epoch partition and the freeze
+$\mathcal R_{\mathrm{adm}}\to\emptyset$; the invariant gates
+\pyvar{tests/invariant_gates.rs} fix bit conservation, the
+$10/33$--$23/33$ split, and the de~Sitter observer freeze, and the ledger
+is exported under \pyvar{result.json:causal_point_simulation}.
+\end{proof}
+
 \subsection{Two-Tier Interactive Visualization Architecture}
 \label{sec:boundary-visualizer}
 
@@ -6089,14 +6136,19 @@ a $256$-point transfer grid, a $256$-point matter-power grid, and $128$-byte
 
 Tier~2 is the standalone \pyvar{shbt-visualizer} crate
 (\pyvar{src/shbt/visualizer}), compiled to \pyvar{wasm32} and bound to
-\pyvar{visualizer/index.html}.  A \pyvar{ShbtWebGpuEngine} drives three
-WGSL stages: \pyvar{nbody_pm.wgsl} (Fast-PM/2LPT kick--drift under the
+\pyvar{visualizer/index.html}.  A \pyvar{ShbtWebGpuEngine} drives four
+WGSL stages: \pyvar{causal_point_get.wgsl} (active Causal-Point GET
+dynamics of Theorem~\ref{thm:causal-point-get-clustering}:
+\pyvar{evaluate_causal_points} and \pyvar{apply_get_acceleration}),
+\pyvar{nbody_pm.wgsl} (Fast-PM/2LPT \pyvar{kick_drift_kernel} under the
 loaded conformal friction $1+\fload\cdot10/33$ with the Stinespring
-anti-baryon de-render envelope), \pyvar{dual_channel_render.wgsl}
+anti-baryon de-render envelope and softened seed-defect attraction),
+\pyvar{dual_channel_render.wgsl}
 (Channel~A emission weighted by \pyvar{vis_weight}; Channel~B ghost shear
 and mass density conserved independently of it), and
-\pyvar{holographic_post.wgsl} (lensed-UV composite, ghost false-color, and
-the horizon overlay driven by $\fload$).  Double-buffered storage holds
+\pyvar{holographic_post.wgsl} (lensed-UV composite, ghost false-color,
+\pyvar{unwrap_torus_projection} conformal boundary unwrapping onto the
+CFT torus $[0,2\pi)^2$, and the horizon overlay driven by $\fload$).  Double-buffered storage holds
 $2^{20}$ particles in $32$-byte structures (under $256\,\mathrm{MB}$),
 and the pipeline is gated at $60$ FPS by the browser presentation clock;
 the \pyvar{headless} binary runs the identical pass structure natively for
@@ -7114,6 +7166,10 @@ Ghost partition, Thm.~\ref{thm:passive-ghost-dark-matter} & \pyvar{src/shbt/cosm
 Seed condensation, Thm.~\ref{thm:mass-congestion-condensation} & \pyvar{src/shbt/cosmology.rs} & \pyvar{ShbtUniverse.compute_seed_condensation}, \pyvar{eval_landauer_debt_power} & SHBT-MMIO \pyvar{SeedDefectRecord} \\
 Telemetry serialization, Sec.~\ref{sec:boundary-visualizer} & \pyvar{src/shbt/export.rs} & \pyvar{serialize_mmio_frame_py}, \pyvar{MmioTelemetryHeader.to_bytes} & \pyvar{data/telemetry.bin} \\
 WebGPU engine, Sec.~\ref{sec:boundary-visualizer} & \pyvar{src/shbt/visualizer} & \pyvar{ShbtWebGpuEngine.step_frame}, \pyvar{hud_json} & \pyvar{visualizer/pkg/shbt_visualizer_bg.wasm} \\
+GET clustering, Thm.~\ref{thm:causal-point-get-clustering} & \pyvar{causal_point_get.wgsl} & \pyvar{evaluate_causal_points}, \pyvar{apply_get_acceleration} & \pyvar{result.json:causal_point_simulation} \\
+Fast-PM drift and seed attraction, Thm.~\ref{thm:mass-congestion-condensation} & \pyvar{nbody_pm.wgsl} & \pyvar{kick_drift_kernel} & SHBT-MMIO \pyvar{SeedDefectRecord} \\
+Conformal torus unwrapping, Sec.~\ref{sec:boundary-visualizer} & \pyvar{holographic_post.wgsl} & \pyvar{unwrap_torus_projection} & \pyvar{unwrap_transition} control \\
+Epoch ledger and observer admissibility, Thm.~\ref{thm:causal-point-get-clustering} & \pyvar{src/shbt/visualizer} & \pyvar{WasmShbtEngine.update_epoch}, \pyvar{HorizonLedger} & \pyvar{result.json:causal_point_simulation} \\
 \bottomrule
 \end{tabularx}
 \caption{Code and equation traceability matrix (Table~28 verification
@@ -7184,7 +7240,10 @@ Software interface & Physical role and principal accessors \\
 \pyvar{src/lib.rs} & PyO3 exports and \pyvar{ShbtSimulator} orchestration \\
 \pyvar{src/shbt/cosmology.rs} & \pyvar{ShbtUniverse} branch cosmology: loading, Hubble, ghost partition, seed condensation, ISW residual, and horizon freeze \\
 \pyvar{src/shbt/export.rs} & SHBT-MMIO frame serialization and \pyvar{serialize_mmio_frame_py} export \\
-\pyvar{src/shbt/visualizer} & \pyvar{shbt-visualizer} crate: \pyvar{Particle}, \pyvar{ShbtWebGpuEngine}, \pyvar{HudMetrics}, WGSL pipeline, and \pyvar{headless} benchmark binary \\
+\pyvar{src/shbt/visualizer} & \pyvar{shbt-visualizer} crate: \pyvar{Particle}, \pyvar{ShbtWebGpuEngine}, \pyvar{HudMetrics}, \pyvar{WasmShbtEngine}, \pyvar{HorizonLedger}, WGSL pipeline, and \pyvar{headless} benchmark binary \\
+\pyvar{causal_point_get.wgsl} & Active Causal-Point GET compute passes: observer admissibility ($R_{\mathrm{entropy}}\ge0$) and emergent clustering acceleration $\mathbf a_{\mathrm{GET}}=-\kappa_{\mathrm{GET}}\nabla\ln\rho_{\mathrm{proj}}$ \\
+\pyvar{tests/invariant_gates.rs} & Tier-2 invariant gates: bit conservation across epochs, exact $10/33$--$23/33$ partition, de~Sitter observer freeze, and stress-energy residual \\
+\pyvar{scripts/verify_cosmology.py} & Seed-coupling audit ($\alpha_{\mathrm{seed}}$), $\eta_B$ evaluation, and 60 FPS frame-budget benchmark \\
 \pyvar{visualizer/index.html} & browser harness: horizon HUD, capacity gauge, seed ledger, Landauer monitor, timeline scrub, speed and channel controls \\
 \bottomrule
 \end{tabular}

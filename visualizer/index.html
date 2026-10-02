@@ -50,6 +50,7 @@
   <div class="metric">
     <div class="label"><span>Boundary Capacity &mdash; f<sub>load</sub>(z)</span><span id="hud-fload">0</span></div>
     <div class="bar"><div id="bar-fload"></div></div>
+    <div class="ledger" id="hud-capacity">N<sub>sat</sub> = 3.312&times;10<sup>122</sup> bits</div>
   </div>
   <div class="metric">
     <div class="label"><span>H(z)</span><span id="hud-hubble">0</span></div>
@@ -62,6 +63,11 @@
     <div class="label"><span>Landauer Debt Monitor</span><span id="hud-debt">0 W</span></div>
     <div class="bar"><div id="bar-debt"></div></div>
   </div>
+  <div class="metric">
+    <div class="label"><span>Causal-Point Observer Activity</span><span id="hud-observers">R<sub>adm</sub> = 0</span></div>
+    <div class="bar"><div id="bar-observers"></div></div>
+    <div class="ledger" id="hud-rentropy">R<sub>entropy</sub> = N<sub>limit</sub> &minus; C<sub>get</sub> &ge; 0</div>
+  </div>
   <div id="invariants">
     <div class="inv" id="inv-fr">&Delta;<sub>fr</sub> = 0</div>
     <div class="inv" id="inv-emu">E<sub>&mu;&nu;</sub> = 0</div>
@@ -70,8 +76,14 @@
 </div>
 
 <div id="controls">
-  <input id="timeline" type="range" min="-12" max="12" step="0.01" value="12"
-         title="log-space timeline: z = 10^x - 1, x in [-12, 12]">
+  <input id="timeline" type="range" min="-12" max="14" step="0.01" value="14"
+         title="log-space timeline: z = 10^x - 1, x in [-12, 14]">
+  <div class="row">
+    <span>Torus unwrap</span>
+    <input id="unwrap" type="range" min="0" max="1" step="0.01" value="0" style="width:180px"
+           title="unwrap_transition: 0 = comoving bulk, 1 = boundary CFT torus">
+    <span id="unwrap-label">0.00</span>
+  </div>
   <div class="row">
     <span id="zlabel">z = 1.0e+12</span>
     <button id="play">&#9208;</button>

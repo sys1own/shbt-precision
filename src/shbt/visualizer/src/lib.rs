@@ -4,11 +4,13 @@
 //! `shbt_simulator` core and drives the Fast-PM compute pipeline, the
 //! dual-channel render pass, and the holographic composite pass.
 
+mod engine;
 mod hud;
 mod particle;
 mod telemetry;
 
-pub use hud::{HudMetrics, TimelineController};
+pub use engine::{CausalPointRecord, ParticleRecord, SeedDefectRecord, WasmShbtEngine};
+pub use hud::{HorizonLedger, HudMetrics, TimelineController, GAMMA_LOCK, N_SAT};
 pub use particle::Particle;
 pub use telemetry::encode_mmio_frame;
 
@@ -76,7 +78,7 @@ pub struct ShbtWebGpuEngine {
     seed_count: u32,
     channel_a: f32,
     channel_b: f32,
-    projection_2d: bool,
+    unwrap_transition: f32,
     buffer_index: usize,
     width: u32,
     height: u32,
@@ -430,7 +432,7 @@ impl ShbtWebGpuEngine {
         });
         let post_buffer = device.create_buffer(&BufferDescriptor {
             label: Some("post params uniform"),
-            size: 16,
+            size: 32,
             usage: BufferUsages::UNIFORM | BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
@@ -511,7 +513,7 @@ impl ShbtWebGpuEngine {
             seed_count: 0,
             channel_a: 1.0,
             channel_b: 1.0,
-            projection_2d: false,
+            unwrap_transition: 0.0,
             buffer_index: 0,
             width: 1280,
             height: 720,
@@ -519,16 +521,14 @@ impl ShbtWebGpuEngine {
     }
 
     fn view_proj(&self) -> [[f32; 4]; 4] {
-        if self.projection_2d {
-            // Orthographic projection onto the boundary CFT plane.
-            let s = 2.0 / BOX_SIZE;
-            return [
-                [s, 0.0, 0.0, 0.0],
-                [0.0, s, 0.0, 0.0],
-                [0.0, 0.0, 1.0, 0.0],
-                [0.0, 0.0, 0.0, 1.0],
-            ];
-        }
+        // Orthographic projection onto the boundary CFT plane.
+        let s = 2.0 / BOX_SIZE;
+        let ortho = [
+            [s, 0.0, 0.0, 0.0],
+            [0.0, s, 0.0, 0.0],
+            [0.0, 0.0, 1.0, 0.0],
+            [0.0, 0.0, 0.0, 1.0],
+        ];
         // Simple perspective camera orbiting the comoving box.
         let f = 1.0 / (45.0f32.to_radians() / 2.0).tan();
         let aspect = self.width as f32 / self.height as f32;
@@ -540,12 +540,22 @@ impl ShbtWebGpuEngine {
             [0.0, 0.0, far / (near - far), -1.0],
             [0.0, 0.0, near * far / (near - far), 0.0],
         ];
-        // Camera at distance 1.6 * box behind -z, looking at origin.
+        // Camera at distance 1.4 * box behind -z, looking at origin.
         let dist = BOX_SIZE * 1.4;
         let (sy, cy) = (self.frame_index as f32 * 0.0004).sin_cos();
         let eye = [sy * dist, 0.25 * BOX_SIZE, -cy * dist];
         let view = look_at(eye, [0.0, 0.0, 0.0], [0.0, 1.0, 0.0]);
-        mat_mul(proj, view)
+        let persp = mat_mul(proj, view);
+        // Continuous torus unwrapping: blend bulk perspective with the
+        // flat boundary-CFT orthographic view by unwrap_transition.
+        let t = self.unwrap_transition.clamp(0.0, 1.0);
+        let mut out = persp;
+        for r in 0..4 {
+            for c in 0..4 {
+                out[r][c] = persp[r][c] * (1.0 - t) + ortho[r][c] * t;
+            }
+        }
+        out
     }
 
     fn compute_bind_group(&self) -> BindGroup {
@@ -668,15 +678,24 @@ impl ShbtWebGpuEngine {
         let camera = CameraParams {
             view_proj: self.view_proj(),
             params: [
-                if self.projection_2d { 0.004 } else { 0.006 },
+                0.006 - 0.002 * self.unwrap_transition,
                 BOX_SIZE,
-                if self.projection_2d { 1.0 } else { 0.0 },
+                self.unwrap_transition,
                 0.0,
             ],
         };
         self.queue
             .write_buffer(&self.camera_buffer, 0, bytemuck::bytes_of(&camera));
-        let post = [self.channel_a, self.channel_b, f_load as f32, 1.6f32];
+        let post = [
+            self.channel_a,
+            self.channel_b,
+            f_load as f32,
+            1.6f32,
+            self.unwrap_transition,
+            0.0,
+            0.0,
+            0.0,
+        ];
         self.queue
             .write_buffer(&self.post_buffer, 0, bytemuck::cast_slice(&post));
 
@@ -980,7 +999,14 @@ impl ShbtWebGpuEngine {
     /// projection: 0 = comoving bulk, 1 = 2D boundary CFT.
     #[wasm_bindgen]
     pub fn set_projection(&mut self, mode: u32) {
-        self.projection_2d = mode != 0;
+        self.unwrap_transition = if mode != 0 { 1.0 } else { 0.0 };
+    }
+
+    /// Continuous torus-unwrap transition, 0.0 = comoving bulk,
+    /// 1.0 = flat boundary CFT torus [0, 2pi)^2.
+    #[wasm_bindgen]
+    pub fn set_unwrap_transition(&mut self, value: f32) {
+        self.unwrap_transition = value.clamp(0.0, 1.0);
     }
 
     /// Enable/disable Channel A (visible) and Channel B (dark ghost).

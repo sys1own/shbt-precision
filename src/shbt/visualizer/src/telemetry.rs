@@ -103,6 +103,18 @@ pub fn encode_mmio_frame(
     seed_count: u32,
 ) -> [u8; 128] {
     let f_load = loading_fraction(z);
+    // Stinespring blend across the modular-restoration window z in
+    // [1e9, 1e12]: above it no de-rendering has occurred (all loaded bits
+    // visible), below it the 23/33 dark completion is fully quenched.
+    let blend = if z > 1.0e12 {
+        0.0
+    } else if z < 1.0e9 {
+        1.0
+    } else {
+        ((12.0 - z.log10()) / 3.0).clamp(0.0, 1.0)
+    };
+    let eta_vis = (1.0 - blend) + blend * ETA_VISIBLE;
+    let eta_dk = blend * ETA_DARK;
     let _ = seed_count;
     let seed_mass = ALPHA_SEED_MSUN_PER_BIT * delta_n_bits;
     let p_debt = seed_mass * LANDAUER_GW_PER_MSUN;
@@ -119,9 +131,9 @@ pub fn encode_mmio_frame(
     out[offsets::HUBBLE..offsets::HUBBLE + 8].copy_from_slice(&hubble(z).to_le_bytes());
     out[offsets::LOADING..offsets::LOADING + 8].copy_from_slice(&f_load.to_le_bytes());
     out[offsets::ACTIVE_BITS..offsets::ACTIVE_BITS + 8]
-        .copy_from_slice(&(ETA_VISIBLE * N_SAT_BITS * f_load).to_le_bytes());
+        .copy_from_slice(&(eta_vis * N_SAT_BITS * f_load).to_le_bytes());
     out[offsets::DARK_BITS..offsets::DARK_BITS + 8]
-        .copy_from_slice(&(ETA_DARK * N_SAT_BITS * f_load).to_le_bytes());
+        .copy_from_slice(&(eta_dk * N_SAT_BITS * f_load).to_le_bytes());
     out[offsets::LANDAUER..offsets::LANDAUER + 8].copy_from_slice(&p_debt.to_le_bytes());
     out[offsets::SEED_MASS..offsets::SEED_MASS + 8]
         .copy_from_slice(&seed_mass.to_le_bytes());
