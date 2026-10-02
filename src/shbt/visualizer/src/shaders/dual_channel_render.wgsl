@@ -12,8 +12,8 @@ struct Particle {
 
 struct Camera {
     view_proj: mat4x4<f32>,
-    // x: point extent (clip units), y: box_size, z: projection_mode
-    // (0 = comoving bulk 3D, 1 = 2D boundary CFT plane), w: reserved.
+    // x: point extent (clip units), y: box_size, z: unwrap_transition
+    // (0 = comoving bulk 3D, 1 = boundary CFT torus), w: redshift.
     params: vec4<f32>,
 };
 
@@ -26,6 +26,9 @@ struct VertexOutput {
     @location(1) vis_factor: f32,
     @location(2) mass: f32,
     @location(3) point_coord: vec2<f32>,
+    @location(4) branch_hash: f32,
+    @location(5) seed_glow: f32,
+    @location(6) causal_env: f32,
 };
 
 struct GBufferOutput {
@@ -54,14 +57,56 @@ fn vs_particle_billboard(
     let corner = corners[vertex_index];
 
     var clip = camera.view_proj * vec4<f32>(world, 1.0);
-    clip.x += corner.x * camera.params.x * clip.w;
-    clip.y += corner.y * camera.params.x * clip.w;
+
+    let z_cam = camera.params.w;
+    let branch_hash = fract(sin(f32(instance_index) * 12.9898) * 43758.5453);
+
+    // Ghost-seed attractor wells (mirror make_force_grid in lib.rs) in
+    // normalized box units; used for condensation markers and causal shells.
+    var wells = array<vec3<f32>, 4>(
+        vec3<f32>(0.25, 0.25, 0.25),
+        vec3<f32>(0.75, 0.75, 0.25),
+        vec3<f32>(0.25, 0.75, 0.75),
+        vec3<f32>(0.75, 0.25, 0.75),
+    );
+    let u_norm = fract(p.position / camera.params.y);
+    var d_min = 1.0e9;
+    for (var wi = 0; wi < 4; wi = wi + 1) {
+        d_min = min(d_min, distance(u_norm, wells[wi]));
+    }
+
+    // Seed condensation window z in [2, 30]: particles co-moving with a
+    // well render as oversized pulsing attractor markers.
+    var psize = camera.params.x;
+    var seed_glow = 0.0;
+    if (z_cam <= 30.0 && z_cam >= 2.0 && d_min < 0.06) {
+        seed_glow = 1.0 - d_min / 0.06;
+        psize = psize * 4.0;
+    }
+    // Active-baryon branch renders slightly larger so the 10/33 share stays
+    // legible against the 23/33 anti-baryon population.
+    if (branch_hash >= (23.0 / 33.0)) {
+        psize = psize * 1.4;
+    }
+
+    // Causal-point projection envelope: faint spherical shell at
+    // r = 0.10 box units around each well while GET clustering (0 < z <= 7).
+    var causal_env = 0.0;
+    if (z_cam <= 7.0 && z_cam > 0.0) {
+        causal_env = exp(-pow((d_min - 0.10) * 40.0, 2.0));
+    }
+
+    clip.x += corner.x * psize * clip.w;
+    clip.y += corner.y * psize * clip.w;
 
     out.clip_position = clip;
     out.world_pos = world;
     out.vis_factor = p.vis_weight;
     out.mass = p.grav_mass;
     out.point_coord = corner * 0.5 + vec2<f32>(0.5);
+    out.branch_hash = branch_hash;
+    out.seed_glow = seed_glow;
+    out.causal_env = causal_env;
     return out;
 }
 
@@ -75,12 +120,48 @@ fn fs_render_dual_channel(in: VertexOutput) -> GBufferOutput {
     }
 
     let core_intensity = exp(-dist_from_center * 8.0);
+    let z = camera.params.w;
 
-    // Channel A: Visible Gauge Emission
-    // Decoupled anti-baryons fade to zero as vis_factor -> 0
-    let baryonic_color = vec3<f32>(1.0, 0.65, 0.3) * core_intensity * in.vis_factor;
-    let ionization_halo = vec3<f32>(0.2, 0.5, 1.0) * pow(core_intensity, 2.0) * in.vis_factor;
-    output.visible_gauge_glow = vec4<f32>(baryonic_color + ionization_halo, in.vis_factor * core_intensity);
+    // Channel A: Visible Gauge Emission.
+    // Branch split: active baryons (branch_hash >= 23/33) burn solar-gold;
+    // anti-baryons de-render electric-violet -> deep ghost across the
+    // Stinespring window z in [1e9, 1e12].
+    let is_dark_branch = in.branch_hash < (23.0 / 33.0);
+    var emit = vec3<f32>(1.0, 0.72, 0.18) * 1.6;
+    if (is_dark_branch) {
+        if (z > 1.0e12) {
+            emit = vec3<f32>(0.8, 0.2, 1.0);
+        } else if (z > 1.0e9) {
+            let blend = clamp((12.0 - log2(max(z, 1.0)) / 3.321928) / 3.0, 0.0, 1.0);
+            emit = mix(vec3<f32>(0.8, 0.2, 1.0), vec3<f32>(0.15, 0.05, 0.35), blend);
+        } else {
+            emit = vec3<f32>(0.15, 0.05, 0.35);
+        }
+    }
+    let pulse = 0.75 + 0.25 * sin(in.branch_hash * 40.0 + z * 0.7);
+
+    // Dark-branch emission decays quadratically with vis_weight so the
+    // de-rendering population dims faster than the baryon branch.
+    var emit_w = in.vis_factor;
+    if (is_dark_branch) {
+        emit_w = in.vis_factor * in.vis_factor;
+    }
+    let emission = emit * core_intensity * emit_w;
+    // Ionization halo tinted by the branch color so the two populations
+    // stay chromatically distinct (gold baryons vs violet anti-baryons).
+    let ionization_halo = emit * vec3<f32>(0.35, 0.45, 0.7) * pow(core_intensity, 2.0) * in.vis_factor;
+    var glow_rgb = emission + ionization_halo;
+    var glow_a = in.vis_factor * core_intensity;
+
+    // Ghost-seed attractor marker: amber core + cyan event-horizon ring.
+    if (in.seed_glow > 0.0) {
+        let ring = smoothstep(0.38, 0.5, dist_from_center);
+        let seed_core = vec3<f32>(1.0, 0.75, 0.2) * core_intensity * pulse * 2.0;
+        let seed_ring = vec3<f32>(0.4, 1.0, 1.0) * ring * pulse;
+        glow_rgb += (seed_core + seed_ring) * in.seed_glow;
+        glow_a = max(glow_a, in.seed_glow * core_intensity);
+    }
+    output.visible_gauge_glow = vec4<f32>(glow_rgb, glow_a);
 
     // Channel B: Passive Gravitational Ghost Distortion
     // Persists regardless of vis_factor, tracking total stress-energy E_munu = 0
@@ -94,11 +175,13 @@ fn fs_render_dual_channel(in: VertexOutput) -> GBufferOutput {
         shear_dir.y * core_intensity * 0.05
     );
 
-    // Store shear in RG, ghost density in B, total invariant mass in A
+    // Store shear in RG, ghost density in B, total invariant mass in A.
+    // Causal-point projection envelopes land in the ghost channel as faint
+    // observer light-cone shells.
     output.passive_metric_distortion = vec4<f32>(
-        gravitational_shear.x,
-        gravitational_shear.y,
-        dark_ghost_weight * core_intensity,
+        gravitational_shear.x + in.causal_env * 0.02,
+        gravitational_shear.y + in.causal_env * 0.02,
+        dark_ghost_weight * core_intensity + in.causal_env * 0.35,
         in.mass
     );
 

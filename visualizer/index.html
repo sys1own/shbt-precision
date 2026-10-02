@@ -36,10 +36,30 @@
   #status { position: absolute; right: 10px; top: 10px; padding: 8px 12px; max-width: 320px;
             background: rgba(8,14,28,.82); border: 1px solid #26406b; border-radius: 8px;
             font-size: 11px; color: #9db7dd; white-space: pre-line; }
+  #phase-banner {
+    position: absolute; left: 50%; top: 18px; transform: translateX(-50%);
+    padding: 6px 18px; border-radius: 8px; border: 1px solid #26406b;
+    background: rgba(8,14,28,.82); font-size: 13px; font-weight: 700;
+    font-family: ui-monospace, Consolas, monospace; letter-spacing: .5px;
+    text-align: center; white-space: nowrap; z-index: 5;
+  }
+  #phase-banner.ph-load { color: #4fd8ff; border-color: #4fd8ff; }
+  #phase-banner.ph-bary { color: #e05aff; border-color: #e05aff; animation: phase-flash 0.9s ease-in-out infinite alternate; }
+  #phase-banner.ph-seed { color: #ffb42e; border-color: #ffb42e; text-shadow: 0 0 12px #ff9d00; }
+  #phase-banner.ph-get { color: #dfe8ff; border-color: #7a9bff; text-shadow: 0 0 12px #4f7dff; }
+  #phase-banner.ph-freeze { color: #33e0a1; border-color: #33e0a1; }
+  @keyframes phase-flash { from { opacity: 1; } to { opacity: .45; } }
+  #epoch-bar { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 6px; }
+  #epoch-bar button {
+    background: #101a30; color: #9db7dd; border: 1px solid #26406b;
+    border-radius: 6px; padding: 3px 8px; font-size: 11px; cursor: pointer;
+  }
+  #epoch-bar button:hover { color: #dfe8ff; border-color: #4f7dff; }
 </style>
 </head>
 <body>
 <canvas id="shbt-canvas" width="1280" height="720"></canvas>
+<div id="phase-banner" class="ph-load">PHASE: CONFORMAL SCREEN BIT LOADING</div>
 
 <div id="hud">
   <h1>SHBT HOLOGRAPHIC TELEMETRY</h1>
@@ -96,6 +116,13 @@
     </select>
     <label><input type="checkbox" id="ch-a" checked> Ch&nbsp;A visible</label>
     <label><input type="checkbox" id="ch-b" checked> Ch&nbsp;B ghost</label>
+  </div>
+  <div id="epoch-bar">
+    <button data-epoch="load">1. Bit Loading (z=1e14)</button>
+    <button data-epoch="bary">2. Baryogenesis De-Rendering (z=1e11)</button>
+    <button data-epoch="seed">3. Ghost Seed Genesis (z=18)</button>
+    <button data-epoch="get">4. Proto-Galaxy Web (z=3)</button>
+    <button data-epoch="freeze">5. Horizon Freeze (z=-0.999)</button>
   </div>
 </div>
 
