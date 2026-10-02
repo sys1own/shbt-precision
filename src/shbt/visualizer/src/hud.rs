@@ -263,3 +263,225 @@ impl Default for HorizonLedger {
         Self::new()
     }
 }
+
+// ---------------------------------------------------------------------------
+// Gravitational optics engine state (shbt5 spec): fixed-size, zero-allocation
+// lensing uniform block, softened point-mass seed table, and caustic
+// telemetry. `LensingUniforms` is the 192-byte WGSL contract extended by two
+// trailing vec4 parameter slots (post0/post1) consumed by fs_post.
+// ---------------------------------------------------------------------------
+
+/// Post-process lensing uniform block: 224 bytes, 16-byte aligned.
+#[repr(C)]
+#[derive(Clone, Copy, Debug, bytemuck::Pod, bytemuck::Zeroable)]
+pub struct LensingUniforms {
+    pub view_proj: [f32; 16],
+    pub inv_view_proj: [f32; 16],
+    pub cam_pos: [f32; 4],
+    pub screen_size: [f32; 2],
+    pub lensing_strength: f32,
+    pub dispersion_coeff: f32,
+    pub dark_glow_intensity: f32,
+    pub dark_glow_radius: f32,
+    pub doppler_enabled: u32,
+    pub seed_count: u32,
+    pub time: f32,
+    pub _pad0: f32,
+    pub _pad1: [f32; 2],
+    /// Engine extras: x = Channel A enable, y = Channel B enable,
+    /// z = f_load horizon fill, w = exposure.
+    pub post0: [f32; 4],
+    /// x = unwrap_transition (0 = comoving bulk, 1 = boundary CFT torus).
+    pub post1: [f32; 4],
+}
+
+/// Softened point-mass seed defect: 16 bytes, screen-space lensing record.
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, bytemuck::Pod, bytemuck::Zeroable)]
+pub struct SeedDefect {
+    pub screen_pos: [f32; 2],
+    pub theta_e: f32,
+    pub core_radius: f32,
+}
+
+/// Caustic telemetry readout for the HUD ledger.
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen::prelude::wasm_bindgen)]
+#[derive(Clone, Copy, Debug, Default)]
+pub struct VisualizerTelemetry {
+    pub peak_shear: f32,
+    pub peak_convergence: f32,
+    pub max_einstein_radius: f32,
+    pub active_caustics: u32,
+}
+
+/// Zero-allocation lensing uniform / seed-table manager. Stages the
+/// `LensingUniforms` block and the 64-entry `SeedDefect` table for direct
+/// memory-copy upload to the GPU (get_uniform_ptr / get_seeds_ptr).
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen::prelude::wasm_bindgen)]
+pub struct VisualizerEngine {
+    uniforms: LensingUniforms,
+    seeds: [SeedDefect; 64],
+    telemetry: VisualizerTelemetry,
+    is_dirty: bool,
+}
+
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen::prelude::wasm_bindgen)]
+impl VisualizerEngine {
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen::prelude::wasm_bindgen(constructor))]
+    pub fn new(width: f32, height: f32) -> Self {
+        let mut uniforms = LensingUniforms {
+            view_proj: [0.0; 16],
+            inv_view_proj: [0.0; 16],
+            cam_pos: [0.0; 4],
+            screen_size: [width, height],
+            lensing_strength: 1.0,
+            dispersion_coeff: 0.25,
+            dark_glow_intensity: 0.8,
+            dark_glow_radius: 4.0,
+            doppler_enabled: 1,
+            seed_count: 0,
+            time: 0.0,
+            _pad0: 0.0,
+            _pad1: [0.0; 2],
+            post0: [1.0, 1.0, 0.0, 1.6],
+            post1: [0.0; 4],
+        };
+        uniforms.view_proj[0] = 1.0;
+        uniforms.view_proj[5] = 1.0;
+        uniforms.view_proj[10] = 1.0;
+        uniforms.view_proj[15] = 1.0;
+        uniforms.inv_view_proj = uniforms.view_proj;
+
+        let seeds = [SeedDefect {
+            screen_pos: [0.0, 0.0],
+            theta_e: 0.0,
+            core_radius: 0.01,
+        }; 64];
+
+        Self {
+            uniforms,
+            seeds,
+            telemetry: VisualizerTelemetry::default(),
+            is_dirty: true,
+        }
+    }
+
+    pub fn set_lensing_enabled(&mut self, enabled: bool) {
+        self.uniforms.lensing_strength = if enabled { 1.0 } else { 0.0 };
+        self.is_dirty = true;
+    }
+
+    pub fn set_lensing_scale(&mut self, scale: f32) {
+        self.uniforms.lensing_strength = scale.clamp(0.0, 5.0);
+        self.is_dirty = true;
+    }
+
+    pub fn set_dispersion(&mut self, dispersion: f32) {
+        self.uniforms.dispersion_coeff = dispersion.clamp(0.0, 1.0);
+        self.is_dirty = true;
+    }
+
+    pub fn set_doppler_enabled(&mut self, enabled: bool) {
+        self.uniforms.doppler_enabled = if enabled { 1 } else { 0 };
+        self.is_dirty = true;
+    }
+
+    pub fn set_dark_glow(&mut self, intensity: f32) {
+        self.uniforms.dark_glow_intensity = intensity.clamp(0.0, 2.0);
+        self.is_dirty = true;
+    }
+
+    pub fn update_camera_matrices(&mut self, vp: &[f32], inv_vp: &[f32], pos: &[f32], time: f32) {
+        if vp.len() >= 16 {
+            self.uniforms.view_proj.copy_from_slice(&vp[..16]);
+        }
+        if inv_vp.len() >= 16 {
+            self.uniforms.inv_view_proj.copy_from_slice(&inv_vp[..16]);
+        }
+        if pos.len() >= 3 {
+            self.uniforms.cam_pos[..3].copy_from_slice(&pos[..3]);
+            self.uniforms.cam_pos[3] = 1.0;
+        }
+        self.uniforms.time = time;
+        self.is_dirty = true;
+    }
+
+    pub fn register_seed(&mut self, idx: usize, u: f32, v: f32, theta_e: f32, core: f32) {
+        if idx < 64 {
+            self.seeds[idx] = SeedDefect {
+                screen_pos: [u, v],
+                theta_e,
+                core_radius: core,
+            };
+            if idx >= self.uniforms.seed_count as usize {
+                self.uniforms.seed_count = (idx + 1) as u32;
+            }
+            self.is_dirty = true;
+        }
+    }
+
+    pub fn clear_seeds(&mut self) {
+        self.uniforms.seed_count = 0;
+        self.is_dirty = true;
+    }
+
+    /// Peak shear/convergence plus dominant Einstein radius and active
+    /// caustic node count for the HUD ledger.
+    pub fn update_telemetry(&mut self, peak_gamma: f32, peak_kappa: f32) {
+        self.telemetry.peak_shear = peak_gamma;
+        self.telemetry.peak_convergence = peak_kappa;
+        let mut max_te = 0.0f32;
+        for i in 0..self.uniforms.seed_count as usize {
+            max_te = max_te.max(self.seeds[i].theta_e);
+        }
+        self.telemetry.max_einstein_radius = max_te;
+        let mut caustics = 0u32;
+        if peak_kappa >= 1.0 || (peak_gamma * peak_gamma + peak_kappa * peak_kappa) > 0.8 {
+            caustics += 1;
+        }
+        caustics += self.uniforms.seed_count;
+        self.telemetry.active_caustics = caustics;
+    }
+
+    pub fn get_uniform_ptr(&self) -> *const u8 {
+        bytemuck::bytes_of(&self.uniforms).as_ptr()
+    }
+
+    pub fn get_seeds_ptr(&self) -> *const u8 {
+        bytemuck::cast_slice(&self.seeds).as_ptr()
+    }
+
+    pub fn telemetry(&self) -> VisualizerTelemetry {
+        self.telemetry
+    }
+
+    pub fn is_dirty(&self) -> bool {
+        self.is_dirty
+    }
+}
+
+#[cfg(test)]
+mod lensing_tests {
+    use super::*;
+
+    #[test]
+    fn lensing_uniform_layout_is_wgsl_contract() {
+        assert_eq!(std::mem::size_of::<LensingUniforms>(), 224);
+        assert_eq!(std::mem::align_of::<LensingUniforms>(), 4);
+        assert_eq!(std::mem::size_of::<SeedDefect>(), 16);
+        assert_eq!(std::mem::align_of::<SeedDefect>(), 4);
+    }
+
+    #[test]
+    fn seed_registration_and_telemetry() {
+        let mut engine = VisualizerEngine::new(1920.0, 1080.0);
+        engine.register_seed(0, 0.5, 0.5, 0.045, 0.008);
+        engine.register_seed(3, 0.35, 0.62, 0.022, 0.006);
+        engine.update_telemetry(0.428, 1.185);
+        let t = engine.telemetry();
+        assert!((t.max_einstein_radius - 0.045).abs() < 1e-6);
+        assert!(t.active_caustics >= 4);
+        engine.set_lensing_scale(9.0);
+        assert_eq!(engine.uniforms.lensing_strength, 5.0);
+    }
+}

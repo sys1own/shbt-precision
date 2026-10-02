@@ -52,6 +52,9 @@ function refreshHud(m) {
   $("hud-rentropy").innerHTML = rAdm > 0
     ? "R<sub>entropy</sub> = N<sub>limit</sub> &minus; C<sub>get</sub> &ge; 0 &mdash; GET active"
     : "R<sub>entropy</sub> &lt; 0 &mdash; observer set frozen (&empty;)";
+  $("hud-optics").innerHTML =
+    `&gamma;<sub>max</sub> = ${fmt(m.peak_shear)}  &kappa;<sub>max</sub> = ${fmt(m.peak_convergence)}\n` +
+    `&theta;<sub>E</sub> = ${fmt(m.max_einstein_radius)} rad  caustics = ${m.active_caustics}`;
   $("zlabel").textContent = `z = ${fmt(m.z, 3)}  a = ${fmt(m.a, 3)}`;
   const banner = $("phase-banner");
   if (m.z <= -0.95) {
@@ -80,6 +83,16 @@ async function boot() {
     status("WebGPU unavailable in this browser.\nUse Chrome/Edge >= 113 with WebGPU enabled.");
     return;
   }
+  // Chrome >= 133 removed the legacy maxInterStageShaderComponents limit;
+  // wgpu 0.19 still forwards it in requiredLimits, which aborts
+  // requestDevice. Strip it before the adapter sees the descriptor.
+  const origRequestDevice = GPUAdapter.prototype.requestDevice;
+  GPUAdapter.prototype.requestDevice = function (descriptor) {
+    if (descriptor && descriptor.requiredLimits) {
+      delete descriptor.requiredLimits.maxInterStageShaderComponents;
+    }
+    return origRequestDevice.call(this, descriptor);
+  };
   try {
     const wasm = await import("./pkg/shbt_visualizer.js");
     await wasm.default();
@@ -162,6 +175,65 @@ $("ch-b").addEventListener("change", syncChannels);
 function syncChannels() {
   if (engine) engine.set_channels($("ch-a").checked, $("ch-b").checked);
 }
+
+// Gravitational optics controls: lensing toggle/scale, wave-optics
+// dispersion, Doppler beaming, and dark-matter halo glow.
+function applyOptics() {
+  if (!engine) return;
+  if ($("toggle-lensing").checked) {
+    engine.set_lensing_scale(parseFloat($("slider-strength").value));
+  } else {
+    engine.set_lensing_enabled(false);
+  }
+  engine.set_dispersion(parseFloat($("slider-dispersion").value));
+  engine.set_doppler_enabled($("toggle-doppler").checked);
+  engine.set_dark_glow(
+    $("toggle-glow").checked ? parseFloat($("slider-dark-glow").value) : 0.0
+  );
+}
+$("toggle-lensing").addEventListener("change", () => {
+  if (engine && $("toggle-lensing").checked) engine.set_lensing_enabled(true);
+  applyOptics();
+});
+$("slider-strength").addEventListener("input", (ev) => {
+  $("strength-label").textContent = parseFloat(ev.target.value).toFixed(2);
+  applyOptics();
+});
+$("slider-dispersion").addEventListener("input", (ev) => {
+  $("dispersion-label").textContent = parseFloat(ev.target.value).toFixed(2);
+  applyOptics();
+});
+$("toggle-doppler").addEventListener("change", applyOptics);
+$("toggle-glow").addEventListener("change", applyOptics);
+$("slider-dark-glow").addEventListener("input", (ev) => {
+  $("glow-label").textContent = parseFloat(ev.target.value).toFixed(2);
+  applyOptics();
+});
+
+// Keyboard shortcuts: L lensing, D doppler, G dark glow,
+// [ / ] lensing strength, - / = dispersion, H toggle HUD.
+document.addEventListener("keydown", (ev) => {
+  if (ev.target.tagName === "INPUT" || ev.target.tagName === "SELECT") return;
+  const step = (id, d) => {
+    const s = $(id);
+    s.value = Math.min(Math.max(parseFloat(s.value) + d, parseFloat(s.min)), parseFloat(s.max));
+    s.dispatchEvent(new Event("input"));
+  };
+  switch (ev.key.toLowerCase()) {
+    case "l": $("toggle-lensing").checked = !$("toggle-lensing").checked; $("toggle-lensing").dispatchEvent(new Event("change")); break;
+    case "d": $("toggle-doppler").checked = !$("toggle-doppler").checked; applyOptics(); break;
+    case "g": $("toggle-glow").checked = !$("toggle-glow").checked; applyOptics(); break;
+    case "[": step("slider-strength", -0.1); break;
+    case "]": step("slider-strength", 0.1); break;
+    case "-": step("slider-dispersion", -0.05); break;
+    case "=": step("slider-dispersion", 0.05); break;
+    case "h": {
+      const hud = $("hud");
+      hud.style.display = hud.style.display === "none" ? "" : "none";
+      break;
+    }
+  }
+});
 
 window.addEventListener("resize", () => {
   const c = $("shbt-canvas");

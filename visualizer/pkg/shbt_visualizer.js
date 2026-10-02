@@ -63,6 +63,41 @@ export class ShbtWebGpuEngine {
         wasm.shbtwebgpuengine_set_channels(this.__wbg_ptr, channel_a, channel_b);
     }
     /**
+     * Volumetric dark-matter halo glow intensity, clamped to [0.0, 2.0].
+     * @param {number} intensity
+     */
+    set_dark_glow(intensity) {
+        wasm.shbtwebgpuengine_set_dark_glow(this.__wbg_ptr, intensity);
+    }
+    /**
+     * Wave-optics chromatic dispersion coefficient, clamped to [0.0, 1.0].
+     * @param {number} dispersion
+     */
+    set_dispersion(dispersion) {
+        wasm.shbtwebgpuengine_set_dispersion(this.__wbg_ptr, dispersion);
+    }
+    /**
+     * Toggle relativistic Doppler beaming + thermal color shift.
+     * @param {boolean} enabled
+     */
+    set_doppler_enabled(enabled) {
+        wasm.shbtwebgpuengine_set_doppler_enabled(this.__wbg_ptr, enabled);
+    }
+    /**
+     * Toggle gravitational lensing (macro + seed deflection) on/off.
+     * @param {boolean} enabled
+     */
+    set_lensing_enabled(enabled) {
+        wasm.shbtwebgpuengine_set_lensing_enabled(this.__wbg_ptr, enabled);
+    }
+    /**
+     * Lensing strength scale (lambda_lens), clamped to [0.0, 5.0].
+     * @param {number} scale
+     */
+    set_lensing_scale(scale) {
+        wasm.shbtwebgpuengine_set_lensing_scale(this.__wbg_ptr, scale);
+    }
+    /**
      * @param {boolean} playing
      */
     set_playing(playing) {
@@ -120,6 +155,205 @@ export class ShbtWebGpuEngine {
     }
 }
 if (Symbol.dispose) ShbtWebGpuEngine.prototype[Symbol.dispose] = ShbtWebGpuEngine.prototype.free;
+
+/**
+ * Zero-allocation lensing uniform / seed-table manager. Stages the
+ * `LensingUniforms` block and the 64-entry `SeedDefect` table for direct
+ * memory-copy upload to the GPU (get_uniform_ptr / get_seeds_ptr).
+ */
+export class VisualizerEngine {
+    __destroy_into_raw() {
+        const ptr = this.__wbg_ptr;
+        this.__wbg_ptr = 0;
+        VisualizerEngineFinalization.unregister(this);
+        return ptr;
+    }
+    free() {
+        const ptr = this.__destroy_into_raw();
+        wasm.__wbg_visualizerengine_free(ptr, 0);
+    }
+    clear_seeds() {
+        wasm.visualizerengine_clear_seeds(this.__wbg_ptr);
+    }
+    /**
+     * @returns {number}
+     */
+    get_seeds_ptr() {
+        const ret = wasm.visualizerengine_get_seeds_ptr(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    get_uniform_ptr() {
+        const ret = wasm.visualizerengine_get_uniform_ptr(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {boolean}
+     */
+    is_dirty() {
+        const ret = wasm.visualizerengine_is_dirty(this.__wbg_ptr);
+        return ret !== 0;
+    }
+    /**
+     * @param {number} width
+     * @param {number} height
+     */
+    constructor(width, height) {
+        const ret = wasm.visualizerengine_new(width, height);
+        this.__wbg_ptr = ret;
+        VisualizerEngineFinalization.register(this, this.__wbg_ptr, this);
+        return this;
+    }
+    /**
+     * @param {number} idx
+     * @param {number} u
+     * @param {number} v
+     * @param {number} theta_e
+     * @param {number} core
+     */
+    register_seed(idx, u, v, theta_e, core) {
+        wasm.visualizerengine_register_seed(this.__wbg_ptr, idx, u, v, theta_e, core);
+    }
+    /**
+     * @param {number} intensity
+     */
+    set_dark_glow(intensity) {
+        wasm.visualizerengine_set_dark_glow(this.__wbg_ptr, intensity);
+    }
+    /**
+     * @param {number} dispersion
+     */
+    set_dispersion(dispersion) {
+        wasm.visualizerengine_set_dispersion(this.__wbg_ptr, dispersion);
+    }
+    /**
+     * @param {boolean} enabled
+     */
+    set_doppler_enabled(enabled) {
+        wasm.visualizerengine_set_doppler_enabled(this.__wbg_ptr, enabled);
+    }
+    /**
+     * @param {boolean} enabled
+     */
+    set_lensing_enabled(enabled) {
+        wasm.visualizerengine_set_lensing_enabled(this.__wbg_ptr, enabled);
+    }
+    /**
+     * @param {number} scale
+     */
+    set_lensing_scale(scale) {
+        wasm.visualizerengine_set_lensing_scale(this.__wbg_ptr, scale);
+    }
+    /**
+     * @returns {VisualizerTelemetry}
+     */
+    telemetry() {
+        const ret = wasm.visualizerengine_telemetry(this.__wbg_ptr);
+        return VisualizerTelemetry.__wrap(ret);
+    }
+    /**
+     * @param {Float32Array} vp
+     * @param {Float32Array} inv_vp
+     * @param {Float32Array} pos
+     * @param {number} time
+     */
+    update_camera_matrices(vp, inv_vp, pos, time) {
+        const ptr0 = passArrayF32ToWasm0(vp, wasm.__wbindgen_malloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ptr1 = passArrayF32ToWasm0(inv_vp, wasm.__wbindgen_malloc);
+        const len1 = WASM_VECTOR_LEN;
+        const ptr2 = passArrayF32ToWasm0(pos, wasm.__wbindgen_malloc);
+        const len2 = WASM_VECTOR_LEN;
+        wasm.visualizerengine_update_camera_matrices(this.__wbg_ptr, ptr0, len0, ptr1, len1, ptr2, len2, time);
+    }
+    /**
+     * Peak shear/convergence plus dominant Einstein radius and active
+     * caustic node count for the HUD ledger.
+     * @param {number} peak_gamma
+     * @param {number} peak_kappa
+     */
+    update_telemetry(peak_gamma, peak_kappa) {
+        wasm.visualizerengine_update_telemetry(this.__wbg_ptr, peak_gamma, peak_kappa);
+    }
+}
+if (Symbol.dispose) VisualizerEngine.prototype[Symbol.dispose] = VisualizerEngine.prototype.free;
+
+/**
+ * Caustic telemetry readout for the HUD ledger.
+ */
+export class VisualizerTelemetry {
+    static __wrap(ptr) {
+        const obj = Object.create(VisualizerTelemetry.prototype);
+        obj.__wbg_ptr = ptr;
+        VisualizerTelemetryFinalization.register(obj, obj.__wbg_ptr, obj);
+        return obj;
+    }
+    __destroy_into_raw() {
+        const ptr = this.__wbg_ptr;
+        this.__wbg_ptr = 0;
+        VisualizerTelemetryFinalization.unregister(this);
+        return ptr;
+    }
+    free() {
+        const ptr = this.__destroy_into_raw();
+        wasm.__wbg_visualizertelemetry_free(ptr, 0);
+    }
+    /**
+     * @returns {number}
+     */
+    get active_caustics() {
+        const ret = wasm.__wbg_get_visualizertelemetry_active_caustics(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    get max_einstein_radius() {
+        const ret = wasm.__wbg_get_visualizertelemetry_max_einstein_radius(this.__wbg_ptr);
+        return ret;
+    }
+    /**
+     * @returns {number}
+     */
+    get peak_convergence() {
+        const ret = wasm.__wbg_get_visualizertelemetry_peak_convergence(this.__wbg_ptr);
+        return ret;
+    }
+    /**
+     * @returns {number}
+     */
+    get peak_shear() {
+        const ret = wasm.__wbg_get_visualizertelemetry_peak_shear(this.__wbg_ptr);
+        return ret;
+    }
+    /**
+     * @param {number} arg0
+     */
+    set active_caustics(arg0) {
+        wasm.__wbg_set_visualizertelemetry_active_caustics(this.__wbg_ptr, arg0);
+    }
+    /**
+     * @param {number} arg0
+     */
+    set max_einstein_radius(arg0) {
+        wasm.__wbg_set_visualizertelemetry_max_einstein_radius(this.__wbg_ptr, arg0);
+    }
+    /**
+     * @param {number} arg0
+     */
+    set peak_convergence(arg0) {
+        wasm.__wbg_set_visualizertelemetry_peak_convergence(this.__wbg_ptr, arg0);
+    }
+    /**
+     * @param {number} arg0
+     */
+    set peak_shear(arg0) {
+        wasm.__wbg_set_visualizertelemetry_peak_shear(this.__wbg_ptr, arg0);
+    }
+}
+if (Symbol.dispose) VisualizerTelemetry.prototype[Symbol.dispose] = VisualizerTelemetry.prototype.free;
 
 /**
  * Wasm/JS-facing engine: owns the shared simulation buffers and the
@@ -982,18 +1216,18 @@ function __wbg_get_imports() {
             arg0.writeTimestamp(arg1, arg2 >>> 0);
         },
         __wbindgen_generic_0000000000000001: function(arg0, arg1) {
-            // Cast intrinsic for `Closure(Closure { owned: true, function: Function { arguments: [Externref], shim_idx: 246, ret: Unit, inner_ret: Some(Unit) }, mutable: true }) -> Externref`.
+            // Cast intrinsic for `Closure(Closure { owned: true, function: Function { arguments: [Externref], shim_idx: 247, ret: Unit, inner_ret: Some(Unit) }, mutable: true }) -> Externref`.
             const ret = makeMutClosure(arg0, arg1, wasm_bindgen_740f87ab467470cf___convert__closures_____invoke___wasm_bindgen_740f87ab467470cf___JsValue______true_);
             return ret;
         },
         __wbindgen_generic_0000000000000002: function(arg0, arg1) {
-            // Cast intrinsic for `Closure(Closure { owned: true, function: Function { arguments: [Externref], shim_idx: 273, ret: Result(Unit), inner_ret: Some(Result(Unit)) }, mutable: true }) -> Externref`.
+            // Cast intrinsic for `Closure(Closure { owned: true, function: Function { arguments: [Externref], shim_idx: 274, ret: Result(Unit), inner_ret: Some(Result(Unit)) }, mutable: true }) -> Externref`.
             const ret = makeMutClosure(arg0, arg1, wasm_bindgen_740f87ab467470cf___convert__closures_____invoke___wasm_bindgen_740f87ab467470cf___JsValue__core_608f92abc48d28da___result__Result_____wasm_bindgen_740f87ab467470cf___JsError___true_);
             return ret;
         },
         __wbindgen_generic_0000000000000003: function(arg0, arg1) {
-            // Cast intrinsic for `Closure(Closure { owned: true, function: Function { arguments: [NamedExternref("GPUUncapturedErrorEvent")], shim_idx: 246, ret: Unit, inner_ret: Some(Unit) }, mutable: true }) -> Externref`.
-            const ret = makeMutClosure(arg0, arg1, wasm_bindgen_740f87ab467470cf___convert__closures_____invoke___wasm_bindgen_740f87ab467470cf___JsValue______true__26);
+            // Cast intrinsic for `Closure(Closure { owned: true, function: Function { arguments: [NamedExternref("GPUUncapturedErrorEvent")], shim_idx: 247, ret: Unit, inner_ret: Some(Unit) }, mutable: true }) -> Externref`.
+            const ret = makeMutClosure(arg0, arg1, wasm_bindgen_740f87ab467470cf___convert__closures_____invoke___wasm_bindgen_740f87ab467470cf___JsValue______true__53);
             return ret;
         },
         __wbindgen_generic_0000000000000004: function(arg0) {
@@ -1031,8 +1265,8 @@ function wasm_bindgen_740f87ab467470cf___convert__closures_____invoke___wasm_bin
     wasm.wasm_bindgen_740f87ab467470cf___convert__closures_____invoke___wasm_bindgen_740f87ab467470cf___JsValue______true_(arg0, arg1, arg2);
 }
 
-function wasm_bindgen_740f87ab467470cf___convert__closures_____invoke___wasm_bindgen_740f87ab467470cf___JsValue______true__26(arg0, arg1, arg2) {
-    wasm.wasm_bindgen_740f87ab467470cf___convert__closures_____invoke___wasm_bindgen_740f87ab467470cf___JsValue______true__26(arg0, arg1, arg2);
+function wasm_bindgen_740f87ab467470cf___convert__closures_____invoke___wasm_bindgen_740f87ab467470cf___JsValue______true__53(arg0, arg1, arg2) {
+    wasm.wasm_bindgen_740f87ab467470cf___convert__closures_____invoke___wasm_bindgen_740f87ab467470cf___JsValue______true__53(arg0, arg1, arg2);
 }
 
 function wasm_bindgen_740f87ab467470cf___convert__closures_____invoke___wasm_bindgen_740f87ab467470cf___JsValue__core_608f92abc48d28da___result__Result_____wasm_bindgen_740f87ab467470cf___JsError___true_(arg0, arg1, arg2) {
@@ -1057,6 +1291,12 @@ const __wbindgen_enum_GpuTextureFormat = ["r8unorm", "r8snorm", "r8uint", "r8sin
 const ShbtWebGpuEngineFinalization = (typeof FinalizationRegistry === 'undefined')
     ? { register: () => {}, unregister: () => {} }
     : new FinalizationRegistry(ptr => wasm.__wbg_shbtwebgpuengine_free(ptr, 1));
+const VisualizerEngineFinalization = (typeof FinalizationRegistry === 'undefined')
+    ? { register: () => {}, unregister: () => {} }
+    : new FinalizationRegistry(ptr => wasm.__wbg_visualizerengine_free(ptr, 1));
+const VisualizerTelemetryFinalization = (typeof FinalizationRegistry === 'undefined')
+    ? { register: () => {}, unregister: () => {} }
+    : new FinalizationRegistry(ptr => wasm.__wbg_visualizertelemetry_free(ptr, 1));
 const WasmShbtEngineFinalization = (typeof FinalizationRegistry === 'undefined')
     ? { register: () => {}, unregister: () => {} }
     : new FinalizationRegistry(ptr => wasm.__wbg_wasmshbtengine_free(ptr, 1));
@@ -1154,6 +1394,14 @@ function getDataViewMemory0() {
     return cachedDataViewMemory0;
 }
 
+let cachedFloat32ArrayMemory0 = null;
+function getFloat32ArrayMemory0() {
+    if (cachedFloat32ArrayMemory0 === null || cachedFloat32ArrayMemory0.byteLength === 0) {
+        cachedFloat32ArrayMemory0 = new Float32Array(wasm.memory.buffer);
+    }
+    return cachedFloat32ArrayMemory0;
+}
+
 function getStringFromWasm0(ptr, len) {
     return decodeText(ptr >>> 0, len);
 }
@@ -1218,6 +1466,13 @@ function makeMutClosure(arg0, arg1, f) {
 function passArray8ToWasm0(arg, malloc) {
     const ptr = malloc(arg.length * 1, 1) >>> 0;
     getUint8ArrayMemory0().set(arg, ptr / 1);
+    WASM_VECTOR_LEN = arg.length;
+    return ptr;
+}
+
+function passArrayF32ToWasm0(arg, malloc) {
+    const ptr = malloc(arg.length * 4, 4) >>> 0;
+    getFloat32ArrayMemory0().set(arg, ptr / 4);
     WASM_VECTOR_LEN = arg.length;
     return ptr;
 }
@@ -1300,6 +1555,7 @@ function __wbg_finalize_init(instance, module) {
     wasm = instance.exports;
     wasmModule = module;
     cachedDataViewMemory0 = null;
+    cachedFloat32ArrayMemory0 = null;
     cachedUint32ArrayMemory0 = null;
     cachedUint8ArrayMemory0 = null;
     wasm.__wbindgen_start();

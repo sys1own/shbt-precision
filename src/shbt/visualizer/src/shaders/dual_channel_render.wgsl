@@ -15,7 +15,40 @@ struct Camera {
     // x: point extent (clip units), y: box_size, z: unwrap_transition
     // (0 = comoving bulk 3D, 1 = boundary CFT torus), w: redshift.
     params: vec4<f32>,
+    // xyz: camera world position, w: relativistic Doppler beaming flag.
+    aux: vec4<f32>,
 };
+
+// Characteristic velocity scale used to normalize particle velocities
+// into relativistic beta factors for the Doppler beaming model.
+const C_SPEED: f32 = 60.0;
+
+// Blackbody thermal color mapping (Tanner Helland approximation):
+// maps an effective Kelvin temperature onto an RGB tint.
+fn kelvin_to_rgb(temp_kelvin: f32) -> vec3<f32> {
+    let t = clamp(temp_kelvin, 1000.0, 40000.0) / 100.0;
+    var r: f32;
+    var g: f32;
+    var b: f32;
+
+    if (t <= 66.0) {
+        r = 1.0;
+        g = clamp((99.4708025861 * log(max(t, 1.0)) - 161.1195681661) / 255.0, 0.0, 1.0);
+    } else {
+        r = clamp((288.1221695283 * pow(t - 60.0, -0.0755148492)) / 255.0, 0.0, 1.0);
+        g = clamp((285.6773943610 * pow(t - 60.0, -0.0507658035)) / 255.0, 0.0, 1.0);
+    }
+
+    if (t >= 66.0) {
+        b = 1.0;
+    } else if (t <= 19.0) {
+        b = 0.0;
+    } else {
+        b = clamp((138.5177312231 * log(t - 10.0) - 305.0447927307) / 255.0, 0.0, 1.0);
+    }
+
+    return vec3<f32>(r, g, b);
+}
 
 @group(0) @binding(0) var<storage, read> particles: array<Particle>;
 @group(0) @binding(1) var<uniform> camera: Camera;
@@ -29,6 +62,8 @@ struct VertexOutput {
     @location(4) branch_hash: f32,
     @location(5) seed_glow: f32,
     @location(6) causal_env: f32,
+    @location(7) doppler_rgb: vec3<f32>,
+    @location(8) linear_depth: f32,
 };
 
 struct GBufferOutput {
@@ -107,6 +142,24 @@ fn vs_particle_billboard(
     out.branch_hash = branch_hash;
     out.seed_glow = seed_glow;
     out.causal_env = causal_env;
+
+    // Relativistic Doppler beaming: line-of-sight velocity beta_los,
+    // Doppler factor D = sqrt(1 - beta^2) / (1 - beta_los), cubic
+    // intensity boost I_obs = I_0 * D^3 with a blackbody color shift.
+    let to_cam = camera.aux.xyz - world;
+    let dist_cam = length(to_cam);
+    let n_los = to_cam / max(dist_cam, 1.0e-5);
+    let v_mag = length(p.velocity);
+    let beta = clamp(v_mag / C_SPEED, 0.0, 0.999);
+    let beta_los = clamp(dot(p.velocity, n_los) / C_SPEED, -0.999, 0.999);
+    var doppler_factor = 1.0;
+    if (camera.aux.w > 0.5) {
+        doppler_factor = sqrt(1.0 - beta * beta) / (1.0 - beta_los);
+    }
+    let eff_temp = 6500.0 * doppler_factor;
+    out.doppler_rgb = kelvin_to_rgb(eff_temp) * pow(doppler_factor, 3.0);
+    out.linear_depth = dist_cam;
+
     return out;
 }
 
@@ -149,10 +202,13 @@ fn fs_render_dual_channel(in: VertexOutput) -> GBufferOutput {
     if (is_dark_branch) {
         emit_w = in.vis_factor * in.vis_factor;
     }
-    let emission = emit * core_intensity * emit_w;
+    // Apply relativistic beaming: thermal tint keyed to the Doppler-
+    // shifted effective temperature plus the cubic intensity boost.
+    let doppler_boost = max(in.doppler_rgb, vec3<f32>(0.0));
+    let emission = emit * doppler_boost * core_intensity * emit_w;
     // Ionization halo tinted by the branch color so the two populations
     // stay chromatically distinct (gold baryons vs violet anti-baryons).
-    let ionization_halo = emit * vec3<f32>(0.35, 0.45, 0.7) * pow(core_intensity, 2.0) * in.vis_factor;
+    let ionization_halo = emit * vec3<f32>(0.35, 0.45, 0.7) * doppler_boost * pow(core_intensity, 2.0) * in.vis_factor;
     var glow_rgb = emission + ionization_halo;
     var glow_a = in.vis_factor * core_intensity;
 
@@ -166,7 +222,10 @@ fn fs_render_dual_channel(in: VertexOutput) -> GBufferOutput {
         glow_rgb += (seed_core + seed_ring) * in.seed_glow;
         glow_a = max(glow_a, in.seed_glow * (core_intensity + caustic_fringe));
     }
-    output.visible_gauge_glow = vec4<f32>(glow_rgb, glow_a);
+    // Channel A: spectral radiance in RGB, normalized line-of-sight
+    // depth in A for the depth-aware bilateral post pass.
+    let depth_norm = clamp(in.linear_depth / 4000.0, 0.0, 1.0);
+    output.visible_gauge_glow = vec4<f32>(glow_rgb, depth_norm * max(glow_a, 0.001));
 
     // Channel B: Passive Gravitational Ghost Distortion
     // Persists regardless of vis_factor, tracking total stress-energy E_munu = 0
@@ -186,14 +245,18 @@ fn fs_render_dual_channel(in: VertexOutput) -> GBufferOutput {
         gravitational_shear.y += shear_dir.y * seed_caustic_shear;
     }
 
-    // Store shear in RG, ghost density in B, total invariant mass in A.
-    // Causal-point projection envelopes land in the ghost channel as faint
-    // observer light-cone shells.
+    // Channel B packing (thin-screen lensing contract):
+    //   RG: gravitational shear components (gamma_1, gamma_2)
+    //   B:  convergence kappa = 1/2 nabla^2 psi (ghost mass weighted)
+    //   A:  observer causal entropy budget (vis_weight = loading share)
+    let kappa = (in.mass * 0.1 + dark_ghost_weight) * core_intensity
+        + in.causal_env * 0.35 + in.seed_glow * 1.2 * core_intensity;
+    let causal_entropy = in.vis_factor;
     output.passive_metric_distortion = vec4<f32>(
         gravitational_shear.x + in.causal_env * 0.02,
         gravitational_shear.y + in.causal_env * 0.02,
-        dark_ghost_weight * core_intensity + in.causal_env * 0.35 + in.seed_glow * 1.2 * core_intensity,
-        in.mass
+        kappa,
+        causal_entropy
     );
 
     return output;

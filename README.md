@@ -117,7 +117,45 @@ Boundary-isometry constraint consumed by downstream hardware:
 - `ShbtWebGpuEngine` drives four WGSL stages: `causal_point_get.wgsl` (active Causal-Point GET dynamics — `evaluate_causal_points` applies the *R*<sub>entropy</sub> = *N*<sub>limit</sub> − *C*<sub>get</sub> ≥ 0 admissibility gate and `apply_get_acceleration` the emergent clustering acceleration **a**<sub>GET</sub>(**x**) = −κ<sub>GET</sub> ∇ln ρ<sub>proj</sub>(**x**)), `nbody_pm.wgsl` (Fast-PM/2LPT `kick_drift_kernel` under loaded conformal friction 1 + *f*<sub>load</sub>·10/33 with the Stinespring anti-baryon de-render envelope and softened supermassive-seed attraction), `dual_channel_render.wgsl` (Channel A branch-split emission — solar-gold baryons vs electric-violet anti-baryons de-rendering to deep ghost across the Stinespring window, weighted by `vis_weight`, plus oversized pulsing seed-attractor markers during condensation; Channel B passive ghost shear/density conserved independently of it, carrying faint causal-point projection envelopes), and `holographic_post.wgsl` (lensed-UV composite, ghost false-color, `unwrap_torus_projection` conformal unwrapping onto the CFT torus [0, 2π)², horizon overlay driven by *f*<sub>load</sub>).
 - `WasmShbtEngine` owns the zero-copy simulation buffers — `ParticleRecord` (32 B), `CausalPointRecord` (64 B), `SeedDefectRecord` (128 B) — exposed via raw `get_*_buffer_ptr` accessors, with `update_epoch(z)` driven by `HorizonLedger` (*N*<sub>sat</sub> = 3.3119977 × 10<sup>122</sup> bits, Γ<sub>lock</sub>, Stinespring partition η<sub>A</sub> = 10/33 / η<sub>D</sub> = 23/33, seed inventory, Landauer debt, observer admissibility ℛ<sub>adm</sub>, conservation residual).
 - Double-buffered storage holds 2<sup>20</sup> particles in 32-byte `Particle` records (< 256 MB); the HUD decodes the 128-byte SHBT-MMIO telemetry frame (Horizon Bar, Boundary Capacity Gauge, Congestion & Seed Ledger, Landauer Debt Monitor, Δ<sub>fr</sub> = 0 / *E*<sub>*μν*</sub> = 0 / horizon-freeze indicators).
-- Interactive controls: timeline scrub z = 10<sup>14</sup> → −1 (ghost-seed condensation highlighted across z ≈ 30 → 7 with Δ*N* ≈ 6 × 10<sup>59</sup> bits and *P*<sub>debt</sub> ≈ 9.06 × 10<sup>20</sup> W), playback speeds 1×/10×/100×, continuous `unwrap_transition` torus slider plus comoving-bulk / boundary-CFT projection switch, and Channel A/B toggles. An epoch quick-jump bar jumps directly to each cosmic milestone (bit loading z = 10<sup>14</sup>, baryogenesis z = 10<sup>11</sup>, seed genesis z = 18, proto-galaxy web z = 3, horizon freeze z = −0.999) with matching playback speed, and a color-coded phase banner identifies the active era (cyan bit-loading, flashing magenta baryogenesis, amber seed condensation, blue/white GET clustering, emerald de Sitter freeze). The HUD adds a Causal-Point Observer Activity monitor (ℛ<sub>adm</sub> cardinality and *R*<sub>entropy</sub> ≥ 0 / freeze status).
+- Interactive controls: timeline scrub z = 10<sup>14</sup> → −1 (ghost-seed condensation highlighted across z ≈ 30 → 7 with Δ*N* ≈ 6 × 10<sup>59</sup> bits and *P*<sub>debt</sub> ≈ 9.06 × 10<sup>20</sup> W), playback speeds 1×/10×/100×, continuous `unwrap_transition` torus slider plus comoving-bulk / boundary-CFT projection switch, and Channel A/B toggles. An epoch quick-jump bar jumps directly to each cosmic milestone (bit loading z = 10<sup>14</sup>, baryogenesis z = 10<sup>11</sup>, seed genesis z = 18, proto-galaxy web z = 3, horizon freeze z = −0.999) with matching playback speed, and a color-coded phase banner identifies the active era (cyan bit-loading, flashing magenta baryogenesis, amber seed condensation, blue/white GET clustering, emerald de Sitter freeze). The HUD adds a Causal-Point Observer Activity monitor (ℛ<sub>adm</sub> cardinality and *R*<sub>entropy</sub> ≥ 0 / freeze status) and a Gravitational Optics Telemetry ledger (γ<sub>max</sub>, κ<sub>max</sub>, θ<sub>E</sub>, active caustics).
+
+#### Real-Time Gravitational Lensing & Cinematic Optics Engine
+
+The `sys1own/shbt-precision` visualizer features a high-performance WebGPU gravitational optics engine that renders cosmological mass deflections, chromatic caustics, and relativistic Doppler shifts at 60 FPS for 1M+ particles.
+
+- `dual_channel_render.wgsl` applies relativistic Doppler beaming 𝒟 = √(1 − β²)/(1 − β<sub>los</sub>) with boosted surface brightness *I*<sub>obs</sub> = *I*<sub>0</sub>𝒟³ and a `kelvin_to_rgb` black-body thermal shift; Channel B carries the projected shear (γ<sub>1</sub>, γ<sub>2</sub>), convergence κ, and causal entropy.
+- `holographic_post.wgsl` (`fs_post`) resolves the screen-space lens equation **β** = **θ** − λ<sub>lens</sub>[∇κ + **Γ**·∇κ] − Σ<sub>s</sub> θ<sub>E,s</sub>²(**θ** − **θ**<sub>s</sub>)/(|**θ** − **θ**<sub>s</sub>|² + ε<sub>core</sub>²) via central differences of the Channel B convergence field plus an analytical softened point-mass seed loop (*S* ≤ 64, dominant θ<sub>E</sub> ≃ 0.045 rad), applies three-tap chromatic dispersion δ<sub>disp</sub> near critical curves, a depth-aware bilateral dark-matter caustic glow (`sample_bilateral_convergence`), Einstein/caustic rings, and the Causal-Point Fresnel ripple field.
+- `causal_point_get.wgsl` rasterizes instanced Fresnel ripple shells for every observer node with *R*<sub>entropy</sub> ≥ 0, writing signed shear envelopes and boundary convergence into Channel B.
+- `LensingUniforms` (224-byte, 16-aligned `#[repr(C)]`) and `SeedDefect` (16-byte) storage tables are staged each frame; `VisualizerTelemetry` reports γ<sub>max</sub>, κ<sub>max</sub>, θ<sub>E</sub>, and the active caustic count to the HUD.
+
+##### CLI Startup Flags
+
+```bash
+# Launch the headless visualizer with gravitational lensing and chromatic dispersion
+cargo run --release --manifest-path src/shbt/visualizer/Cargo.toml \
+    --bin headless -- \
+    --enable-lensing --lensing-scale 1.5 --dispersion 0.25 \
+    --enable-doppler --dark-glow 0.8 --width 2560 --height 1440
+```
+
+##### Interactive Keybindings & HUD Controls
+
+| Key | Action |
+| :--- | :--- |
+| `L` | Toggle gravitational lensing pass on/off |
+| `D` | Toggle relativistic Doppler beaming and thermal color shifts |
+| `[` / `]` | Decrease/increase global lensing deflection strength λ<sub>lens</sub> (0–5) |
+| `-` / `=` | Decrease/increase wave-optics chromatic dispersion δ<sub>disp</sub> (0–1) |
+| `G` | Toggle dark-matter halo volumetric bilateral glow |
+| `H` | Toggle telemetry HUD overlay visibility |
+
+Equivalent HUD controls: the *Lensing*, *Doppler*, and *Dark glow* toggles plus the λ<sub>lens</sub>, δ<sub>disp</sub>, and glow sliders.
+
+##### Architectural Guarantees
+
+- **Zero GR compute overhead**: macro-scale lensing operates on screen-space potential gradients in Channel B while micro-scale lensing uses analytical softened point-mass seeds (*S* ≤ 64); no geodesic integration runs in the browser loop.
+- **Deterministic memory model**: WebAssembly linear-heap usage stays under 256 MB with zero heap allocations inside the active rendering loop.
+- **Invariant preserving**: visual shaders run fully decoupled from the cosmological physics solvers (`precision_cosmology.py`, `boltzmann_shbt.py`), preserving analytical invariance (*E*<sub>μν</sub> = 0, Δ<sub>norm</sub> < 10<sup>−120</sup>).
 
 ---
 

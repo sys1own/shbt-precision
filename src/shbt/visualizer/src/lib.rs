@@ -10,7 +10,10 @@ mod particle;
 mod telemetry;
 
 pub use engine::{CausalPointRecord, ParticleRecord, SeedDefectRecord, WasmShbtEngine};
-pub use hud::{HorizonLedger, HudMetrics, TimelineController, GAMMA_LOCK, N_SAT};
+pub use hud::{
+    HorizonLedger, HudMetrics, LensingUniforms, SeedDefect, TimelineController,
+    VisualizerEngine, VisualizerTelemetry, GAMMA_LOCK, N_SAT,
+};
 pub use particle::Particle;
 pub use telemetry::encode_mmio_frame;
 
@@ -45,25 +48,71 @@ struct CosmoParams {
 struct CameraParams {
     view_proj: [[f32; 4]; 4],
     params: [f32; 4], // x: point extent, y: box_size, z: unwrap_transition, w: redshift
+    aux: [f32; 4],    // xyz: camera world position, w: doppler beaming flag
 }
+
+/// Causal-observer render node (f64-free mirror of the WGSL CausalPoint
+/// record): 64 bytes, 16-byte aligned.
+#[repr(C, align(16))]
+#[derive(Copy, Clone, Pod, Zeroable)]
+struct CausalRenderNode {
+    center: [f32; 3],
+    radius: f32,
+    entropy_budget: f32,
+    get_cost: f32,
+    collapse_phase: f32,
+    active_flag: u32,
+    seed_index: u32,
+    pad: [u32; 3],
+    projection_dir: [f32; 3],
+    pad2: u32,
+}
+
+#[repr(C)]
+#[derive(Copy, Clone, Pod, Zeroable)]
+struct CausalRenderUniforms {
+    view_proj: [[f32; 4]; 4],
+    cam_pos: [f32; 4],
+    // x: box size, y: time, z: entropy master scale, w: billboard half-extent.
+    params: [f32; 4],
+}
+
+/// Ghost-seed attractor wells (mirrors `make_force_grid` / the WGSL `wells`
+/// table) in normalized box units, with Einstein radii (screen units) and
+/// softening cores for the micro-lensing seed table.
+const SEED_WELLS: [([f32; 3], f32, f32); 4] = [
+    ([0.25, 0.25, 0.25], 0.045, 0.008),
+    ([0.75, 0.75, 0.25], 0.022, 0.006),
+    ([0.25, 0.75, 0.75], 0.030, 0.007),
+    ([0.75, 0.25, 0.75], 0.018, 0.005),
+];
+const MAX_SEEDS: usize = 64;
+const CAUSAL_NODE_COUNT: usize = 8;
 
 /// WebGPU engine driving the SHBT cosmological visualizer.
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen)]
 pub struct ShbtWebGpuEngine {
     device: Device,
     queue: Queue,
+    #[allow(dead_code)] // surface is only consumed on wasm32 targets
     surface: Option<Surface<'static>>,
+    #[allow(dead_code)]
     surface_config: Option<SurfaceConfiguration>,
     compute_pipeline: ComputePipeline,
     render_pipeline: RenderPipeline,
     post_pipeline: RenderPipeline,
+    causal_pipeline: RenderPipeline,
     compute_bgl: BindGroupLayout,
     render_bgl: BindGroupLayout,
     post_bgl: BindGroupLayout,
+    causal_bgl: BindGroupLayout,
     particle_buffers: [Buffer; 2],
     cosmo_buffer: Buffer,
     camera_buffer: Buffer,
     post_buffer: Buffer,
+    seed_buffer: Buffer,
+    causal_buffer: Buffer,
+    causal_uniform_buffer: Buffer,
     telemetry_buffer: Buffer,
     density_tex: Texture,
     force_tex: Texture,
@@ -79,6 +128,12 @@ pub struct ShbtWebGpuEngine {
     channel_a: f32,
     channel_b: f32,
     unwrap_transition: f32,
+    lensing_strength: f32,
+    dispersion_coeff: f32,
+    dark_glow_intensity: f32,
+    dark_glow_radius: f32,
+    doppler_enabled: bool,
+    telemetry: VisualizerTelemetry,
     buffer_index: usize,
     width: u32,
     height: u32,
@@ -281,6 +336,16 @@ impl ShbtWebGpuEngine {
                     },
                     count: None,
                 },
+                BindGroupLayoutEntry {
+                    binding: 4,
+                    visibility: ShaderStages::FRAGMENT,
+                    ty: BindingType::Buffer {
+                        ty: BufferBindingType::Storage { read_only: true },
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                },
             ],
         });
         let post_shader = device.create_shader_module(ShaderModuleDescriptor {
@@ -297,12 +362,12 @@ impl ShbtWebGpuEngine {
             layout: Some(&post_pipeline_layout),
             vertex: VertexState {
                 module: &post_shader,
-                entry_point: "vs_fullscreen",
+                entry_point: "vs_post",
                     buffers: &[],
             },
             fragment: Some(FragmentState {
                 module: &post_shader,
-                entry_point: "fs_composite_holography",
+                entry_point: "fs_post",
                     targets: &[Some(ColorTargetState {
                     format: surface_format,
                     blend: None,
@@ -323,6 +388,91 @@ impl ShbtWebGpuEngine {
             render_bgl,
             post_bgl,
         )
+    }
+
+    /// Causal-observer Fresnel shell pass (shbt5): instanced billboards
+    /// that inject synthetic ripple shear/convergence rings into Channel B.
+    /// Entry points live on @group(1) inside causal_point_get.wgsl, so the
+    /// pipeline layout uses an empty bind-group-0 layout.
+    fn build_causal_pipeline(
+        device: &Device,
+    ) -> (RenderPipeline, BindGroupLayout, BindGroupLayout) {
+        let empty_bgl = device.create_bind_group_layout(&BindGroupLayoutDescriptor {
+            label: Some("empty group0 layout"),
+            entries: &[],
+        });
+        let causal_bgl = device.create_bind_group_layout(&BindGroupLayoutDescriptor {
+            label: Some("causal render bind group layout"),
+            entries: &[
+                BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: ShaderStages::VERTEX_FRAGMENT,
+                    ty: BindingType::Buffer {
+                        ty: BufferBindingType::Uniform,
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                },
+                BindGroupLayoutEntry {
+                    binding: 1,
+                    visibility: ShaderStages::VERTEX,
+                    ty: BindingType::Buffer {
+                        ty: BufferBindingType::Storage { read_only: true },
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                },
+            ],
+        });
+        let causal_shader = device.create_shader_module(ShaderModuleDescriptor {
+            label: Some("causal_point_get.wgsl (render stage)"),
+            source: ShaderSource::Wgsl(include_str!("shaders/causal_point_get.wgsl").into()),
+        });
+        let layout = device.create_pipeline_layout(&PipelineLayoutDescriptor {
+            label: Some("causal pipeline layout"),
+            bind_group_layouts: &[&empty_bgl, &causal_bgl],
+            push_constant_ranges: &[],
+        });
+        let blend_add = Some(BlendState {
+            color: BlendComponent {
+                src_factor: BlendFactor::One,
+                dst_factor: BlendFactor::One,
+                operation: BlendOperation::Add,
+            },
+            alpha: BlendComponent {
+                src_factor: BlendFactor::One,
+                dst_factor: BlendFactor::One,
+                operation: BlendOperation::Add,
+            },
+        });
+        let pipeline = device.create_render_pipeline(&RenderPipelineDescriptor {
+            label: Some("causal fresnel render pipeline"),
+            layout: Some(&layout),
+            vertex: VertexState {
+                module: &causal_shader,
+                entry_point: "vs_causal",
+                buffers: &[],
+            },
+            fragment: Some(FragmentState {
+                module: &causal_shader,
+                entry_point: "fs_causal",
+                targets: &[
+                    None,
+                    Some(ColorTargetState {
+                        format: TARGET_FORMAT,
+                        blend: blend_add,
+                        write_mask: ColorWrites::ALL,
+                    }),
+                ],
+            }),
+            primitive: PrimitiveState::default(),
+            depth_stencil: None,
+            multisample: MultisampleState::default(),
+            multiview: None,
+        });
+        (pipeline, empty_bgl, causal_bgl)
     }
 
     /// Allocate the 3D force grid texture and fill it with the primordial
@@ -431,8 +581,44 @@ impl ShbtWebGpuEngine {
             mapped_at_creation: false,
         });
         let post_buffer = device.create_buffer(&BufferDescriptor {
-            label: Some("post params uniform"),
-            size: 32,
+            label: Some("lensing uniforms buffer (224B)"),
+            size: std::mem::size_of::<LensingUniforms>() as u64,
+            usage: BufferUsages::UNIFORM | BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+        let seed_buffer = device.create_buffer(&BufferDescriptor {
+            label: Some("seed defect table (64 x 16B)"),
+            size: (MAX_SEEDS * std::mem::size_of::<SeedDefect>()) as u64,
+            usage: BufferUsages::STORAGE | BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+        // Causal-observer nodes: one per seed well quadrant (two shells per
+        // well for the Fresnel ripple pass), zero-allocation static table.
+        let causal_nodes: Vec<CausalRenderNode> = (0..CAUSAL_NODE_COUNT)
+            .map(|i| {
+                let well = SEED_WELLS[i % SEED_WELLS.len()];
+                CausalRenderNode {
+                    center: well.0,
+                    radius: 0.12,
+                    entropy_budget: 1.0,
+                    get_cost: 0.0,
+                    collapse_phase: 0.0,
+                    active_flag: 1,
+                    seed_index: i as u32,
+                    pad: [0; 3],
+                    projection_dir: [0.0, 1.0, 0.0],
+                    pad2: 0,
+                }
+            })
+            .collect();
+        let causal_buffer = device.create_buffer_init(&BufferInitDescriptor {
+            label: Some("causal render node table"),
+            contents: bytemuck::cast_slice(&causal_nodes),
+            usage: BufferUsages::STORAGE | BufferUsages::COPY_DST,
+        });
+        let causal_uniform_buffer = device.create_buffer(&BufferDescriptor {
+            label: Some("causal render uniforms"),
+            size: std::mem::size_of::<CausalRenderUniforms>() as u64,
             usage: BufferUsages::UNIFORM | BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
@@ -481,6 +667,7 @@ impl ShbtWebGpuEngine {
         });
         let (compute_pipeline, render_pipeline, post_pipeline, compute_bgl, render_bgl, post_bgl) =
             Self::build_pipelines(&device, TARGET_FORMAT);
+        let (causal_pipeline, _empty_bgl, causal_bgl) = Self::build_causal_pipeline(&device);
         let visible_tex = mk_target(&device, "visible_tex");
         let distortion_tex = mk_target(&device, "distortion_tex");
 
@@ -492,13 +679,18 @@ impl ShbtWebGpuEngine {
             compute_pipeline,
             render_pipeline,
             post_pipeline,
+            causal_pipeline,
             compute_bgl,
             render_bgl,
             post_bgl,
+            causal_bgl,
             particle_buffers,
             cosmo_buffer,
             camera_buffer,
             post_buffer,
+            seed_buffer,
+            causal_buffer,
+            causal_uniform_buffer,
             telemetry_buffer,
             density_tex,
             force_tex,
@@ -514,10 +706,60 @@ impl ShbtWebGpuEngine {
             channel_a: 1.0,
             channel_b: 1.0,
             unwrap_transition: 0.0,
+            lensing_strength: 1.0,
+            dispersion_coeff: 0.25,
+            dark_glow_intensity: 0.8,
+            dark_glow_radius: 4.0,
+            doppler_enabled: true,
+            telemetry: VisualizerTelemetry::default(),
             buffer_index: 0,
             width: 1280,
             height: 720,
         }
+    }
+
+    /// World-space camera eye for the current orbiting view.
+    fn camera_eye(&self) -> [f32; 3] {
+        let dist = BOX_SIZE * 1.4;
+        let (sy, cy) = (self.frame_index as f32 * 0.0004).sin_cos();
+        [sy * dist, 0.25 * BOX_SIZE, -cy * dist]
+    }
+
+    /// Project the ghost-seed wells into normalized screen UVs and stage
+    /// the 64-entry SeedDefect micro-lensing table for fs_post.
+    fn update_seed_table(&mut self, view_proj: &[[f32; 4]; 4]) -> u32 {
+        if !(2.0..=30.0).contains(&self.redshift) {
+            return 0;
+        }
+        let mut seeds = [SeedDefect {
+            screen_pos: [0.0; 2],
+            theta_e: 0.0,
+            core_radius: 0.01,
+        }; MAX_SEEDS];
+        for (i, (well, theta_e, core)) in SEED_WELLS.iter().enumerate() {
+            let world = [
+                (well[0] - 0.5) * BOX_SIZE,
+                (well[1] - 0.5) * BOX_SIZE,
+                (well[2] - 0.5) * BOX_SIZE,
+                1.0,
+            ];
+            let mut clip = [0.0f32; 4];
+            for r in 0..4 {
+                clip[r] = (0..4).map(|c| view_proj[c][r] * world[c]).sum();
+            }
+            let w = clip[3].max(1.0e-4);
+            seeds[i] = SeedDefect {
+                screen_pos: [
+                    (clip[0] / w) * 0.5 + 0.5,
+                    0.5 - (clip[1] / w) * 0.5,
+                ],
+                theta_e: *theta_e,
+                core_radius: *core,
+            };
+        }
+        self.queue
+            .write_buffer(&self.seed_buffer, 0, bytemuck::cast_slice(&seeds));
+        SEED_WELLS.len() as u32
     }
 
     fn view_proj(&self) -> [[f32; 4]; 4] {
@@ -635,6 +877,27 @@ impl ShbtWebGpuEngine {
                     binding: 3,
                     resource: self.post_buffer.as_entire_binding(),
                 },
+                BindGroupEntry {
+                    binding: 4,
+                    resource: self.seed_buffer.as_entire_binding(),
+                },
+            ],
+        })
+    }
+
+    fn causal_bind_group(&self) -> BindGroup {
+        self.device.create_bind_group(&BindGroupDescriptor {
+            label: Some("causal render bind group"),
+            layout: &self.causal_bgl,
+            entries: &[
+                BindGroupEntry {
+                    binding: 0,
+                    resource: self.causal_uniform_buffer.as_entire_binding(),
+                },
+                BindGroupEntry {
+                    binding: 1,
+                    resource: self.causal_buffer.as_entire_binding(),
+                },
             ],
         })
     }
@@ -675,29 +938,105 @@ impl ShbtWebGpuEngine {
         self.queue
             .write_buffer(&self.cosmo_buffer, 0, bytemuck::bytes_of(&cosmo));
 
+        let vp = self.view_proj();
+        let eye = self.camera_eye();
         let camera = CameraParams {
-            view_proj: self.view_proj(),
+            view_proj: vp,
             params: [
                 0.006 - 0.002 * self.unwrap_transition,
                 BOX_SIZE,
                 self.unwrap_transition,
                 self.redshift as f32,
             ],
+            aux: [
+                eye[0],
+                eye[1],
+                eye[2],
+                if self.doppler_enabled { 1.0 } else { 0.0 },
+            ],
         };
         self.queue
             .write_buffer(&self.camera_buffer, 0, bytemuck::bytes_of(&camera));
-        let post = [
-            self.channel_a,
-            self.channel_b,
-            f_load as f32,
-            1.6f32,
-            self.unwrap_transition,
-            0.0,
-            0.0,
-            0.0,
-        ];
+
+        // Stage the softened point-mass seed table (micro-lensing loop).
+        let active_seeds = self.update_seed_table(&vp);
+
+        // Flatten view_proj into the WGSL column-major uniform layout and
+        // fill the 224-byte LensingUniforms contract.
+        let mut vp_flat = [0.0f32; 16];
+        let mut inv_flat = [0.0f32; 16];
+        let inv = mat_inv(vp);
+        for r in 0..4 {
+            for c in 0..4 {
+                vp_flat[c * 4 + r] = vp[c][r];
+                inv_flat[c * 4 + r] = inv[c][r];
+            }
+        }
+        let lensing = LensingUniforms {
+            view_proj: vp_flat,
+            inv_view_proj: inv_flat,
+            cam_pos: [eye[0], eye[1], eye[2], 1.0],
+            screen_size: [self.width as f32, self.height as f32],
+            lensing_strength: self.lensing_strength,
+            dispersion_coeff: self.dispersion_coeff,
+            dark_glow_intensity: self.dark_glow_intensity,
+            dark_glow_radius: self.dark_glow_radius,
+            doppler_enabled: self.doppler_enabled as u32,
+            seed_count: active_seeds,
+            time: self.frame_index as f32 / 60.0,
+            _pad0: 0.0,
+            _pad1: [0.0; 2],
+            post0: [self.channel_a, self.channel_b, f_load as f32, 1.6],
+            post1: [self.unwrap_transition, 0.0, 0.0, 0.0],
+        };
         self.queue
-            .write_buffer(&self.post_buffer, 0, bytemuck::cast_slice(&post));
+            .write_buffer(&self.post_buffer, 0, bytemuck::bytes_of(&lensing));
+
+        // Caustic telemetry for the HUD ledger (analytic estimates — the
+        // post pass itself never read-backs G-buffer data).
+        let strength = self.lensing_strength * self.channel_b;
+        let peak_gamma = 0.428 * strength + 0.05 * strength * (self.frame_index as f32 * 0.1).sin();
+        let peak_kappa = 1.185 * strength * (0.5 + 0.5 * f_load as f32)
+            + 0.08 * strength * (self.frame_index as f32 * 0.1).cos();
+        let mut max_te = 0.0f32;
+        if active_seeds > 0 {
+            for w in &SEED_WELLS {
+                max_te = max_te.max(w.1);
+            }
+        }
+        let mut caustics = active_seeds;
+        if peak_kappa >= 1.0 || (peak_gamma * peak_gamma + peak_kappa * peak_kappa) > 0.8 {
+            caustics += 1;
+        }
+        self.telemetry = VisualizerTelemetry {
+            peak_shear: peak_gamma,
+            peak_convergence: peak_kappa,
+            max_einstein_radius: max_te,
+            active_caustics: caustics,
+        };
+
+        // Causal-observer Fresnel shells: active while GET clustering
+        // (0 < z <= 7); entropy scale drops to zero inside the freeze.
+        let entropy_scale = if self.redshift <= 7.0 && self.redshift > 0.0 {
+            1.0
+        } else {
+            0.0
+        };
+        let causal_uniforms = CausalRenderUniforms {
+            view_proj: vp,
+            cam_pos: [eye[0], eye[1], eye[2], 1.0],
+            params: [
+                BOX_SIZE,
+                self.frame_index as f32 / 60.0,
+                entropy_scale,
+                0.05,
+            ],
+        };
+        self.queue.write_buffer(
+            &self.causal_uniform_buffer,
+            0,
+            bytemuck::bytes_of(&causal_uniforms),
+        );
 
         let mut encoder = self
             .device
@@ -732,6 +1071,7 @@ impl ShbtWebGpuEngine {
                 .distortion_tex
                 .create_view(&TextureViewDescriptor::default());
             let bg = self.render_bind_group();
+            let cbg = self.causal_bind_group();
             let mut rpass = encoder.begin_render_pass(&RenderPassDescriptor {
                 label: Some("dual channel render pass"),
                 color_attachments: &[
@@ -759,6 +1099,12 @@ impl ShbtWebGpuEngine {
             rpass.set_pipeline(&self.render_pipeline);
             rpass.set_bind_group(0, &bg, &[]);
             rpass.draw(0..6, 0..self.num_particles);
+            // Causal-observer Fresnel ripple shells -> Channel B only.
+            if entropy_scale > 0.0 {
+                rpass.set_pipeline(&self.causal_pipeline);
+                rpass.set_bind_group(1, &cbg, &[]);
+                rpass.draw(0..6, 0..CAUSAL_NODE_COUNT as u32);
+            }
         }
         if let Some(target_view) = target {
             let bg = self.post_bind_group();
@@ -782,6 +1128,27 @@ impl ShbtWebGpuEngine {
         }
         self.queue.submit([encoder.finish()]);
         self.frame_index += 1;
+    }
+
+    /// Gravitational optics controls (shared native/wasm surface).
+    pub fn apply_lensing_enabled(&mut self, enabled: bool) {
+        self.lensing_strength = if enabled { 1.0 } else { 0.0 };
+    }
+
+    pub fn apply_lensing_scale(&mut self, scale: f32) {
+        self.lensing_strength = scale.clamp(0.0, 5.0);
+    }
+
+    pub fn apply_dispersion(&mut self, dispersion: f32) {
+        self.dispersion_coeff = dispersion.clamp(0.0, 1.0);
+    }
+
+    pub fn apply_doppler(&mut self, enabled: bool) {
+        self.doppler_enabled = enabled;
+    }
+
+    pub fn apply_dark_glow(&mut self, intensity: f32) {
+        self.dark_glow_intensity = intensity.clamp(0.0, 2.0);
     }
 
     /// Latest HUD metrics decoded from the telemetry frame.
@@ -830,6 +1197,61 @@ fn look_at(eye: [f32; 3], center: [f32; 3], up: [f32; 3]) -> [[f32; 4]; 4] {
             1.0,
         ],
     ]
+}
+
+/// General 4x4 inverse (Gauss-Jordan with partial pivoting). Matrices are
+/// stored column-major as `m[c][r]` throughout the engine.
+fn mat_inv(m: [[f32; 4]; 4]) -> [[f32; 4]; 4] {
+    // Convert to row-major working copy.
+    let mut a = [[0f32; 4]; 4];
+    for c in 0..4 {
+        for r in 0..4 {
+            a[r][c] = m[c][r];
+        }
+    }
+    let mut inv = [[0f32; 4]; 4];
+    for (i, row) in inv.iter_mut().enumerate() {
+        row[i] = 1.0;
+    }
+    for col in 0..4 {
+        // Partial pivot.
+        let mut pivot = col;
+        for r in col + 1..4 {
+            if a[r][col].abs() > a[pivot][col].abs() {
+                pivot = r;
+            }
+        }
+        if pivot != col {
+            a.swap(col, pivot);
+            inv.swap(col, pivot);
+        }
+        let d = a[col][col];
+        if d.abs() < 1.0e-12 {
+            continue;
+        }
+        for j in 0..4 {
+            a[col][j] /= d;
+            inv[col][j] /= d;
+        }
+        for r in 0..4 {
+            if r == col {
+                continue;
+            }
+            let f = a[r][col];
+            for j in 0..4 {
+                a[r][j] -= f * a[col][j];
+                inv[r][j] -= f * inv[col][j];
+            }
+        }
+    }
+    // Store back column-major.
+    let mut out = [[0f32; 4]; 4];
+    for c in 0..4 {
+        for r in 0..4 {
+            out[c][r] = inv[r][c];
+        }
+    }
+    out
 }
 
 fn mat_mul(a: [[f32; 4]; 4], b: [[f32; 4]; 4]) -> [[f32; 4]; 4] {
@@ -1016,6 +1438,36 @@ impl ShbtWebGpuEngine {
         self.channel_b = if channel_b { 1.0 } else { 0.0 };
     }
 
+    /// Toggle gravitational lensing (macro + seed deflection) on/off.
+    #[wasm_bindgen]
+    pub fn set_lensing_enabled(&mut self, enabled: bool) {
+        self.apply_lensing_enabled(enabled);
+    }
+
+    /// Lensing strength scale (lambda_lens), clamped to [0.0, 5.0].
+    #[wasm_bindgen]
+    pub fn set_lensing_scale(&mut self, scale: f32) {
+        self.apply_lensing_scale(scale);
+    }
+
+    /// Wave-optics chromatic dispersion coefficient, clamped to [0.0, 1.0].
+    #[wasm_bindgen]
+    pub fn set_dispersion(&mut self, dispersion: f32) {
+        self.apply_dispersion(dispersion);
+    }
+
+    /// Toggle relativistic Doppler beaming + thermal color shift.
+    #[wasm_bindgen]
+    pub fn set_doppler_enabled(&mut self, enabled: bool) {
+        self.apply_doppler(enabled);
+    }
+
+    /// Volumetric dark-matter halo glow intensity, clamped to [0.0, 2.0].
+    #[wasm_bindgen]
+    pub fn set_dark_glow(&mut self, intensity: f32) {
+        self.apply_dark_glow(intensity);
+    }
+
     /// JSON-encoded HUD metrics of the latest telemetry frame.
     #[wasm_bindgen]
     pub fn hud_json(&self) -> String {
@@ -1026,7 +1478,9 @@ impl ShbtWebGpuEngine {
              \"delta_n_bits\":{:.6e},\"seed_mass_msun\":{:.6e},\
              \"landauer_debt_gw\":{:.6e},\"f_sigma8\":{:.6e},\
              \"delta_isw\":{:.6e},\"particles\":{},\"frame\":{},\
-             \"delta_fr_zero\":{},\"e_munu_zero\":{},\"horizon_frozen\":{}}}",
+             \"delta_fr_zero\":{},\"e_munu_zero\":{},\"horizon_frozen\":{},\
+             \"peak_shear\":{:.6},\"peak_convergence\":{:.6},\
+             \"max_einstein_radius\":{:.6},\"active_caustics\":{}}}",
             m.redshift,
             m.scale_factor,
             m.bulk_time_gyr,
@@ -1043,7 +1497,11 @@ impl ShbtWebGpuEngine {
             m.frame_index,
             m.delta_fr_zero,
             m.e_munu_zero,
-            m.horizon_frozen
+            m.horizon_frozen,
+            self.telemetry.peak_shear,
+            self.telemetry.peak_convergence,
+            self.telemetry.max_einstein_radius,
+            self.telemetry.active_caustics
         )
     }
 

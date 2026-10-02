@@ -136,3 +136,79 @@ fn apply_get_acceleration(@builtin(global_invocation_id) global_id: vec3<u32>) {
     p.vel += total_a_get * params.dt;
     particles[p_idx] = p;
 }
+
+// ---------------------------------------------------------------------------
+// Render stage (shbt5): synthetic Fresnel ripple shells around active causal
+// observer nodes (R_entropy >= 0). Instanced billboards inject shear and
+// convergence rings into Channel B so quantum measurement boundaries stay
+// visually delineated on the holographic manifold.
+//
+// Bindings live on @group(1): the compute entry points above occupy group(0).
+
+struct CausalRenderUniforms {
+    view_proj: mat4x4<f32>,
+    cam_pos: vec4<f32>,
+    // x: box size (comoving Mpc/h), y: time (s), z: master entropy scale,
+    // w: billboard half-extent in world units.
+    params: vec4<f32>,
+};
+
+@group(1) @binding(0) var<uniform> causal: CausalRenderUniforms;
+@group(1) @binding(1) var<storage, read> causal_nodes: array<CausalPoint>;
+
+struct CausalVertexOut {
+    @builtin(position) clip_pos: vec4<f32>,
+    @location(0) quad_uv: vec2<f32>,
+    @location(1) world_pos: vec3<f32>,
+    @location(2) entropy_level: f32,
+};
+
+@vertex
+fn vs_causal(
+    @builtin(vertex_index) v_idx: u32,
+    @builtin(instance_index) node_idx: u32,
+) -> CausalVertexOut {
+    var out: CausalVertexOut;
+    let node = causal_nodes[node_idx];
+
+    var corners = array<vec2<f32>, 6>(
+        vec2<f32>(-1.0, -1.0), vec2<f32>(1.0, -1.0), vec2<f32>(1.0, 1.0),
+        vec2<f32>(-1.0, -1.0), vec2<f32>(1.0, 1.0), vec2<f32>(-1.0, 1.0),
+    );
+    let corner = corners[v_idx];
+    out.quad_uv = corner;
+
+    let center_world = (node.center - vec3<f32>(0.5)) * causal.params.x;
+    let extent = causal.params.w;
+    var clip_center = causal.view_proj * vec4<f32>(center_world, 1.0);
+    clip_center.x += corner.x * extent * clip_center.w;
+    clip_center.y += corner.y * extent * clip_center.w;
+
+    out.clip_pos = clip_center;
+    out.world_pos = center_world;
+    out.entropy_level = node.entropy_budget * causal.params.z * f32(node.active_flag);
+    return out;
+}
+
+// Writes Channel B only (location 1): synthetic Fresnel shear + convergence
+// rings marking the observer's measurement boundary.
+@fragment
+fn fs_causal(in: CausalVertexOut) -> @location(1) vec4<f32> {
+    let r2 = dot(in.quad_uv, in.quad_uv);
+    if (r2 > 1.0) {
+        discard;
+    }
+
+    // Fresnel-style rim weighting on the billboard: fades to zero at the
+    // core, peaks near the shell radius.
+    let fresnel = pow(1.0 - abs(in.quad_uv.x * in.quad_uv.y), 3.5) * (1.0 - r2);
+
+    let phase = causal.params.y * 2.0 - length(in.quad_uv) * 4.0;
+    let ripple = sin(phase) * 0.5 + 0.5;
+
+    let boundary_alpha = fresnel * ripple * in.entropy_level;
+    let synthetic_shear = vec2<f32>(fresnel * 0.5, -fresnel * 0.5);
+    let synthetic_conv = boundary_alpha * 2.0;
+
+    return vec4<f32>(synthetic_shear.x, synthetic_shear.y, synthetic_conv, in.entropy_level);
+}

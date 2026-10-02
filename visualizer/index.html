@@ -88,6 +88,10 @@
     <div class="bar"><div id="bar-observers"></div></div>
     <div class="ledger" id="hud-rentropy">R<sub>entropy</sub> = N<sub>limit</sub> &minus; C<sub>get</sub> &ge; 0</div>
   </div>
+  <div class="metric">
+    <div class="label"><span>Gravitational Optics Telemetry</span></div>
+    <div class="ledger" id="hud-optics">&gamma;<sub>max</sub> = 0  &kappa;<sub>max</sub> = 0</div>
+  </div>
   <div id="invariants">
     <div class="inv" id="inv-fr">&Delta;<sub>fr</sub> = 0</div>
     <div class="inv" id="inv-emu">E<sub>&mu;&nu;</sub> = 0</div>
@@ -116,6 +120,25 @@
     </select>
     <label><input type="checkbox" id="ch-a" checked> Ch&nbsp;A visible</label>
     <label><input type="checkbox" id="ch-b" checked> Ch&nbsp;B ghost</label>
+  </div>
+  <div class="row">
+    <label><input type="checkbox" id="toggle-lensing" checked title="[L]"> Lensing</label>
+    <span>&lambda;<sub>lens</sub></span>
+    <input id="slider-strength" type="range" min="0" max="5" step="0.05" value="1"
+           style="width:110px" title="lensing strength scale, [ and ]">
+    <span id="strength-label">1.00</span>
+    <label><input type="checkbox" id="toggle-doppler" checked title="[D]"> Doppler</label>
+    <label><input type="checkbox" id="toggle-glow" checked title="[G]"> Dark&nbsp;glow</label>
+  </div>
+  <div class="row">
+    <span>&delta;<sub>disp</sub></span>
+    <input id="slider-dispersion" type="range" min="0" max="1" step="0.02" value="0.25"
+           style="width:130px" title="chromatic dispersion, - and =">
+    <span id="dispersion-label">0.25</span>
+    <span>glow</span>
+    <input id="slider-dark-glow" type="range" min="0" max="2" step="0.05" value="0.8"
+           style="width:90px" title="dark-matter halo glow intensity">
+    <span id="glow-label">0.80</span>
   </div>
   <div id="epoch-bar">
     <button data-epoch="load">1. Bit Loading (z=1e14)</button>

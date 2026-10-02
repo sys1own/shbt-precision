@@ -23,8 +23,13 @@ RECORDINGS_DIR = VISUALIZER_DIR / "recordings"
 PORT = 8080
 
 EDGE_PATH = r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe"
-if not Path(EDGE_PATH).exists():
-    EDGE_PATH = shutil.which("msedge") or shutil.which("chrome") or ""
+if os.name == "nt":
+    if not Path(EDGE_PATH).exists():
+        EDGE_PATH = shutil.which("msedge") or shutil.which("chrome") or ""
+else:
+    # On Linux prefer Playwright's bundled Chromium headless shell: it ships a
+    # SwiftShader WebGPU adapter, whereas distro Chrome builds vary.
+    EDGE_PATH = os.environ.get("SHBT_BROWSER_PATH", "")
 
 
 class CoepServer(socketserver.TCPServer):
@@ -77,7 +82,10 @@ async def record_epochs():
             args=[
                 "--enable-unsafe-webgpu",
                 "--disable-dawn-features=disallow_unsafe_apis",
-                "--use-angle=d3d11",
+                # Software rasterizer fallback so WebGPU works headless on
+                # both Windows (d3d11) and Linux CI (swiftshader).
+                "--use-webgpu-adapter=swiftshader",
+                "--use-angle=swiftshader",
                 "--enable-features=Vulkan",
                 "--no-sandbox",
                 "--disable-setuid-sandbox",
@@ -89,6 +97,8 @@ async def record_epochs():
 
         context = await browser.new_context(viewport={"width": 1280, "height": 720})
         page = await context.new_page()
+        page.on("console", lambda m: print(f"[BROWSER:{m.type}] {m.text}"))
+        page.on("pageerror", lambda e: print(f"[BROWSER:pageerror] {e}"))
 
         url = f"http://127.0.0.1:{PORT}/index.html"
         print(f"[RECORDER] Navigating to {url}...")
@@ -120,10 +130,16 @@ async def record_epochs():
             await asyncio.sleep(1.5)
 
             rec_path = RECORDINGS_DIR / filename
-            root_path = REPO_ROOT / filename
             await page.screenshot(path=str(rec_path))
-            shutil.copy(rec_path, root_path)
             print(f"[RECORDER] Captured milestone: {filename} ({rec_path.stat().st_size:,} bytes)")
+
+        status_text = await page.evaluate(
+            "document.getElementById('status').textContent"
+        )
+        print(f"[RECORDER] Final engine status: {status_text}")
+        assert "engine online" in status_text, (
+            f"Engine did not initialize during recording: {status_text}"
+        )
 
         # Verify performance metrics
         metrics = await page.evaluate(
