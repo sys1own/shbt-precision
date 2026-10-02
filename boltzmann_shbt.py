@@ -124,3 +124,203 @@ if __name__ == "__main__":
     if "--run-tests" in sys.argv:
         sys.exit(_run_unit_tests())
     print(compute_cmb_power_spectra())
+
+
+# ----------------------------------------------------------------------
+# SHBT-MMIO WebGPU telemetry export (Section 12, two-tier visualizer)
+# ----------------------------------------------------------------------
+
+SHBT_MMIO_MAGIC = 0x54424853
+SHBT_MMIO_SCHEMA = 0x00020000
+SHBT_MMIO_HEADER_BYTES = 128
+SEED_RECORD_BYTES = 128
+SPECTRUM_GRID_LEN = 256
+N_SAT_BITS = 3.311997720142366e122
+A_H = 4.797960072861
+GAMMA_LOCK = 3.0 * A_H
+OMEGA_M = 0.315
+OMEGA_R0 = 9.2e-5
+ALPHA_SEED_MSUN_PER_BIT = 1.3258316e-51
+LANDAUER_GW_PER_MSUN = 906.0
+ETA_DARK = 23.0 / 33.0
+ETA_VISIBLE = 10.0 / 33.0
+
+
+def _loading_fraction(z: float) -> float:
+    """Conformal loading fraction on (-1, +inf); mirrors Rust cosmology.rs."""
+    if z <= -1.0:
+        return 1.0
+    if z < 0.0:
+        return 1.0 - (1.0 + z) ** 3
+    if z == 0.0:
+        return 0.0
+    upper = math.log(1.0 + z)
+    n = 4096
+    du = upper / n
+    acc = 0.0
+    for i in range(n + 1):
+        u = du * i
+        one_plus_z = math.exp(u)
+        h0_z = H0_CMB + A_H / one_plus_z
+        expansion = math.sqrt(
+            OMEGA_M * one_plus_z**3 + OMEGA_R0 * one_plus_z**4 + (1.0 - OMEGA_M - OMEGA_R0)
+        )
+        w = 0.5 if i in (0, n) else 1.0
+        acc += w * GAMMA_LOCK * math.exp(-u) / (h0_z * expansion)
+    return min(du * acc, 1.0)
+
+
+def _hubble(z: float) -> float:
+    one_plus_z = 1.0 + z
+    expansion = math.sqrt(
+        OMEGA_M * one_plus_z**3 + OMEGA_R0 * one_plus_z**4 + (1.0 - OMEGA_M - OMEGA_R0)
+    )
+    return (H0_CMB + A_H / one_plus_z) * expansion
+
+
+def _bulk_time_gyr(z: float) -> float:
+    if z <= -1.0:
+        return float("inf")
+    if z <= 0.0:
+        return 13.276616557
+    h0_gyr = H0_CMB * 1.0227121650537077e-3
+    upper = math.log(1.0 + z)
+    n = 1024
+    du = upper / n
+    acc = 0.0
+    for i in range(n + 1):
+        u = du * i
+        one_plus_z = math.exp(u)
+        e = math.sqrt(
+            OMEGA_M * one_plus_z**3 + OMEGA_R0 * one_plus_z**4 + (1.0 - OMEGA_M - OMEGA_R0)
+        )
+        w = 0.5 if i in (0, n) else 1.0
+        acc += w / e
+    return du * acc / h0_gyr
+
+
+def _transfer_grid(z: float) -> list[float]:
+    """256-point T(k,z) transfer grid across log10 k in [-4, 1] Mpc^-1."""
+    out = []
+    for i in range(SPECTRUM_GRID_LEN):
+        k = 10.0 ** (-4.0 + 5.0 * i / (SPECTRUM_GRID_LEN - 1))
+        out.append(math.log(2.0 + 15.0 * k) / (1.0 + (k / 0.18) ** 2) / (1.0 + z))
+    return out
+
+
+def _power_grid(z: float) -> list[float]:
+    """256-point P_m(k,z) grid, damping-modulated like _matter_rows."""
+    out = []
+    for i in range(SPECTRUM_GRID_LEN):
+        k = 10.0 ** (-4.0 + 5.0 * i / (SPECTRUM_GRID_LEN - 1))
+        transfer = math.log(2.0 + 15.0 * k) / (1.0 + (k / 0.18) ** 2)
+        primordial = A_S * (k / K_PIVOT) ** (-0.0351)
+        out.append(2.45e5 * k * transfer * transfer * primordial / (1.0 + z) ** 2)
+    return out
+
+
+def _encode_header_python(
+    frame_index: int,
+    z: float,
+    particle_count: int,
+    delta_n_bits: float,
+    seed_count: int,
+) -> bytes:
+    """Pure-Python SHBT-MMIO header twin of src/shbt/export.rs::to_bytes."""
+    import struct
+
+    f_load = _loading_fraction(z)
+    seed_mass = ALPHA_SEED_MSUN_PER_BIT * delta_n_bits
+    p_debt = seed_mass * LANDAUER_GW_PER_MSUN
+    buf = bytearray(SHBT_MMIO_HEADER_BYTES)
+    buf[0x00:0x04] = struct.pack("<I", SHBT_MMIO_MAGIC)
+    buf[0x04:0x08] = struct.pack("<I", SHBT_MMIO_SCHEMA)
+    buf[0x08:0x10] = struct.pack("<Q", frame_index)
+    buf[0x10:0x18] = struct.pack("<d", _bulk_time_gyr(z))
+    buf[0x18:0x20] = struct.pack("<d", z)
+    buf[0x20:0x28] = struct.pack("<d", 1.0 / (1.0 + z))
+    buf[0x28:0x30] = struct.pack("<d", _hubble(z))
+    buf[0x30:0x38] = struct.pack("<d", f_load)
+    buf[0x38:0x40] = struct.pack("<d", ETA_VISIBLE * N_SAT_BITS * f_load)
+    buf[0x40:0x48] = struct.pack("<d", ETA_DARK * N_SAT_BITS * f_load)
+    buf[0x48:0x50] = struct.pack("<d", p_debt)
+    buf[0x50:0x58] = struct.pack("<d", seed_mass)
+    buf[0x58:0x60] = struct.pack("<d", 1.0 - ETA_VISIBLE * f_load)
+    buf[0x60:0x68] = struct.pack(
+        "<d", 2.0 * A_H * GAMMA_LOCK / ((H0_CMB + A_H / (1.0 + z)) * _hubble(z))
+    )
+    buf[0x68:0x70] = struct.pack("<Q", particle_count)
+    return bytes(buf)
+
+
+def export_webgpu_telemetry(
+    path: str,
+    redshift: float = 15.0,
+    particle_count: int = 262144,
+    delta_n_bits: float = 6.0e59,
+    seed_count: int = 4,
+) -> str:
+    """Write one SHBT-MMIO telemetry frame: 128-byte header + T/P grids + seeds.
+
+    Prefers the Rust `serialize_mmio_frame_py` binding; falls back to an
+    identical pure-Python encoder so the export works without the extension.
+    """
+    import struct
+
+    transfer = _transfer_grid(redshift)
+    power = _power_grid(redshift)
+    seed_mass = ALPHA_SEED_MSUN_PER_BIT * delta_n_bits
+    positions = [
+        (0.25, 0.25, 0.25),
+        (0.75, 0.75, 0.25),
+        (0.25, 0.75, 0.75),
+        (0.75, 0.25, 0.75),
+    ]
+    seeds = [
+        (
+            positions[i][0],
+            positions[i][1],
+            positions[i][2],
+            seed_mass,
+            seed_mass * LANDAUER_GW_PER_MSUN,
+            i + 1,
+            redshift,
+            0.0,
+        )
+        for i in range(seed_count)
+    ]
+
+    frame: bytes
+    try:
+        import shbt_simulator as _rs
+
+        frame = bytes(
+            _rs.serialize_mmio_frame_py(
+                0,
+                redshift,
+                particle_count,
+                delta_n_bits,
+                transfer,
+                power,
+                seeds,
+            )
+        )
+    except Exception:
+        buf = bytearray()
+        buf += _encode_header_python(0, redshift, particle_count, delta_n_bits, seed_count)
+        buf += struct.pack(f"<{len(transfer)}f", *transfer)
+        buf += struct.pack(f"<{len(power)}f", *power)
+        for seed in seeds:
+            rec = bytearray(SEED_RECORD_BYTES)
+            rec[0:24] = struct.pack("<3d", seed[0], seed[1], seed[2])
+            rec[24:32] = struct.pack("<d", seed[3])
+            rec[32:40] = struct.pack("<d", seed[4])
+            rec[40:44] = struct.pack("<i", seed[5])
+            rec[44:52] = struct.pack("<d", seed[6])
+            rec[52:60] = struct.pack("<d", seed[7])
+            buf += rec
+        frame = bytes(buf)
+
+    Path(path).parent.mkdir(parents=True, exist_ok=True)
+    Path(path).write_bytes(frame)
+    return path

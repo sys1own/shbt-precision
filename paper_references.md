@@ -28,6 +28,9 @@ The contract is three-way:
 | Section 9 report standalone | `python3 precision_cosmology.py --json` |
 | Python unit suites | `pytest tests/ -q`; `python3 precision_cosmology.py --run-tests`; `python3 boltzmann_shbt.py --run-tests` |
 | Document compilation | `make pdf` (`pdflatex` × 2 on `main.tex`) |
+| Visualizer telemetry frame | `python3 shbt_simulate.py --mode visualize --export-webgpu-telemetry data/telemetry.bin` |
+| WebGPU harness | `wasm-bindgen --target web --out-dir visualizer/pkg src/shbt/visualizer/target/wasm32-unknown-unknown/release/shbt_visualizer.wasm`, then serve `visualizer/` |
+| Headless GPU benchmark | `cargo run --release --manifest-path src/shbt/visualizer/Cargo.toml --bin headless -- 60 262144` |
 
 **Naming conventions**
 
@@ -62,6 +65,11 @@ This is the Markdown mirror of the paper's master code-traceability ledger (`tab
 | §9 Boltzmann pipeline | Scalar CMB *C*<sub>ℓ</sub><sup>TT</sup>, *C*<sub>ℓ</sub><sup>EE</sup>, *C*<sub>ℓ</sub><sup>TE</sup>; matter *P*(*k*, *z*); tensor *C*<sub>ℓ</sub><sup>BB</sup> | `boltzmann_shbt.py` — `compute_cmb_power_spectra`, `compute_tensor_power_spectra` | `shbt_run_cmb_cls.csv`, `shbt_run_matter_pk.csv`, `shbt_run_tensor_cls.csv`; `result.json → precision_pipeline.spectra` |
 | §9 non-Gaussianity | Bispectrum/trispectrum templates *f*<sub>NL</sub>, *g*<sub>NL</sub>, τ<sub>NL</sub> | `precision_cosmology.py` — `compute_non_gaussianity_shapes` | `result.json → precision_pipeline.non_gaussianity` |
 | §10 calorimetry | Sub-10 mK Landauer calorimetry; address-scaled heat ledger *Q*<sub>H0</sub> vs *Q*<sub>H1</sub>; OLS/MLE regression and model selection | `precision_cosmology.py` — `simulate_calorimetry_experiment`; orchestrated by `shbt_simulate.py` — `run_simulation_pipeline` | `shbt_run_calorimetry_sim.csv`; `result.json → precision_pipeline.calorimetry_csv` |
+| §9, Thm. (Dynamic Bit-Loading Equivalence) | Ṫ = (1/*N*<sub>sat</sub>) d*S*<sub>index</sub>/d*t* = *H*(*t*); no inflaton sector | `src/shbt/cosmology.rs` — `ShbtUniverse::evaluate_hubble_index_rate`, `conformal_loading_fraction`, `hubble` | `result.json → cosmology_visualization`; `tests/cosmological_invariants.rs` |
+| §9, Thm. (Passive Ghost Dark Matter) | η<sub>D</sub> = 23/33, η<sub>A</sub> = 10/33; *w*<sub>DM</sub> = 0; Ω<sub>DM,0</sub> = *c*<sub>dark</sub><sup>comp</sup>/12 = 0.260000 | `src/shbt/cosmology.rs` — `ShbtUniverse::dark_completion_bits`, `active_visible_bits`, `dark_matter_fraction` | `data/telemetry.bin` header (`dark_bits`, `active_bits`) |
+| §9, Thm. (Mass-Congestion Condensation) | *M*<sub>seed</sub> = α<sub>seed</sub> Δ*N*, α<sub>seed</sub> = 1.3258316 × 10<sup>−51</sup> *M*<sub>☉</sub>/bit; *P*<sub>debt</sub> = (*M*<sub>seed</sub>/*M*<sub>☉</sub>) × 906 GW | `src/shbt/cosmology.rs` — `ShbtUniverse::compute_seed_condensation`, `eval_landauer_debt_power`, `ALPHA_SEED_MSUN_PER_BIT` | SHBT-MMIO `SeedDefectRecord` payload |
+| §9/§12, SHBT-MMIO frame | 128-byte header (magic 0x54424853, schema 0x00020000), 256-point *T*(*k*,*z*) and *P*<sub>m</sub>(*k*,*z*) grids, 128-byte seed records | `src/shbt/export.rs` — `MmioTelemetryHeader`, `SeedDefectRecord`, `serialize_mmio_frame`, `serialize_mmio_frame_py`; `boltzmann_shbt.export_webgpu_telemetry` | `data/telemetry.bin` |
+| §12, two-tier WebGPU visualizer | `ShbtWebGpuEngine` + WGSL pipeline (`nbody_pm`, `dual_channel_render`, `holographic_post`); 32-byte `Particle`; HUD + timeline z ∈ [−1, 10<sup>12</sup>] | `src/shbt/visualizer/` — `src/lib.rs`, `src/particle.rs`, `src/hud.rs`, `src/telemetry.rs`, `src/shaders/*.wgsl`, `src/bin/headless.rs` | `visualizer/pkg/shbt_visualizer_bg.wasm`, `visualizer/index.html` |
 | §10 thermodynamic debt | Entropy-debt power schedule Q̇ = 9.06 × 10<sup>11</sup> W (≃ 906 GW); benchmark ratio Γ<sub>bench</sub> ≃ 6377 | `src/shbt/stability_audit.rs` | `result.json → stability_audit.Q_dot_W`, `.P_bench_W`, `.Gamma_bench` |
 
 **Implementation-name reconciliation.** The functions named in earlier drafts of this contract (`calculate_framing_defect`, `verify_modular_invariance`, `integrate_yoshida6`, `compute_asymmetry`, `PrecisionPipeline.compute_non_gaussianity`, `BoltzmannSolver.integrate_cl_pk`, `CalorimetryEngine.run_regression`) are specification shorthand, not literal symbols. Their live equivalents are:
@@ -103,6 +111,11 @@ These correspond to the paper's Table 28 (code traceability), Table 29 (data cro
 | Dark-sector fraction η<sub>D</sub> after de-rendering | 23/33 | 23/33 = 0.696969… | `succession.records[].eta_dark` / `CausalPoint::terminate_and_derender` |
 | Succession kernel normalization Σ<sub>*A*′</sub> *T* | 1.0 | 1.0 (all cycles) | `succession.kernel_normalized` / `evaluate_succession_kernel` |
 | Admissible observer set *R*<sub>adm</sub> at z → −1 | ∅ (freeze) | empty | `foundation_audit.asymptotic_observer_freeze.asymptotic_admissible_set_empty` |
+| Dynamic bit loading Ṫ = *H*(*t*) | exact | equal to < 10<sup>−30</sup> | `ShbtUniverse::evaluate_hubble_index_rate` / `cosmological_invariants` test |
+| Ghost partition Ω<sub>DM,0</sub> | 0.260000 | 0.260000 | `ShbtUniverse::dark_matter_fraction` |
+| Seed condensation *M*<sub>seed</sub>(Δ*N* = 6 × 10<sup>59</sup>) | ≃ 7.955 × 10<sup>8</sup> *M*<sub>☉</sub> | 7.9549896 × 10<sup>8</sup> | `ShbtUniverse::compute_seed_condensation` → `cosmology_visualization.seed_condensation` |
+| Landauer debt at 10<sup>9</sup> *M*<sub>☉</sub> | 9.06 × 10<sup>20</sup> W | 9.06 × 10<sup>11</sup> GW | `ShbtUniverse::eval_landauer_debt_power` |
+| SHBT-MMIO header layout | 128 bytes, magic 0x54424853 | verified | `tests/cosmological_invariants.rs::test_mmio_header_serialization_layout` |
 
 ### Table 39 — Generated-Artifact Data Product Crosswalk
 
@@ -113,6 +126,8 @@ These correspond to the paper's Table 28 (code traceability), Table 29 (data cro
 | `shbt_run_tensor_cls.csv` | `ell`, `Cl_BB`, `Dl_BB`, `Cl_TT_tensor` | primordial tensor B modes and tensor TT | `boltzmann_shbt.compute_tensor_power_spectra` |
 | `shbt_run_calorimetry_sim.csv` | `k_bits`, `R_addresses`, `Q_H0_zJ`, `Q_H1_zJ`, `Q_noise_zJ` | Landauer address sweep, competing heat laws, simulated noise | `precision_cosmology.simulate_calorimetry_experiment` |
 | `result.json` | `audit` (full `ShbtReport` dict), `baryogenesis`, `history`, `succession` (with `--enable-succession`: `cycles`, `records`, `kernel_normalized`), `foundation_audit` (`asymptotic_observer_freeze`), `precision_cosmology`, `precision_pipeline` (`spectra`, `calorimetry_csv`, `non_gaussianity`), `stability_audit`, `summary`, `metadata`, `config` | complete machine-readable simulation report | `shbt_simulate.py` main pipeline |
+| `data/telemetry.bin` | 128-byte SHBT-MMIO header; 256-point *T*(*k*,*z*) + *P*<sub>m</sub>(*k*,*z*) grids; 128-byte `SeedDefectRecord` entries | two-tier visualizer telemetry contract | `boltzmann_shbt.export_webgpu_telemetry` / `shbt_simulate.py --export-webgpu-telemetry` |
+| `visualizer/pkg/` | `shbt_visualizer.js`, `shbt_visualizer_bg.wasm` | Tier-2 browser engine bundle | `cargo build --target wasm32-unknown-unknown --release` + `wasm-bindgen --target web` |
 
 ### Table 40 — Software Interface Contract
 
@@ -130,6 +145,11 @@ These correspond to the paper's Table 28 (code traceability), Table 29 (data cro
 | `precision_cosmology.py` | `build_precision_cosmology_report`, `run_mcmc_analysis`, `simulate_calorimetry_experiment`, `compute_non_gaussianity_shapes`, plus all Section 9 equation functions |
 | `boltzmann_shbt.py` | `compute_cmb_power_spectra`, `compute_tensor_power_spectra` |
 | `shbt_simulate.py` CLI | `--mode {audit, cosmology, cosmology-test, baryogenesis, history, all}`, `--enable-succession`, `--succession-cycles N`, `--branch K_L K_Q K`, `--observer-radius-fraction`, `--redshift-max`, `--redshift-samples`, `--particles`, `--seed`, `--h0-cmb`, `--omega-m`, `--omega-r0`, `--delta-mod`, `--z-samples`, `--precision`, `--output`, `--output-dir`, `--format {json,csv,hdf5,h5}`, `--sweep`, `--plot`, `--verbose`, `--log-level` |
+| `ShbtUniverse` (`src/shbt/cosmology.rs`) | `new_canonical_branch`, `hubble`, `h0_redshift_dependent`, `conformal_loading_fraction`, `saturated_screen_capacity`, `active_visible_bits`, `dark_completion_bits`, `dark_matter_fraction`, `compute_seed_condensation`, `eval_landauer_debt_power`, `evaluate_growth_suppression`, `delta_isw_residual`, `verify_observer_freeze` |
+| `src/shbt/export.rs` | `MmioTelemetryHeader` (128-byte SHBT-MMIO frame), `SeedDefectRecord`, `serialize_mmio_frame`, `serialize_mmio_frame_py` (PyO3) |
+| `shbt-visualizer` crate (`src/shbt/visualizer`) | `Particle` (32-byte, 16-aligned), `ShbtWebGpuEngine` (`new`, `update_frame_telemetry`, `step_frame`, `set_redshift`, `set_speed`, `set_projection`, `set_channels`, `hud_json`), `HudMetrics`, `TimelineController`, `headless` binary |
+| `visualizer/index.html` + `index.js` | Horizon Bar, Boundary Capacity Gauge, Congestion & Seed Ledger, Landauer Debt Monitor, invariant icons; timeline scrub z = 10<sup>12</sup> → −1; speeds 1×/10×/100×; projection switch; Channel A/B toggles |
+| `shbt_simulate.py` CLI additions | `--mode visualize`, `--export-webgpu-telemetry PATH`, `--sim-speed FLOAT` (`--particles` shared with the visualizer contract); `result.json → cosmology_visualization` |
 | `examples/run_audit.py` | Minimal foundation-audit entry point |
 
 ---
@@ -201,4 +221,11 @@ test -s result.json
 pytest tests/ -q
 python3 precision_cosmology.py --run-tests
 python3 boltzmann_shbt.py --run-tests
+
+# Visualizer telemetry + wasm bundle + headless benchmark
+python3 shbt_simulate.py --mode visualize --export-webgpu-telemetry data/telemetry.bin
+cargo build --release --manifest-path src/shbt/visualizer/Cargo.toml --target wasm32-unknown-unknown
+wasm-bindgen --target web --out-dir visualizer/pkg \
+    src/shbt/visualizer/target/wasm32-unknown-unknown/release/shbt_visualizer.wasm
+cargo run --release --manifest-path src/shbt/visualizer/Cargo.toml --bin headless -- 60 262144
 ```

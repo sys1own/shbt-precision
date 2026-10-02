@@ -43,8 +43,11 @@ The theory is fully documented in the accompanying publications [`main.pdf`](mai
 │       ├── entropy_flow.rs   # HolographicProjection (Fefferman-Graham RG flow, bulk metric)
 │       ├── baryogenesis.rs   # BaryogenesisOptimizer (topological anti-baryon decoupling)
 │       ├── causal_point.rs   # CausalPoint (observer memory, crystallization, succession lifecycle)
+│       ├── cosmology.rs      # ShbtUniverse (branch cosmology, loading, ghost partition, seed condensation)
+│       ├── export.rs         # SHBT-MMIO telemetry serialization (128-byte frame + seed records)
 │       ├── provenance.rs     # Run provenance & reproducibility metadata capture
 │       ├── stability_audit.rs# Numerical stability audit (condition numbers, tolerances)
+│       ├── visualizer/       # Tier-2 shbt-visualizer crate (wgpu/wasm32, WGSL shaders, headless)
 │       └── data/
 │           └── chronometer_data.json  # Cosmic-chronometer H(z) dataset (32 points)
 ├── boltzmann_shbt.py         # Full Boltzmann pipeline, non-Gaussianity templates, CMB & P(k)
@@ -55,6 +58,12 @@ The theory is fully documented in the accompanying publications [`main.pdf`](mai
 ├── supplementary.tex         # Standalone supplementary publication LaTeX manuscript
 ├── supplementary.pdf         # Compiled standalone supplementary monograph PDF
 ├── paper_references.md       # Traceability crosswalk mapping paper sections to source methods
+├── visualizer/
+│   ├── index.html            # Browser harness: HUD, timeline scrub, channel toggles
+│   ├── index.js              # Engine driver + SHBT-MMIO telemetry decode
+│   └── pkg/                  # wasm-bindgen output (shbt_visualizer_bg.wasm)
+├── data/
+│   └── telemetry.bin         # SHBT-MMIO telemetry frame (generated)
 ├── examples/
 │   ├── run_audit.py          # Minimal foundation verification script
 │   └── shbt_notebook.ipynb   # Interactive analysis and visualization notebook
@@ -97,9 +106,16 @@ Boundary-isometry constraint consumed by downstream hardware:
 
 ### Tier 2 — Python Precision Cosmology & Boltzmann Pipeline
 
-- `boltzmann_shbt.py`: first-principles inflation dynamics and perturbation spectra; primordial non-Gaussianity templates (local, equilateral, orthogonal *f*<sub>NL</sub> and *g*<sub>NL</sub> bispectra/trispectra); Boltzmann hierarchy integration producing scalar temperature (*C*<sub>*ℓ*</sub><sup>TT</sup>), polarization (*C*<sub>*ℓ*</sub><sup>EE</sup>, *C*<sub>*ℓ*</sub><sup>TE</sup>), matter power *P*(*k*, *z*), and tensor B-modes (*C*<sub>*ℓ*</sub><sup>BB</sup>).
+- `boltzmann_shbt.py`: first-principles inflation dynamics and perturbation spectra; primordial non-Gaussianity templates (local, equilateral, orthogonal *f*<sub>NL</sub> and *g*<sub>NL</sub> bispectra/trispectra); Boltzmann hierarchy integration producing scalar temperature (*C*<sub>*ℓ*</sub><sup>TT</sup>), polarization (*C*<sub>*ℓ*</sub><sup>EE</sup>, *C*<sub>*ℓ*</sub><sup>TE</sup>), matter power *P*(*k*, *z*), and tensor B-modes (*C*<sub>*ℓ*</sub><sup>BB</sup>); SHBT-MMIO telemetry export via `export_webgpu_telemetry`.
 - `precision_cosmology.py`: Section 9 precision-cosmology audit, 7-parameter MCMC, *H*<sub>0</sub>-tension quantification, cosmic-chronometer covariance, and the sub-10 mK Landauer calorimetry experiment (`simulate_calorimetry_experiment`).
 - `shbt_simulate.py`: unified CLI/API orchestrator; evaluates address sweeps and heat-dissipation hypotheses via OLS/MLE regression and emits the `shbt_run_*` data products.
+
+### Tier 2 — WebGPU Interactive Visualizer (`src/shbt/visualizer`, `visualizer/`)
+
+- `shbt-visualizer` crate compiles to `wasm32-unknown-unknown` and binds to `visualizer/index.html` (`<canvas id="shbt-canvas">`). The same crate runs natively via the `headless` binary for CI benchmarking.
+- `ShbtWebGpuEngine` drives three WGSL stages: `nbody_pm.wgsl` (Fast-PM/2LPT kick–drift under loaded conformal friction 1 + *f*<sub>load</sub>·10/33 with the Stinespring anti-baryon de-render envelope), `dual_channel_render.wgsl` (Channel A visible emission weighted by `vis_weight`; Channel B passive ghost shear/density conserved independently of it), and `holographic_post.wgsl` (lensed-UV composite, ghost false-color, horizon overlay driven by *f*<sub>load</sub>).
+- Double-buffered storage holds 2<sup>20</sup> particles in 32-byte `Particle` records (< 256 MB); the HUD decodes the 128-byte SHBT-MMIO telemetry frame (Horizon Bar, Boundary Capacity Gauge, Congestion & Seed Ledger, Landauer Debt Monitor, Δ<sub>fr</sub> = 0 / *E*<sub>*μν*</sub> = 0 / horizon-freeze indicators).
+- Interactive controls: timeline scrub z = 10<sup>12</sup> → −1 (ghost-seed condensation highlighted across z ≈ 30 → 7 with Δ*N* ≈ 6 × 10<sup>59</sup> bits and *P*<sub>debt</sub> ≈ 9.06 × 10<sup>20</sup> W), playback speeds 1×/10×/100×, comoving-bulk / boundary-CFT projection switch, and Channel A/B toggles.
 
 ---
 
@@ -125,13 +141,26 @@ python precision_cosmology.py --json
 python precision_cosmology.py --run-tests
 python shbt_simulate.py --mode cosmology --sweep sweep.json --plot --output sweep_result.json
 
+# WebGPU visualizer: telemetry frame + wasm bundle + serve
+python shbt_simulate.py --mode visualize --particles 262144 \
+    --export-webgpu-telemetry data/telemetry.bin --sim-speed 1.0 --output viz.json
+cargo build --release --manifest-path src/shbt/visualizer/Cargo.toml \
+    --target wasm32-unknown-unknown
+wasm-bindgen --target web --out-dir visualizer/pkg \
+    src/shbt/visualizer/target/wasm32-unknown-unknown/release/shbt_visualizer.wasm
+python -m http.server 8080 --directory visualizer   # open http://localhost:8080
+
+# Headless GPU benchmark (no browser): frames + particles
+cargo run --release --manifest-path src/shbt/visualizer/Cargo.toml \
+    --bin headless -- 60 262144
+
 # Sub-10 mK Landauer calorimetry audit (writes shbt_run_calorimetry_sim.csv)
 python shbt_simulate.py --mode all --output result.json
 # or programmatically:
 python -c "import precision_cosmology as pc; pc.simulate_calorimetry_experiment(n_pulses=1000000)"
 ```
 
-Additional modes: `baryogenesis` (topological asymmetry benchmark), `history` (Causal-Point observer crystallization; with `--enable-succession` runs the multi-cycle lifecycle engine and exports `succession` records to `result.json`), `cosmology-test`. Exports support `--format json|csv|hdf5`, `--plot`, `--sweep`, `--config` (YAML/JSON), `--seed`, and structured `--log-format json` logging.
+Additional modes: `baryogenesis` (topological asymmetry benchmark), `visualize` (SHBT-MMIO telemetry export + `cosmology_visualization` record), `history` (Causal-Point observer crystallization; with `--enable-succession` runs the multi-cycle lifecycle engine and exports `succession` records to `result.json`), `cosmology-test`. Exports support `--format json|csv|hdf5`, `--plot`, `--sweep`, `--config` (YAML/JSON), `--seed`, and structured `--log-format json` logging.
 
 ---
 
@@ -147,6 +176,11 @@ Additional modes: `baryogenesis` (topological asymmetry benchmark), `history` (C
 | Succession transfer kernel | `src/shbt/causal_point.rs` (`evaluate_succession_kernel`, `ShbtSimulator.run_succession_cycles`) | `result.json: succession.records[].kernel_probabilities`, `.kernel_normalized` |
 | Asymptotic observer freeze | `precision_cosmology.py` (`asymptotic_observer_freeze`) | `result.json: foundation_audit.asymptotic_observer_freeze` |
 | Landauer calorimetry regression | `shbt_simulate.py` / `precision_cosmology.py` | `shbt_run_calorimetry_sim.csv` |
+| Dynamic bit-loading Ṫ = *H*(*t*) (no inflaton) | `src/shbt/cosmology.rs` (`ShbtUniverse.evaluate_hubble_index_rate`) | `result.json: cosmology_visualization`; `tests/cosmological_invariants.rs` |
+| Passive ghost dark matter (η<sub>D</sub> = 23/33, Ω<sub>DM,0</sub> = 0.260000) | `src/shbt/cosmology.rs` (`dark_completion_bits`, `dark_matter_fraction`) | `data/telemetry.bin` header fields |
+| Mass-congestion condensation (*M*<sub>seed</sub> = α<sub>seed</sub> Δ*N*) | `src/shbt/cosmology.rs` (`compute_seed_condensation`, `eval_landauer_debt_power`) | SHBT-MMIO `SeedDefectRecord` payload |
+| SHBT-MMIO telemetry frame | `src/shbt/export.rs` (`serialize_mmio_frame_py`, `MmioTelemetryHeader.to_bytes`) | `data/telemetry.bin` |
+| Two-tier WebGPU visualizer | `src/shbt/visualizer` (`ShbtWebGpuEngine`, WGSL pipeline) | `visualizer/pkg/shbt_visualizer_bg.wasm` |
 
 ### Generated-Artifact Data Product Crosswalk (Table 39)
 
@@ -157,6 +191,8 @@ Additional modes: `baryogenesis` (topological asymmetry benchmark), `history` (C
 | `shbt_run_tensor_cls.csv` | `Cl_BB`, `Dl_BB`, `Cl_TT_tensor` | Primordial tensor B-modes |
 | `shbt_run_calorimetry_sim.csv` | `k_bits`, `R_addresses`, `Q_H0_zJ`, `Q_H1_zJ`, `Q_noise_zJ` | Sub-10 mK calorimetry simulation |
 | `result.json` | nested ledger | Master simulation result tree |
+| `data/telemetry.bin` | 128-byte SHBT-MMIO header + *T*/*P*<sub>m</sub> grids + seed records | Tier-2 visualizer telemetry contract |
+| `visualizer/pkg/` | `shbt_visualizer.js`, `shbt_visualizer_bg.wasm` | Browser engine bundle |
 
 ### Software Interface Reproduction Contract (Table 40)
 
@@ -170,6 +206,9 @@ Additional modes: `baryogenesis` (topological asymmetry benchmark), `history` (C
 | `CausalPoint` (succession) | `is_admissible`, `terminate_and_derender`, `evaluate_succession_kernel`, `relabel_and_rerender`, `run_lifecycle_cycle` |
 | `CausalPointCandidate` / `DerenderingRecord` / `SuccessionRecord` / `LifecyclePhase` | Observer-succession record types (Stinespring de-rendering, transfer kernel, 5-phase lifecycle) |
 | `AnomalyClosureError` | Algebraic anomaly failure type |
+| `ShbtUniverse` | Branch cosmology: loading, Hubble, ghost partition, seed condensation, horizon freeze (`src/shbt/cosmology.rs`) |
+| `MmioTelemetryHeader` / `SeedDefectRecord` | SHBT-MMIO serialization (`src/shbt/export.rs`) |
+| `ShbtWebGpuEngine` / `Particle` / `HudMetrics` / `TimelineController` | Tier-2 visualizer (`src/shbt/visualizer`) |
 
 See [`paper_references.md`](paper_references.md) for the complete paper-section → method crosswalk.
 
@@ -180,6 +219,10 @@ See [`paper_references.md`](paper_references.md) for the complete paper-section 
 ```bash
 # Prerequisites: Rust 1.80+ (rustup), Python 3.8+, pip install maturin
 pip install -r requirements.txt
+
+# For the WebGPU visualizer additionally:
+rustup target add wasm32-unknown-unknown
+cargo install wasm-bindgen-cli   # matches wasm-bindgen crate version
 
 # Build Rust library and PyO3 bindings
 cargo build --release

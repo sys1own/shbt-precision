@@ -244,6 +244,8 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "seed": 0,
     "enable_succession": False,
     "succession_cycles": 3,
+    "sim_speed": 1.0,
+    "export_webgpu_telemetry": None,
     "output_dir": "./simulation_results",
     "output_name": "result",
     "export_formats": ["json"],
@@ -259,7 +261,7 @@ SHBT_CONFIG_SCHEMA: dict[str, Any] = {
     "type": "object",
     "additionalProperties": False,
     "properties": {
-        "mode": {"type": "string", "enum": ["audit", "cosmology", "cosmology-test", "baryogenesis", "history", "all"]},
+        "mode": {"type": "string", "enum": ["audit", "cosmology", "cosmology-test", "baryogenesis", "history", "visualize", "all"]},
         "branch": {
             "type": "array",
             "minItems": 3,
@@ -273,6 +275,8 @@ SHBT_CONFIG_SCHEMA: dict[str, Any] = {
         "seed": {"type": "integer"},
         "enable_succession": {"type": "boolean"},
         "succession_cycles": {"type": "integer"},
+        "sim_speed": {"type": "number"},
+        "export_webgpu_telemetry": {"type": ["string", "null"]},
         "output_dir": {"type": "string"},
         "output_name": {"type": "string"},
         "export_formats": {
@@ -384,6 +388,10 @@ def _merge_with_cli(args: argparse.Namespace) -> dict[str, Any]:
         config["particles"] = args.particles
     if args.seed != DEFAULT_CONFIG["seed"]:
         config["seed"] = args.seed
+    if args.export_webgpu_telemetry is not None:
+        config["export_webgpu_telemetry"] = args.export_webgpu_telemetry
+    if args.sim_speed != DEFAULT_CONFIG["sim_speed"]:
+        config["sim_speed"] = args.sim_speed
     if args.enable_succession:
         config["enable_succession"] = True
     if args.succession_cycles is not None:
@@ -1094,7 +1102,38 @@ def simulate(config: dict[str, Any]) -> dict[str, Any]:
         # computes baryogenesis (audit already contains it under `audit.eta_b`).
         result.setdefault("eta_b", result["audit"]["eta_b"])
 
-    if mode not in ("audit", "cosmology", "baryogenesis", "history", "all"):
+    if mode in ("visualize", "all"):
+        # Two-tier visualizer contract (Section 12): the Tier-1 core exports
+        # SHBT-MMIO telemetry frames consumed by the Tier-2 WebGPU engine.
+        delta_n_bits = 6.0e59
+        seed_mass_msun = _boltzmann.ALPHA_SEED_MSUN_PER_BIT * delta_n_bits
+        vis = {
+            "engine": "shbt-webgpu",
+            "shaders": ["nbody_pm.wgsl", "dual_channel_render.wgsl", "holographic_post.wgsl"],
+            "particles": particles,
+            "sim_speed": float(config.get("sim_speed", 1.0)),
+            "mmio": {
+                "magic": hex(_boltzmann.SHBT_MMIO_MAGIC),
+                "schema": hex(_boltzmann.SHBT_MMIO_SCHEMA),
+                "header_bytes": _boltzmann.SHBT_MMIO_HEADER_BYTES,
+                "seed_record_bytes": _boltzmann.SEED_RECORD_BYTES,
+                "spectrum_grid_len": _boltzmann.SPECTRUM_GRID_LEN,
+            },
+            "seed_condensation": {
+                "delta_n_bits": delta_n_bits,
+                "alpha_seed_msun_per_bit": _boltzmann.ALPHA_SEED_MSUN_PER_BIT,
+                "seed_mass_msun": seed_mass_msun,
+                "landauer_debt_gw": seed_mass_msun * _boltzmann.LANDAUER_GW_PER_MSUN,
+            },
+        }
+        export_path = config.get("export_webgpu_telemetry")
+        if export_path:
+            vis["telemetry_frame"] = _boltzmann.export_webgpu_telemetry(
+                export_path, particle_count=particles
+            )
+        result["cosmology_visualization"] = vis
+
+    if mode not in ("audit", "cosmology", "baryogenesis", "history", "visualize", "all"):
         raise ValueError(f"unknown simulation mode: {mode}")
 
     _add_repro_metadata(result)
@@ -1316,7 +1355,7 @@ def _build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--mode",
         "-m",
-        choices=["audit", "cosmology", "cosmology-test", "baryogenesis", "history", "all"],
+        choices=["audit", "cosmology", "cosmology-test", "baryogenesis", "history", "visualize", "all"],
         default=DEFAULT_CONFIG["mode"],
         help="simulation mode (default: all)",
     )
@@ -1355,7 +1394,20 @@ def _build_arg_parser() -> argparse.ArgumentParser:
         "-p",
         type=int,
         default=DEFAULT_CONFIG["particles"],
-        help="particle count for the baryogenesis benchmark (default: 512)",
+        help="particle count for the baryogenesis benchmark and the WebGPU visualizer (default: 512)",
+    )
+    parser.add_argument(
+        "--export-webgpu-telemetry",
+        type=str,
+        default=None,
+        metavar="PATH",
+        help="write one SHBT-MMIO telemetry frame (128-byte header + T/P grids + seed records) for the WebGPU visualizer",
+    )
+    parser.add_argument(
+        "--sim-speed",
+        type=float,
+        default=DEFAULT_CONFIG["sim_speed"],
+        help="visualizer timeline playback multiplier recorded in cosmology_visualization (default: 1.0)",
     )
     parser.add_argument(
         "--enable-succession",
