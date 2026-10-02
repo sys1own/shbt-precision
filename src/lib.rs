@@ -3797,4 +3797,7 @@ mod shbt_simulator {
 
     #[pymodule_export]
     use super::shbt::LifecyclePhase;
+
+    #[pymodule_export]
+    use super::shbt::serialize_mmio_frame_py;
 }

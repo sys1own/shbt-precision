@@ -5983,6 +5983,125 @@ the canonical definitions above, the closure statement is
 \end{equation}
 with each arrow evaluated by the closure tables above.
 
+\subsection{Boundary-Loading Closure Theorems}
+\label{sec:boundary-loading-closure-theorems}
+
+The following statements package three consequences of the loading law that
+the reference implementation makes machine-checkable.  Each is stated at the
+level of the precision-cosmology ledger; the implementation mapping is given
+in Table~\ref{tab:master-code-traceability-28} and
+Section~\ref{sec:boundary-visualizer}.
+
+\begin{theorem}[Dynamic Bit-Loading Equivalence]
+\label{thm:dynamic-bit-loading-equivalence}
+Let $S_{\mathrm{index}}(t)$ be the index-theory entropy carried by the
+loaded register.  The dynamic bit-loading law is exactly equivalent to the
+Hubble expansion rate,
+\begin{equation}
+\label{eq:dynamic-bit-loading-equivalence}
+ \dot{T}
+ \;\equiv\;
+ \frac{1}{\Nsat}\frac{dS_{\mathrm{index}}}{dt}
+ \;=\;
+ H(t),
+\end{equation}
+so the completed boundary register generates the expansion history without
+an inflaton sector: no $(\phi,V)$ degree of freedom enters the ledger.
+\end{theorem}
+
+\begin{proof}[Implementation statement]
+\pyvar{precision_cosmology.py::shbt_hubble_rate} and
+\pyvar{src/shbt/cosmology.rs::ShbtUniverse.evaluate_hubble_index_rate}
+evaluate the two sides of
+Eq.~\eqref{eq:dynamic-bit-loading-equivalence} on the canonical branch
+$(26,8,312)$ at the report's precision; the invariant test
+\pyvar{tests/cosmological_invariants.rs} fixes the equality to better than
+$10^{-30}$ relative error.
+\end{proof}
+
+\begin{theorem}[Passive Ghost Dark Matter]
+\label{thm:passive-ghost-dark-matter}
+The de-rendered sector carries exactly $\eta_D=23/33$ of the loaded
+register capacity while the visible channel carries $\eta_A=10/33$.  The
+de-rendered bits contribute passive stress-energy with $w_{\mathrm{DM}}=0$
+and, on the canonical branch,
+\begin{equation}
+\label{eq:passive-ghost-omega-dm}
+ \Omega_{\mathrm{DM},0}
+ \;=\;
+ \frac{\cdarkcomp}{12}
+ \;=\;
+ 0.260000.
+\end{equation}
+The two channels sum to the conserved register load; the
+$E_{\mu\nu}=0$ condition forbids any radiative leakage between them.
+\end{theorem}
+
+\begin{proof}[Implementation statement]
+\pyvar{ShbtUniverse.dark_completion_bits} and
+\pyvar{ShbtUniverse.active_visible_bits} evaluate the $\eta_D$/$\eta_A$
+partition, \pyvar{ShbtUniverse.dark_matter_fraction} returns
+$\cdarkcomp/12$, and the Channel~B target of
+\pyvar{dual_channel_render.wgsl} renders the ghost density with zero
+emission weight.
+\end{proof}
+
+\begin{theorem}[Mass-Congestion Condensation]
+\label{thm:mass-congestion-condensation}
+Register congestion $\Delta N$ seeds a supermassive condensate
+\begin{equation}
+\label{eq:mass-congestion-condensation}
+ M_{\mathrm{seed}}
+ \;=\;
+ \alpha_{\mathrm{seed}}\,\Delta N,
+ \qquad
+ \alpha_{\mathrm{seed}}
+ =1.3258316\times10^{-51}\ M_\odot\,\mathrm{bit}^{-1},
+\end{equation}
+so $\Delta N\simeq6\times10^{59}$ bits yields
+$M_{\mathrm{seed}}\simeq7.95\times10^{8}\,M_\odot$ with Landauer debt
+$P_{\mathrm{debt}}=(M_{\mathrm{seed}}/M_\odot)\times906\,\mathrm{GW}$.
+\end{theorem}
+
+\begin{proof}[Implementation statement]
+\pyvar{ShbtUniverse.compute_seed_condensation} implements
+Eq.~\eqref{eq:mass-congestion-condensation};
+\pyvar{ShbtUniverse.eval_landauer_debt_power} returns the debt power in
+GW, and the \pyvar{SEED_RECORD_BYTES}$=128$ seed records in the SHBT-MMIO
+frame carry $(\mathbf x,M_{\mathrm{seed}},P_{\mathrm{debt}},\nu,z_f)$
+to the visualizer.
+\end{proof}
+
+\subsection{Two-Tier Interactive Visualization Architecture}
+\label{sec:boundary-visualizer}
+
+The reference implementation separates the computation into a high-precision
+Tier-1 core and a real-time Tier-2 renderer.  Tier~1
+(\pyvar{shbt_simulator}, MPFR-precision ledger plus
+\pyvar{precision_cosmology.py} and \pyvar{boltzmann_shbt.py}) produces the
+observables reported above and serializes them into the SHBT-MMIO telemetry
+frame (\pyvar{src/shbt/export.rs}): a $128$-byte header carrying
+\pyvar{magic=0x54424853} and \pyvar{schema=0x00020000}, $z$, $a$, $H(z)$,
+$\fload(z)$, active and dark bit counts, Landauer debt, seed mass,
+$f\sigma_8$, $\Delta_{\mathrm{ISW}}$, and the particle count, followed by
+a $256$-point transfer grid, a $256$-point matter-power grid, and $128$-byte
+\pyvar{SeedDefectRecord} entries.
+
+Tier~2 is the standalone \pyvar{shbt-visualizer} crate
+(\pyvar{src/shbt/visualizer}), compiled to \pyvar{wasm32} and bound to
+\pyvar{visualizer/index.html}.  A \pyvar{ShbtWebGpuEngine} drives three
+WGSL stages: \pyvar{nbody_pm.wgsl} (Fast-PM/2LPT kick--drift under the
+loaded conformal friction $1+\fload\cdot10/33$ with the Stinespring
+anti-baryon de-render envelope), \pyvar{dual_channel_render.wgsl}
+(Channel~A emission weighted by \pyvar{vis_weight}; Channel~B ghost shear
+and mass density conserved independently of it), and
+\pyvar{holographic_post.wgsl} (lensed-UV composite, ghost false-color, and
+the horizon overlay driven by $\fload$).  Double-buffered storage holds
+$2^{20}$ particles in $32$-byte structures (under $256\,\mathrm{MB}$),
+and the pipeline is gated at $60$ FPS by the browser presentation clock;
+the \pyvar{headless} binary runs the identical pass structure natively for
+CI benchmarking.
+
 \section{Sub-Kelvin Address-Scaled Landauer Calorimetry Architecture and
 Falsification Protocols}
 \label{sec:sub-kelvin-address-calorimetry}
@@ -6990,6 +7109,11 @@ Stinespring de-rendering, Eq.~\eqref{eq:observer-stinespring-derendering} & \pyv
 Succession transfer kernel, Eq.~\eqref{eq:observer-succession-kernel} & \pyvar{src/shbt/causal_point.rs} & \pyvar{CausalPoint.evaluate_succession_kernel}, \pyvar{ShbtSimulator.run_succession_cycles} & \pyvar{result.json:succession.records[].kernel_probabilities} \\
 Asymptotic observer freeze, Eq.~\eqref{eq:observer-asymptotic-freeze} & \pyvar{precision_cosmology.py} & \pyvar{asymptotic_observer_freeze}, \pyvar{observer_admissible_set} & \pyvar{result.json:foundation_audit.asymptotic_observer_freeze} \\
 Landauer regression, Eqs.~\eqref{eq:calorimetry-direct-slope-fit}--\eqref{eq:calorimetry-aic-decision-ledger} & \pyvar{shbt_simulate.py} & calorimetry OLS/MLE analysis pipeline & \pyvar{shbt_run_calorimetry_sim.csv} \\
+Dynamic bit loading, Thm.~\ref{thm:dynamic-bit-loading-equivalence} & \pyvar{src/shbt/cosmology.rs} & \pyvar{ShbtUniverse.evaluate_hubble_index_rate}, \pyvar{conformal_loading_fraction} & \pyvar{result.json:cosmology_visualization} \\
+Ghost partition, Thm.~\ref{thm:passive-ghost-dark-matter} & \pyvar{src/shbt/cosmology.rs} & \pyvar{ShbtUniverse.dark_completion_bits}, \pyvar{dark_matter_fraction} & \pyvar{data/telemetry.bin} header fields \\
+Seed condensation, Thm.~\ref{thm:mass-congestion-condensation} & \pyvar{src/shbt/cosmology.rs} & \pyvar{ShbtUniverse.compute_seed_condensation}, \pyvar{eval_landauer_debt_power} & SHBT-MMIO \pyvar{SeedDefectRecord} \\
+Telemetry serialization, Sec.~\ref{sec:boundary-visualizer} & \pyvar{src/shbt/export.rs} & \pyvar{serialize_mmio_frame_py}, \pyvar{MmioTelemetryHeader.to_bytes} & \pyvar{data/telemetry.bin} \\
+WebGPU engine, Sec.~\ref{sec:boundary-visualizer} & \pyvar{src/shbt/visualizer} & \pyvar{ShbtWebGpuEngine.step_frame}, \pyvar{hud_json} & \pyvar{visualizer/pkg/shbt_visualizer_bg.wasm} \\
 \bottomrule
 \end{tabularx}
 \caption{Code and equation traceability matrix (Table~28 verification
@@ -7011,6 +7135,7 @@ Generated artifact & Required columns or nested records & Paper-level observable
 \pyvar{shbt_run_tensor_cls.csv} & \pyvar{Cl_BB}, \pyvar{Dl_BB}, \pyvar{Cl_TT_tensor} & primordial tensor B modes and tensor temperature spectrum \\
 \pyvar{shbt_run_calorimetry_sim.csv} & \pyvar{k_bits}, \pyvar{R_addresses}, \pyvar{Q_H0_zJ}, \pyvar{Q_H1_zJ}, \pyvar{Q_noise_zJ} & address sweep, competing heat laws, and simulated noise \\
 \pyvar{result.json} & complete nested foundation audit, precision summary, spectra, non-Gaussianity, stability, and calorimetry records & full machine-readable simulation summary and cross-sector closure audit \\
+\pyvar{data/telemetry.bin} & 128-byte SHBT-MMIO header; 256-point $T(k,z)$ and $P_m(k,z)$ grids; 128-byte \pyvar{SeedDefectRecord} entries & two-tier visualizer telemetry contract (Sec.~\ref{sec:boundary-visualizer}) \\
 \bottomrule
 \end{tabularx}
 \caption{Generated data-product traceability matrix (Table~29 verification
@@ -7057,6 +7182,10 @@ Software interface & Physical role and principal accessors \\
 \pyvar{src/shbt/baryogenesis.rs} & baryogenesis identity, \(\kappad\), state decoupling, and benchmark comparison \\
 \pyvar{src/shbt/causal_point.rs} & Causal Point light cone, finite-memory checks, history crystallization, admissibility predicate $\Padm$, Stinespring de-rendering, and the closed-loop succession engine \\
 \pyvar{src/lib.rs} & PyO3 exports and \pyvar{ShbtSimulator} orchestration \\
+\pyvar{src/shbt/cosmology.rs} & \pyvar{ShbtUniverse} branch cosmology: loading, Hubble, ghost partition, seed condensation, ISW residual, and horizon freeze \\
+\pyvar{src/shbt/export.rs} & SHBT-MMIO frame serialization and \pyvar{serialize_mmio_frame_py} export \\
+\pyvar{src/shbt/visualizer} & \pyvar{shbt-visualizer} crate: \pyvar{Particle}, \pyvar{ShbtWebGpuEngine}, \pyvar{HudMetrics}, WGSL pipeline, and \pyvar{headless} benchmark binary \\
+\pyvar{visualizer/index.html} & browser harness: horizon HUD, capacity gauge, seed ledger, Landauer monitor, timeline scrub, speed and channel controls \\
 \bottomrule
 \end{tabular}
 \caption{Explicit physics-to-software bridge required to reproduce the paper-level closure tables.}

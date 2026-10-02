@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SHBT WebGPU Cosmological Visualizer</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #04060c; color: #cfe3ff;
+               font: 13px/1.45 "Segoe UI", system-ui, sans-serif; overflow: hidden; }
+  #shbt-canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+  #hud { position: absolute; top: 10px; left: 10px; width: 300px; padding: 12px;
+         background: rgba(8, 14, 28, .82); border: 1px solid #26406b; border-radius: 8px;
+         backdrop-filter: blur(4px); }
+  #hud h1 { font-size: 13px; margin: 0 0 8px; letter-spacing: .06em; color: #8fb8ff; }
+  .metric { margin: 7px 0; }
+  .metric .label { display: flex; justify-content: space-between; font-size: 11px;
+                   color: #9db7dd; margin-bottom: 3px; }
+  .bar { height: 7px; border-radius: 3px; background: #14213d; overflow: hidden; }
+  .bar > div { height: 100%; width: 0%; background: linear-gradient(90deg,#2f6fd8,#7ab8ff);
+               transition: width .12s linear; }
+  .ledger { font-family: ui-monospace, Consolas, monospace; font-size: 11px;
+            color: #d9e8ff; white-space: pre-line; }
+  #invariants { display: flex; gap: 8px; margin-top: 9px; }
+  .inv { flex: 1; text-align: center; padding: 4px 2px; border: 1px solid #26406b;
+         border-radius: 5px; font-size: 10px; color: #6f8db8; }
+  .inv.ok { color: #7ee0a3; border-color: #2c7a4b; }
+  #controls { position: absolute; left: 10px; bottom: 10px; width: 420px; padding: 10px 12px;
+              background: rgba(8,14,28,.82); border: 1px solid #26406b; border-radius: 8px; }
+  #controls input[type=range] { width: 100%; }
+  #controls .row { display: flex; gap: 8px; align-items: center; margin-top: 7px;
+                   flex-wrap: wrap; }
+  button, select { background: #16294b; color: #cfe3ff; border: 1px solid #33507f;
+                   border-radius: 4px; padding: 3px 9px; cursor: pointer; }
+  button.active { background: #2f6fd8; }
+  #zlabel { font-family: ui-monospace, Consolas, monospace; }
+  #status { position: absolute; right: 10px; top: 10px; padding: 8px 12px; max-width: 320px;
+            background: rgba(8,14,28,.82); border: 1px solid #26406b; border-radius: 8px;
+            font-size: 11px; color: #9db7dd; white-space: pre-line; }
+</style>
+</head>
+<body>
+<canvas id="shbt-canvas" width="1280" height="720"></canvas>
+
+<div id="hud">
+  <h1>SHBT HOLOGRAPHIC TELEMETRY</h1>
+  <div class="metric">
+    <div class="label"><span>Horizon Bar &mdash; bulk time</span><span id="hud-time">0 Gyr</span></div>
+    <div class="bar"><div id="bar-time"></div></div>
+  </div>
+  <div class="metric">
+    <div class="label"><span>Boundary Capacity &mdash; f<sub>load</sub>(z)</span><span id="hud-fload">0</span></div>
+    <div class="bar"><div id="bar-fload"></div></div>
+  </div>
+  <div class="metric">
+    <div class="label"><span>H(z)</span><span id="hud-hubble">0</span></div>
+  </div>
+  <div class="metric">
+    <div class="label"><span>Congestion &amp; Seed Ledger</span></div>
+    <div class="ledger" id="hud-ledger">&Delta;N = 0 bits</div>
+  </div>
+  <div class="metric">
+    <div class="label"><span>Landauer Debt Monitor</span><span id="hud-debt">0 W</span></div>
+    <div class="bar"><div id="bar-debt"></div></div>
+  </div>
+  <div id="invariants">
+    <div class="inv" id="inv-fr">&Delta;<sub>fr</sub> = 0</div>
+    <div class="inv" id="inv-emu">E<sub>&mu;&nu;</sub> = 0</div>
+    <div class="inv" id="inv-horizon">Horizon freeze</div>
+  </div>
+</div>
+
+<div id="controls">
+  <input id="timeline" type="range" min="-12" max="12" step="0.01" value="12"
+         title="log-space timeline: z = 10^x - 1, x in [-12, 12]">
+  <div class="row">
+    <span id="zlabel">z = 1.0e+12</span>
+    <button id="play">&#9208;</button>
+    <button class="speed" data-s="1">1&times;</button>
+    <button class="speed" data-s="10">10&times;</button>
+    <button class="speed" data-s="100">100&times;</button>
+    <select id="projection">
+      <option value="0">Comoving bulk</option>
+      <option value="1">Boundary CFT</option>
+    </select>
+    <label><input type="checkbox" id="ch-a" checked> Ch&nbsp;A visible</label>
+    <label><input type="checkbox" id="ch-b" checked> Ch&nbsp;B ghost</label>
+  </div>
+</div>
+
+<div id="status">initializing&hellip;</div>
+
+<script type="module" src="index.js"></script>
+</body>
+</html>
