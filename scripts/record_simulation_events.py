@@ -34,12 +34,43 @@ PORT = 8080
 
 # (epoch button data-epoch, clip filename, screenshot filename, dwell s)
 EPOCHS = [
-    ("load", "01_primordial_bit_loading.webm", "01_primordial_bit_loading.png", 4.0),
-    ("bary", "02_baryogenesis_derendering.webm", "02_baryogenesis_derendering.png", 5.0),
-    ("seed", "03_ghost_seed_einstein_rings.webm", "03_ghost_seed_einstein_rings.png", 5.0),
-    ("get", "04_causal_point_proto_galaxies.webm", "04_causal_point_proto_galaxies.png", 6.0),
-    ("freeze", "05_asymptotic_horizon_freeze.webm", "05_asymptotic_horizon_freeze.png", 4.0),
+    ("load", "01_primordial_bit_loading.webm", "01_primordial_bit_loading.png", 10.0),
+    ("bary", "02_baryogenesis_derendering.webm", "02_baryogenesis_derendering.png", 10.0),
+    ("seed", "03_ghost_seed_einstein_rings.webm", "03_ghost_seed_einstein_rings.png", 10.0),
+    ("get", "04_causal_point_proto_galaxies.webm", "04_causal_point_proto_galaxies.png", 10.0),
+    ("freeze", "05_asymptotic_horizon_freeze.webm", "05_asymptotic_horizon_freeze.png", 8.0),
 ]
+
+# Target redshift each epoch button sets (mirror of EPOCHS in index.js).
+TARGET_Z = {"load": 1e14, "bary": 1e11, "seed": 18.0, "get": 3.0, "freeze": -0.999}
+
+
+async def wait_for_z(page, target: float, timeout: float = 300.0, tol_dec: float = 0.35):
+    """Poll #zlabel until the timeline converges near `target`.
+
+    Capture mode serializes every engine mutation behind the in-flight
+    capture_frame_rgba (~4-5 s each on SwiftShader), so a clicked epoch only
+    takes effect several seconds later. Fixed dwells fire the screenshot
+    before the transition lands; polling the HUD label is the only reliable
+    signal.
+    """
+    import math
+    import re
+
+    t0 = time.monotonic()
+    target_l = math.log10(max(target + 1.0, 1e-9))
+    last = None
+    while time.monotonic() - t0 < timeout:
+        txt = await page.evaluate("document.getElementById('zlabel').textContent")
+        m = re.search(r"z\s*=\s*([-+0-9.eE]+)", txt)
+        if m:
+            z = float(m.group(1))
+            last = z
+            if abs(math.log10(max(z + 1.0, 1e-9)) - target_l) < tol_dec:
+                return z
+        await asyncio.sleep(1.0)
+    print(f"[RECORDER] WARN: z did not converge to {target} within {timeout}s; last={last}")
+    return last
 
 
 class CoepServer(socketserver.TCPServer):
@@ -121,7 +152,7 @@ async def record() -> dict:
         page.on("console", lambda m: print(f"[BROWSER:{m.type}] {m.text}"))
         page.on("pageerror", lambda e: print(f"[BROWSER:pageerror] {e}"))
 
-        url = f"http://127.0.0.1:{PORT}/index.html"
+        url = f"http://127.0.0.1:{PORT}/index.html?capture=1"
         print(f"[RECORDER] Navigating to {url} ...")
         await page.goto(url, wait_until="networkidle")
         await page.wait_for_selector("#shbt-canvas", timeout=15000)
@@ -144,7 +175,9 @@ async def record() -> dict:
             btn = page.locator(f'#epoch-bar button[data-epoch="{epoch_key}"]')
             await btn.click()
             seg_start = time.monotonic() - t0
-            print(f"[RECORDER] Event {epoch_key}: dwell {dwell}s ...")
+            print(f"[RECORDER] Event {epoch_key}: waiting for z -> {TARGET_Z[epoch_key]} ...")
+            z_now = await wait_for_z(page, TARGET_Z[epoch_key])
+            print(f"[RECORDER] {epoch_key}: z converged at {z_now}; dwell {dwell}s ...")
             # Pause the timeline sweep so the milestone HUD state (f_load, z,
             # optics ledger) is captured before playback drifts past it, then
             # resume for the remainder of the video segment.
@@ -153,7 +186,9 @@ async def record() -> dict:
             )
             if was_playing:
                 await page.click("#play")
-            await asyncio.sleep(1.0)
+            # Wait long enough for one full capture cycle so the paused HUD
+            # and the blitted frame reflect the converged epoch state.
+            await asyncio.sleep(6.0)
             snap = await page.evaluate(HUD_SNAPSHOT_JS)
             shot_path = RECORDINGS_DIR / shot_name
             await page.screenshot(path=str(shot_path), timeout=90_000)

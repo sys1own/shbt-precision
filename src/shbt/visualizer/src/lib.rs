@@ -114,6 +114,14 @@ pub struct ShbtWebGpuEngine {
     causal_buffer: Buffer,
     causal_uniform_buffer: Buffer,
     telemetry_buffer: Buffer,
+    #[cfg(target_arch = "wasm32")]
+    capture_target: Option<Texture>,
+    #[cfg(target_arch = "wasm32")]
+    capture_staging: Option<Buffer>,
+    #[cfg(target_arch = "wasm32")]
+    capture_post_pipeline: Option<RenderPipeline>,
+    #[cfg(target_arch = "wasm32")]
+    capture_post_bgl: Option<BindGroupLayout>,
     density_tex: Texture,
     force_tex: Texture,
     visible_tex: Texture,
@@ -459,7 +467,11 @@ impl ShbtWebGpuEngine {
                 module: &causal_shader,
                 entry_point: "fs_causal",
                 targets: &[
-                    None,
+                    Some(ColorTargetState {
+                        format: TARGET_FORMAT,
+                        blend: blend_add,
+                        write_mask: ColorWrites::ALL,
+                    }),
                     Some(ColorTargetState {
                         format: TARGET_FORMAT,
                         blend: blend_add,
@@ -692,6 +704,14 @@ impl ShbtWebGpuEngine {
             causal_buffer,
             causal_uniform_buffer,
             telemetry_buffer,
+            #[cfg(target_arch = "wasm32")]
+            capture_target: None,
+            #[cfg(target_arch = "wasm32")]
+            capture_staging: None,
+            #[cfg(target_arch = "wasm32")]
+            capture_post_pipeline: None,
+            #[cfg(target_arch = "wasm32")]
+            capture_post_bgl: None,
             density_tex,
             force_tex,
             visible_tex,
@@ -1508,6 +1528,108 @@ impl ShbtWebGpuEngine {
     #[wasm_bindgen]
     pub fn particle_count(&self) -> u32 {
         self.num_particles
+    }
+
+    /// Render one frame into an offscreen RGBA8 target and resolve the
+    /// pixels to JS. Used when the WebGPU canvas cannot be composited
+    /// (e.g. headless Chromium / SwiftShader): the page blits the bytes
+    /// into a 2D overlay canvas for capture.
+    #[wasm_bindgen]
+    pub async fn capture_frame_rgba(&mut self, dt_seconds: f64) -> Result<js_sys::Uint8Array, JsValue> {
+        if self.capture_target.is_none() {
+            let tex = self.device.create_texture(&TextureDescriptor {
+                label: Some("capture target"),
+                size: Extent3d {
+                    width: self.width,
+                    height: self.height,
+                    depth_or_array_layers: 1,
+                },
+                mip_level_count: 1,
+                sample_count: 1,
+                dimension: TextureDimension::D2,
+                format: TextureFormat::Rgba8Unorm,
+                usage: TextureUsages::RENDER_ATTACHMENT | TextureUsages::COPY_SRC,
+                view_formats: &[],
+            });
+            let bytes_per_row = (self.width * 4 + 255) / 256 * 256;
+            let staging = self.device.create_buffer(&BufferDescriptor {
+                label: Some("capture readback"),
+                size: (bytes_per_row * self.height) as u64,
+                usage: BufferUsages::MAP_READ | BufferUsages::COPY_DST,
+                mapped_at_creation: false,
+            });
+            let (_c, _r, post, _cb, _rb, post_bgl) =
+                Self::build_pipelines(&self.device, TextureFormat::Rgba8Unorm);
+            self.capture_target = Some(tex);
+            self.capture_staging = Some(staging);
+            self.capture_post_pipeline = Some(post);
+            self.capture_post_bgl = Some(post_bgl);
+        }
+
+        // Render through the offscreen-format post pipeline, then restore
+        // the surface pipeline for normal canvas frames.
+        let mut cap_post = self.capture_post_pipeline.take().unwrap();
+        let mut cap_bgl = self.capture_post_bgl.take().unwrap();
+        std::mem::swap(&mut self.post_pipeline, &mut cap_post);
+        std::mem::swap(&mut self.post_bgl, &mut cap_bgl);
+        let view = self
+            .capture_target
+            .as_ref()
+            .unwrap()
+            .create_view(&TextureViewDescriptor::default());
+        self.step(dt_seconds, Some(&view));
+        std::mem::swap(&mut self.post_pipeline, &mut cap_post);
+        std::mem::swap(&mut self.post_bgl, &mut cap_bgl);
+        self.capture_post_pipeline = Some(cap_post);
+        self.capture_post_bgl = Some(cap_bgl);
+
+        let bytes_per_row = (self.width * 4 + 255) / 256 * 256;
+        let staging = self.capture_staging.as_ref().unwrap();
+        let mut encoder = self
+            .device
+            .create_command_encoder(&CommandEncoderDescriptor { label: None });
+        encoder.copy_texture_to_buffer(
+            ImageCopyTexture {
+                texture: self.capture_target.as_ref().unwrap(),
+                mip_level: 0,
+                origin: Origin3d::ZERO,
+                aspect: TextureAspect::All,
+            },
+            ImageCopyBuffer {
+                buffer: staging,
+                layout: ImageDataLayout {
+                    offset: 0,
+                    bytes_per_row: Some(bytes_per_row),
+                    rows_per_image: Some(self.height),
+                },
+            },
+            Extent3d {
+                width: self.width,
+                height: self.height,
+                depth_or_array_layers: 1,
+            },
+        );
+        self.queue.submit([encoder.finish()]);
+
+        let slice = staging.slice(..);
+        let (tx, rx) = futures_channel::oneshot::channel();
+        slice.map_async(MapMode::Read, move |r| {
+            let _ = tx.send(r);
+        });
+        self.device.poll(Maintain::Wait);
+        rx.await
+            .map_err(|_| "capture map channel dropped")?
+            .map_err(|e| format!("capture map_async failed: {e:?}"))?;
+
+        let data = slice.get_mapped_range();
+        let mut packed = Vec::with_capacity((self.width * self.height * 4) as usize);
+        for row in 0..self.height {
+            let start = (row * bytes_per_row) as usize;
+            packed.extend_from_slice(&data[start..start + (self.width * 4) as usize]);
+        }
+        drop(data);
+        staging.unmap();
+        Ok(js_sys::Uint8Array::from(&packed[..]))
     }
 }
 

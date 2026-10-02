@@ -91,7 +91,12 @@ async function boot() {
     if (descriptor && descriptor.requiredLimits) {
       delete descriptor.requiredLimits.maxInterStageShaderComponents;
     }
-    return origRequestDevice.call(this, descriptor);
+    return origRequestDevice.call(this, descriptor).then((device) => {
+      device.addEventListener("uncapturederror", (e) =>
+        console.error(`[webgpu] ${e.error.message}`)
+      );
+      return device;
+    });
   };
   try {
     const wasm = await import("./pkg/shbt_visualizer.js");
@@ -105,12 +110,75 @@ async function boot() {
     status(`engine init failed:\n${e}`);
     throw e;
   }
+  // Software capture path: headless Chromium/SwiftShader cannot composite
+  // the WebGPU canvas into screenshots or video, so ?capture=1 renders each
+  // frame into an offscreen RGBA target, reads it back, and blits it into a
+  // 2D overlay canvas that captures correctly. The WebGPU canvas stays live
+  // underneath for interactive use without the flag.
+  if (new URLSearchParams(location.search).get("capture") === "1") {
+    // capture_frame_rgba holds &mut engine across an await; serialize every
+    // mutating call through a queue so event handlers cannot re-enter it.
+    const mutating = new Set([
+      "step_frame", "capture_frame_rgba", "update_frame_telemetry",
+      "set_redshift", "set_speed", "set_playing", "set_projection",
+      "set_unwrap_transition", "set_channels", "set_lensing_enabled",
+      "set_lensing_scale", "set_dispersion", "set_doppler_enabled",
+      "set_dark_glow",
+    ]);
+    const raw = engine;
+    engine = new Proxy(raw, {
+      get(t, prop) {
+        const v = t[prop];
+        if (!mutating.has(prop)) return v;
+        return (...args) => {
+          const run = engineQueue.then(() => v.apply(t, args));
+          engineQueue = run.catch((e) => console.error(`[engine queue] ${e}`));
+          return run;
+        };
+      },
+    });
+    window.__engine = engine;
+    const src = $("shbt-canvas");
+    const overlay = document.createElement("canvas");
+    overlay.id = "capture-canvas";
+    overlay.width = src.width;
+    overlay.height = src.height;
+    overlay.style.cssText =
+      "position:absolute;inset:0;width:100%;height:100%;z-index:0";
+    src.parentElement.insertBefore(overlay, src.nextSibling);
+    captureCtx = overlay.getContext("2d");
+  }
   requestAnimationFrame(frame);
 }
+
+let captureCtx = null;
+let captureBusy = false;
+let engineQueue = Promise.resolve();
 
 function frame(now) {
   const dt = Math.min((now - lastT) / 1000, 0.1);
   lastT = now;
+  if (captureCtx) {
+    if (!captureBusy) {
+      captureBusy = true;
+      engine
+        .capture_frame_rgba(dt)
+        .then((px) => {
+          const c = captureCtx.canvas;
+          captureCtx.putImageData(
+            new ImageData(new Uint8ClampedArray(px), c.width, c.height),
+            0, 0
+          );
+          refreshHud(JSON.parse(engine.hud_json()));
+        })
+        .catch((e) => status(`capture error:\n${e}`))
+        .finally(() => {
+          captureBusy = false;
+        });
+    }
+    requestAnimationFrame(frame);
+    return;
+  }
   try {
     engine.step_frame(dt);
     refreshHud(JSON.parse(engine.hud_json()));

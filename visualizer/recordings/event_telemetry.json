@@ -4,11 +4,11 @@
       "epoch": "load",
       "screenshot": "01_primordial_bit_loading.png",
       "status": "engine online\nparticles: 262,144\ntimeline: z = 1e14 \u2192 \u22121",
-      "z": "z = 1.000e+12  a = 9.995e-13",
+      "z": "z = 9.120e+13  a = 1.096e-14",
       "f_load": "0.10744",
       "observers": "Radm = 1024",
       "rentropy": "Rentropy = Nlimit \u2212 Cget \u2265 0 \u2014 GET active",
-      "optics": "\u03b3max = 0.444  \u03bamax = 0.580\n\u03b8E = 0.00 rad  caustics = 0",
+      "optics": "\u03b3max = 0.428  \u03bamax = 0.736\n\u03b8E = 0.00 rad  caustics = 0",
       "banner": "PHASE 1: CONFORMAL SCREEN BIT LOADING \u00a0|\u00a0 \u1e60 = H(t) \u00b7 Cmax \u00a0|\u00a0 Nsat = 3.312\u00d710122 bits",
       "ledger": "\u0394N = 0.00 bits\nN_vis = 3.558e+121  N_dark = 0.00\nChannel A quench = 0.0% (target 23/33 = 69.7%)\nM_seed = 0.00 M\u2609"
     },
@@ -16,23 +16,23 @@
       "epoch": "bary",
       "screenshot": "02_baryogenesis_derendering.png",
       "status": "engine online\nparticles: 262,144\ntimeline: z = 1e14 \u2192 \u22121",
-      "z": "z = 6.310e+10  a = 1.585e-11",
+      "z": "z = 8.577e+10  a = 1.166e-11",
       "f_load": "0.10744",
       "observers": "Radm = 1024",
       "rentropy": "Rentropy = Nlimit \u2212 Cget \u2265 0 \u2014 GET active",
-      "optics": "\u03b3max = 0.450  \u03bamax = 0.584\n\u03b8E = 0.00 rad  caustics = 0",
+      "optics": "\u03b3max = 0.447  \u03bamax = 0.730\n\u03b8E = 0.00 rad  caustics = 0",
       "banner": "PHASE 2: TOPOLOGICAL BARYOGENESIS \u00a0|\u00a0 Stinespring De-Rendering 23/33 \u00a0|\u00a0 \u03b7B = 6.1\u00d710\u221210",
-      "ledger": "\u0394N = 0.00 bits\nN_vis = 2.566e+121  N_dark = 9.920e+120\nChannel A quench = 27.9% (target 23/33 = 69.7%)\nM_seed = 0.00 M\u2609"
+      "ledger": "\u0394N = 0.00 bits\nN_vis = 2.677e+121  N_dark = 8.818e+120\nChannel A quench = 24.8% (target 23/33 = 69.7%)\nM_seed = 0.00 M\u2609"
     },
     {
       "epoch": "seed",
       "screenshot": "03_ghost_seed_einstein_rings.png",
       "status": "engine online\nparticles: 262,144\ntimeline: z = 1e14 \u2192 \u22121",
-      "z": "z = 17.4  a = 0.0543",
-      "f_load": "0.10733",
+      "z": "z = 17.7  a = 0.0534",
+      "f_load": "0.10734",
       "observers": "Radm = 1024",
       "rentropy": "Rentropy = Nlimit \u2212 Cget \u2265 0 \u2014 GET active",
-      "optics": "\u03b3max = 0.446  \u03bamax = 0.731\n\u03b8E = 0.0450 rad  caustics = 4",
+      "optics": "\u03b3max = 0.456  \u03bamax = 0.722\n\u03b8E = 0.0450 rad  caustics = 4",
       "banner": "PHASE 3: TOPOLOGICAL GHOST SEED CONDENSATION \u00a0|\u00a0 Mseed \u2248 109 M\u2609 \u00a0|\u00a0 K = 312, \u0394N = 6.0\u00d71059 bits",
       "ledger": "\u0394N = 6.000e+59 bits\nN_vis = 1.077e+121  N_dark = 2.478e+121\nChannel A quench = 69.7% (target 23/33 = 69.7%)\nM_seed = 7.955e+8 M\u2609"
     },
@@ -40,13 +40,13 @@
       "epoch": "get",
       "screenshot": "04_causal_point_proto_galaxies.png",
       "status": "engine online\nparticles: 262,144\ntimeline: z = 1e14 \u2192 \u22121",
-      "z": "z = 2.70  a = 0.270",
-      "f_load": "0.10181",
+      "z": "z = 2.94  a = 0.254",
+      "f_load": "0.10260",
       "observers": "Radm = 1024",
       "rentropy": "Rentropy = Nlimit \u2212 Cget \u2265 0 \u2014 GET active",
-      "optics": "\u03b3max = 0.381  \u03bamax = 0.678\n\u03b8E = 0.0450 rad  caustics = 4",
+      "optics": "\u03b3max = 0.470  \u03bamax = 0.697\n\u03b8E = 0.0450 rad  caustics = 4",
       "banner": "PHASE 4: CAUSAL POINT GET CLUSTERING \u00a0|\u00a0 aGET = \u2212\u03baGET \u2207 ln \u03c1proj \u00a0|\u00a0 Rentropy \u2265 0",
-      "ledger": "\u0394N = 6.000e+59 bits\nN_vis = 1.022e+121  N_dark = 2.350e+121\nChannel A quench = 69.7% (target 23/33 = 69.7%)\nM_seed = 7.955e+8 M\u2609"
+      "ledger": "\u0394N = 6.000e+59 bits\nN_vis = 1.030e+121  N_dark = 2.368e+121\nChannel A quench = 69.7% (target 23/33 = 69.7%)\nM_seed = 7.955e+8 M\u2609"
     },
     {
       "epoch": "freeze",
@@ -56,7 +56,7 @@
       "f_load": "1.0000",
       "observers": "Radm = 0",
       "rentropy": "Rentropy < 0 \u2014 observer set frozen (\u2205)",
-      "optics": "\u03b3max = 0.429  \u03bamax = 1.11\n\u03b8E = 0.00 rad  caustics = 1",
+      "optics": "\u03b3max = 0.478  \u03bamax = 1.19\n\u03b8E = 0.00 rad  caustics = 1",
       "banner": "PHASE 5: ASYMPTOTIC DE SITTER OBSERVER FREEZE \u00a0|\u00a0 Radm \u2192 \u2205 \u00a0|\u00a0 E\u03bc\u03bd = 0 \u00a0|\u00a0 \u0394fr = 0",
       "ledger": "\u0394N = 6.000e+59 bits\nN_vis = 1.004e+122  N_dark = 2.308e+122\nChannel A quench = 69.7% (target 23/33 = 69.7%)\nM_seed = 7.955e+8 M\u2609"
     }
@@ -65,32 +65,32 @@
     {
       "epoch": "load",
       "clip": "01_primordial_bit_loading.webm",
-      "start_s": 0.13,
-      "end_s": 11.24
+      "start_s": 0.06,
+      "end_s": 27.97
     },
     {
       "epoch": "bary",
       "clip": "02_baryogenesis_derendering.webm",
-      "start_s": 11.43,
-      "end_s": 33.17
+      "start_s": 28.02,
+      "end_s": 103.7
     },
     {
       "epoch": "seed",
       "clip": "03_ghost_seed_einstein_rings.webm",
-      "start_s": 34.85,
-      "end_s": 57.64
+      "start_s": 104.94,
+      "end_s": 199.32
     },
     {
       "epoch": "get",
       "clip": "04_causal_point_proto_galaxies.webm",
-      "start_s": 58.9,
-      "end_s": 81.7
+      "start_s": 199.42,
+      "end_s": 227.76
     },
     {
       "epoch": "freeze",
       "clip": "05_asymptotic_horizon_freeze.webm",
-      "start_s": 83.17,
-      "end_s": 103.42
+      "start_s": 227.85,
+      "end_s": 251.35
     }
   ]
 }

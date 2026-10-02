@@ -9,6 +9,13 @@ export class ShbtWebGpuEngine {
     free(): void;
     [Symbol.dispose](): void;
     /**
+     * Render one frame into an offscreen RGBA8 target and resolve the
+     * pixels to JS. Used when the WebGPU canvas cannot be composited
+     * (e.g. headless Chromium / SwiftShader): the page blits the bytes
+     * into a 2D overlay canvas for capture.
+     */
+    capture_frame_rgba(dt_seconds: number): Promise<Uint8Array>;
+    /**
      * Create an engine bound to `<canvas id="canvas_id">` (async factory).
      */
     static create(canvas_id: string): Promise<ShbtWebGpuEngine>;
@@ -142,6 +149,7 @@ export interface InitOutput {
     readonly __wbg_visualizerengine_free: (a: number, b: number) => void;
     readonly __wbg_visualizertelemetry_free: (a: number, b: number) => void;
     readonly __wbg_wasmshbtengine_free: (a: number, b: number) => void;
+    readonly shbtwebgpuengine_capture_frame_rgba: (a: number, b: number) => any;
     readonly shbtwebgpuengine_create: (a: number, b: number) => any;
     readonly shbtwebgpuengine_hud_json: (a: number) => [number, number];
     readonly shbtwebgpuengine_particle_count: (a: number) => number;
@@ -187,7 +195,7 @@ export interface InitOutput {
     readonly wasm_bindgen_740f87ab467470cf___convert__closures_____invoke___js_sys_f8d1592f528dc307___Function_fn_wasm_bindgen_740f87ab467470cf___JsValue_____wasm_bindgen_740f87ab467470cf___sys__Undefined___js_sys_f8d1592f528dc307___Function_fn_wasm_bindgen_740f87ab467470cf___JsValue_____wasm_bindgen_740f87ab467470cf___sys__Undefined_______true_: (a: number, b: number, c: any, d: any) => void;
     readonly wasm_bindgen_740f87ab467470cf___convert__closures_____invoke___wasm_bindgen_740f87ab467470cf___JsValue__core_608f92abc48d28da___result__Result_____wasm_bindgen_740f87ab467470cf___JsError___true_: (a: number, b: number, c: any) => [number, number];
     readonly wasm_bindgen_740f87ab467470cf___convert__closures_____invoke___wasm_bindgen_740f87ab467470cf___JsValue______true_: (a: number, b: number, c: any) => void;
-    readonly wasm_bindgen_740f87ab467470cf___convert__closures_____invoke___wasm_bindgen_740f87ab467470cf___JsValue______true__53: (a: number, b: number, c: any) => void;
+    readonly wasm_bindgen_740f87ab467470cf___convert__closures_____invoke___wasm_bindgen_740f87ab467470cf___JsValue______true__54: (a: number, b: number, c: any) => void;
     readonly __wbindgen_malloc: (a: number, b: number) => number;
     readonly __wbindgen_realloc: (a: number, b: number, c: number, d: number) => number;
     readonly __wbindgen_exn_store: (a: number) => void;

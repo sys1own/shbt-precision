@@ -65,7 +65,7 @@ struct VertexOutput {
 @vertex
 fn vs_post(@builtin(vertex_index) v_idx: u32) -> VertexOutput {
     var out: VertexOutput;
-    let pos = array<vec2<f32>, 3>(
+    var pos = array<vec2<f32>, 3>(
         vec2<f32>(-1.0, -1.0),
         vec2<f32>( 3.0, -1.0),
         vec2<f32>(-1.0,  3.0)

@@ -190,10 +190,18 @@ fn vs_causal(
     return out;
 }
 
+struct CausalFragOut {
+    @location(0) channel_a: vec4<f32>,
+    @location(1) channel_b: vec4<f32>,
+};
+
 // Writes Channel B only (location 1): synthetic Fresnel shear + convergence
-// rings marking the observer's measurement boundary.
+// rings marking the observer's measurement boundary. Channel A gets zeros
+// (blend-add no-op) because the attachment set requires both targets.
 @fragment
-fn fs_causal(in: CausalVertexOut) -> @location(1) vec4<f32> {
+fn fs_causal(in: CausalVertexOut) -> CausalFragOut {
+    var out: CausalFragOut;
+    out.channel_a = vec4<f32>(0.0);
     let r2 = dot(in.quad_uv, in.quad_uv);
     if (r2 > 1.0) {
         discard;
@@ -210,5 +218,6 @@ fn fs_causal(in: CausalVertexOut) -> @location(1) vec4<f32> {
     let synthetic_shear = vec2<f32>(fresnel * 0.5, -fresnel * 0.5);
     let synthetic_conv = boundary_alpha * 2.0;
 
-    return vec4<f32>(synthetic_shear.x, synthetic_shear.y, synthetic_conv, in.entropy_level);
+    out.channel_b = vec4<f32>(synthetic_shear.x, synthetic_shear.y, synthetic_conv, in.entropy_level);
+    return out;
 }

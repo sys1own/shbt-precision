@@ -22,6 +22,28 @@ VISUALIZER_DIR = REPO_ROOT / "visualizer"
 RECORDINGS_DIR = VISUALIZER_DIR / "recordings"
 PORT = 8080
 
+
+async def wait_for_z(page, target: float, timeout: float = 300.0, tol_dec: float = 0.35):
+    """Poll #zlabel until the timeline converges near `target` (see the
+    capture-mode note in the epoch loop)."""
+    import math
+    import re
+
+    t0 = time.monotonic()
+    target_l = math.log10(max(target + 1.0, 1e-9))
+    last = None
+    while time.monotonic() - t0 < timeout:
+        txt = await page.evaluate("document.getElementById('zlabel').textContent")
+        m = re.search(r"z\s*=\s*([-+0-9.eE]+)", txt)
+        if m:
+            z = float(m.group(1))
+            last = z
+            if abs(math.log10(max(z + 1.0, 1e-9)) - target_l) < tol_dec:
+                return z
+        await asyncio.sleep(1.0)
+    print(f"[RECORDER] WARN: z did not converge to {target} within {timeout}s; last={last}")
+    return last
+
 EDGE_PATH = r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe"
 if os.name == "nt":
     if not Path(EDGE_PATH).exists():
@@ -100,7 +122,7 @@ async def record_epochs():
         page.on("console", lambda m: print(f"[BROWSER:{m.type}] {m.text}"))
         page.on("pageerror", lambda e: print(f"[BROWSER:pageerror] {e}"))
 
-        url = f"http://127.0.0.1:{PORT}/index.html"
+        url = f"http://127.0.0.1:{PORT}/index.html?capture=1"
         print(f"[RECORDER] Navigating to {url}...")
         await page.goto(url, wait_until="networkidle")
 
@@ -109,14 +131,14 @@ async def record_epochs():
         await asyncio.sleep(2.0)
 
         epochs = [
-            ("load", "epoch1_bit_loading.png", "Epoch 1: Conformal Screen Bit Loading (z=1e14)"),
-            ("bary", "epoch2_derendering.png", "Epoch 2: Topological Baryogenesis De-Rendering (z=1e11)"),
-            ("seed", "epoch3_ghost_seeds.png", "Epoch 3: Topological Ghost Seed Genesis (z=18)"),
-            ("get", "epoch4_proto_galaxies.png", "Epoch 4: Causal Point GET & Proto-Galaxies (z=3)"),
-            ("freeze", "epoch5_horizon_freeze.png", "Epoch 5: Asymptotic de Sitter Horizon Freeze (z=-0.999)"),
+            ("load", "epoch1_bit_loading.png", "Epoch 1: Conformal Screen Bit Loading (z=1e14)", 1e14),
+            ("bary", "epoch2_derendering.png", "Epoch 2: Topological Baryogenesis De-Rendering (z=1e11)", 1e11),
+            ("seed", "epoch3_ghost_seeds.png", "Epoch 3: Topological Ghost Seed Genesis (z=18)", 18.0),
+            ("get", "epoch4_proto_galaxies.png", "Epoch 4: Causal Point GET & Proto-Galaxies (z=3)", 3.0),
+            ("freeze", "epoch5_horizon_freeze.png", "Epoch 5: Asymptotic de Sitter Horizon Freeze (z=-0.999)", -0.999),
         ]
 
-        for epoch_key, filename, description in epochs:
+        for epoch_key, filename, description, target_z in epochs:
             print(f"[RECORDER] Transitioning to {description}...")
             # Click epoch button in #epoch-bar
             btn = page.locator(f'#epoch-bar button[data-epoch="{epoch_key}"]')
@@ -126,11 +148,15 @@ async def record_epochs():
                 # Fallback to direct engine call if button not found
                 await page.evaluate(f'window.dispatchEvent(new CustomEvent("set-epoch", {{detail: "{epoch_key}"}}))')
 
-            # Allow simulation frames to step and render shaders
-            await asyncio.sleep(1.5)
+            # Capture mode serializes engine mutations behind the in-flight
+            # capture_frame_rgba (~4-5 s each on SwiftShader); poll #zlabel
+            # until the epoch transition actually lands, then let one more
+            # capture cycle paint it before shooting.
+            await wait_for_z(page, target_z)
+            await asyncio.sleep(6.0)
 
             rec_path = RECORDINGS_DIR / filename
-            await page.screenshot(path=str(rec_path))
+            await page.screenshot(path=str(rec_path), timeout=120_000)
             print(f"[RECORDER] Captured milestone: {filename} ({rec_path.stat().st_size:,} bytes)")
 
         status_text = await page.evaluate(
