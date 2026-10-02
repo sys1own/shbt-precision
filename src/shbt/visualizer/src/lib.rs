@@ -44,7 +44,7 @@ struct CosmoParams {
 #[derive(Copy, Clone, Pod, Zeroable)]
 struct CameraParams {
     view_proj: [[f32; 4]; 4],
-    params: [f32; 4], // x: point extent, y: box_size, z: projection_mode
+    params: [f32; 4], // x: point extent, y: box_size, z: unwrap_transition, w: redshift
 }
 
 /// WebGPU engine driving the SHBT cosmological visualizer.
@@ -179,7 +179,7 @@ impl ShbtWebGpuEngine {
                 },
                 BindGroupLayoutEntry {
                     binding: 1,
-                    visibility: ShaderStages::VERTEX,
+                    visibility: ShaderStages::VERTEX_FRAGMENT,
                     ty: BindingType::Buffer {
                         ty: BufferBindingType::Uniform,
                         has_dynamic_offset: false,
@@ -681,7 +681,7 @@ impl ShbtWebGpuEngine {
                 0.006 - 0.002 * self.unwrap_transition,
                 BOX_SIZE,
                 self.unwrap_transition,
-                0.0,
+                self.redshift as f32,
             ],
         };
         self.queue

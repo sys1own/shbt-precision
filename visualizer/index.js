@@ -53,6 +53,23 @@ function refreshHud(m) {
     ? "R<sub>entropy</sub> = N<sub>limit</sub> &minus; C<sub>get</sub> &ge; 0 &mdash; GET active"
     : "R<sub>entropy</sub> &lt; 0 &mdash; observer set frozen (&empty;)";
   $("zlabel").textContent = `z = ${fmt(m.z, 3)}  a = ${fmt(m.a, 3)}`;
+  const banner = $("phase-banner");
+  if (m.z <= -0.95) {
+    banner.className = "ph-freeze";
+    banner.textContent = "PHASE: ASYMPTOTIC DE SITTER OBSERVER FREEZE (R_adm \u2192 \u2205)";
+  } else if (m.z > 1e12) {
+    banner.className = "ph-load";
+    banner.textContent = "PHASE: CONFORMAL SCREEN BIT LOADING (\u1e6a = H(t))";
+  } else if (m.z >= 1e9) {
+    banner.className = "ph-bary";
+    banner.textContent = "PHASE: TOPOLOGICAL BARYOGENESIS (STINESPRING DE-RENDERING 23/33)";
+  } else if (m.z >= 7) {
+    banner.className = "ph-seed";
+    banner.textContent = "PHASE: TOPOLOGICAL GHOST SEED CONDENSATION (M_seed = 10^9 M\u2609)";
+  } else {
+    banner.className = "ph-get";
+    banner.textContent = "PHASE: CAUSAL POINT GET CLUSTERING & PROTO-GALAXY COLLAPSE";
+  }
   if (document.activeElement !== $("timeline")) {
     $("timeline").value = zToSlider(m.z);
   }
@@ -119,6 +136,27 @@ $("unwrap").addEventListener("input", (ev) => {
   $("unwrap-label").textContent = u.toFixed(2);
   if (engine && engine.set_unwrap_transition) engine.set_unwrap_transition(u);
 });
+const EPOCHS = {
+  load: { z: 1e14, speed: 100, playing: true },
+  bary: { z: 1e11, speed: 10, playing: true },
+  seed: { z: 18.0, speed: 1, playing: true },
+  get: { z: 3.0, speed: 1, playing: true },
+  freeze: { z: -0.999, speed: 1, playing: false },
+};
+document.querySelectorAll("#epoch-bar button").forEach((b) =>
+  b.addEventListener("click", () => {
+    if (!engine) return;
+    const e = EPOCHS[b.dataset.epoch];
+    if (!e) return;
+    engine.set_redshift(e.z);
+    engine.set_speed(e.speed);
+    engine.set_playing(e.playing);
+    $("play").dataset.on = e.playing ? "1" : "0";
+    $("play").innerHTML = e.playing ? "&#9208;" : "&#9654;";
+    document.querySelectorAll(".speed").forEach((x) =>
+      x.classList.toggle("active", parseFloat(x.dataset.s) === e.speed));
+  })
+);
 $("ch-a").addEventListener("change", syncChannels);
 $("ch-b").addEventListener("change", syncChannels);
 function syncChannels() {

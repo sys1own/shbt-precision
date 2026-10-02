@@ -64,8 +64,12 @@ fn cs_advance_particles(@builtin(global_invocation_id) global_id: vec3<u32>) {
     // Boundary loaded conformal friction factor
     let friction = 1.0 + (cosmo.f_load * (10.0 / 33.0));
 
+    // Seed attractor boost across the condensation window z in [2, 20]:
+    // strengthened softened gravity funnels particles into seed wells.
+    let seed_gain = select(1.0, 3.0, z_current >= 2.0 && z_current <= 20.0);
+
     // Symplectic Kick-Drift step under loaded background
-    let kick = (force / (cosmo.a * cosmo.a * friction)) * cosmo.dt;
+    let kick = (force * seed_gain / (cosmo.a * cosmo.a * friction)) * cosmo.dt;
     p.velocity += kick;
     p.position += (p.velocity / (cosmo.a * cosmo.hubble)) * cosmo.dt;
 
