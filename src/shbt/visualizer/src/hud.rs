@@ -104,7 +104,7 @@ pub struct TimelineController {
 impl Default for TimelineController {
     fn default() -> Self {
         Self {
-            redshift: 1.0e12,
+            redshift: 1.0e14,
             playing: true,
             speed: 1.0,
             base_rate_decades_per_s: 0.4,
@@ -127,6 +127,139 @@ impl TimelineController {
     }
 
     pub fn seek(&mut self, z: f64) {
-        self.redshift = z.clamp(-0.9999, 1.0e13);
+        self.redshift = z.clamp(-0.9999, 1.0e14);
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Horizon ledger (shbt4 spec): boundary bit ledger, Stinespring partition,
+// seed inventory, Landauer debt, and observer admissibility cardinality.
+// ---------------------------------------------------------------------------
+
+/// Saturated holographic-screen microstate capacity (bits).
+pub const N_SAT: f64 = 3.3119977e122;
+/// Phase-locking rate Gamma_lock = 3 A_H (km s^-1 Mpc^-1).
+pub const GAMMA_LOCK: f64 = 14.393880218584;
+/// Local Hubble normalization (km s^-1 Mpc^-1).
+pub const H0: f64 = 67.4;
+pub const OMEGA_M: f64 = 0.315;
+pub const OMEGA_R: f64 = 9.0e-5;
+pub const OMEGA_L: f64 = 0.68491;
+
+/// Epoch ledger evaluated by `WasmShbtEngine::update_epoch` and serialized
+/// into the HUD telemetry JSON.
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
+pub struct HorizonLedger {
+    pub redshift: f64,
+    pub scale_factor: f64,
+    pub hubble_rate: f64,
+    pub lookback_time_gyr: f64,
+    pub loaded_fraction: f64,
+    pub total_bits_loaded: f64,
+    pub active_visible_bits: f64,
+    pub dark_completion_bits: f64,
+    pub stinespring_blend: f64,
+    pub total_seeds_condensed: u32,
+    pub total_landauer_debt_gw: f64,
+    pub observer_admissibility_cardinality: usize,
+    pub conservation_residual: f64,
+}
+
+impl HorizonLedger {
+    pub fn new() -> Self {
+        Self {
+            redshift: 1100.0,
+            scale_factor: 1.0 / 1101.0,
+            hubble_rate: 1.5e6,
+            lookback_time_gyr: 13.78,
+            loaded_fraction: 0.05,
+            total_bits_loaded: 0.05 * N_SAT,
+            active_visible_bits: 0.05 * N_SAT * (10.0 / 33.0),
+            dark_completion_bits: 0.05 * N_SAT * (23.0 / 33.0),
+            stinespring_blend: 1.0,
+            total_seeds_condensed: 0,
+            total_landauer_debt_gw: 0.0,
+            observer_admissibility_cardinality: 1024,
+            conservation_residual: 1.0e-128,
+        }
+    }
+
+    pub fn compute_hubble(&self, z: f64) -> f64 {
+        if z <= -0.999 {
+            return 0.066954;
+        }
+        let term_r = OMEGA_R * (1.0 + z).powi(4);
+        let term_m = OMEGA_M * (1.0 + z).powi(3);
+        let term_l = OMEGA_L;
+        H0 * (term_r + term_m + term_l).sqrt()
+    }
+
+    pub fn update(&mut self, z: f64) {
+        self.redshift = z;
+        self.scale_factor = 1.0 / (1.0 + z.max(-0.9999));
+        self.hubble_rate = self.compute_hubble(z);
+
+        let f_load = if z > 1.0e10 {
+            1.0e-6
+        } else if z <= -0.99 {
+            1.0
+        } else {
+            (1.0 / (1.0 + (z + 1.0).powf(0.85))).clamp(0.0, 1.0)
+        };
+
+        self.loaded_fraction = f_load;
+        self.total_bits_loaded = f_load * N_SAT;
+
+        if z > 1.0e12 {
+            self.stinespring_blend = 0.0;
+            self.active_visible_bits = self.total_bits_loaded;
+            self.dark_completion_bits = 0.0;
+        } else if z < 1.0e9 {
+            self.stinespring_blend = 1.0;
+            self.active_visible_bits = self.total_bits_loaded * (10.0 / 33.0);
+            self.dark_completion_bits = self.total_bits_loaded - self.active_visible_bits;
+        } else {
+            let log_z = z.log10();
+            let blend = (12.0 - log_z) / 3.0;
+            self.stinespring_blend = blend.clamp(0.0, 1.0);
+            let eta_v = (1.0 - self.stinespring_blend) + self.stinespring_blend * (10.0 / 33.0);
+            self.active_visible_bits = self.total_bits_loaded * eta_v;
+            self.dark_completion_bits = self.total_bits_loaded - self.active_visible_bits;
+        }
+
+        if z <= 30.0 && z >= 7.0 {
+            self.total_seeds_condensed = 248;
+            self.total_landauer_debt_gw = 248.0 * 7.955e8 * 906.0;
+        } else if z < 7.0 {
+            self.total_seeds_condensed = 312;
+            self.total_landauer_debt_gw = 312.0 * 7.955e8 * 906.0;
+        } else {
+            self.total_seeds_condensed = 0;
+            self.total_landauer_debt_gw = 0.0;
+        }
+
+        if z <= -0.95 {
+            self.observer_admissibility_cardinality = 0;
+        } else {
+            self.observer_admissibility_cardinality =
+                ((1.0 + z) * 1024.0).clamp(0.0, 1024.0) as usize;
+        }
+
+        let diff = (self.active_visible_bits + self.dark_completion_bits) - self.total_bits_loaded;
+        self.conservation_residual = (diff / N_SAT).abs();
+    }
+
+    pub fn is_observer_admissible(&self) -> bool {
+        self.observer_admissibility_cardinality > 0
+    }
+
+    pub fn to_json_telemetry(&self) -> String {
+        serde_json::to_string(self).unwrap_or_else(|_| "{}".to_string())
+    }
+}
+
+impl Default for HorizonLedger {
+    fn default() -> Self {
+        Self::new()
     }
 }

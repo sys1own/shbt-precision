@@ -1,6 +1,6 @@
 // SHBT WebGPU visualizer harness.
 // Loads the wasm engine bound to #shbt-canvas, drives the timeline scrub
-// (z: 1e12 -> -1), playback speeds, projection switch and channel toggles,
+// (z: 1e14 -> -1), playback speeds, projection switch and channel toggles,
 // and refreshes the HUD from the engine's SHBT-MMIO telemetry decode.
 
 const $ = (id) => document.getElementById(id);
@@ -29,10 +29,14 @@ function refreshHud(m) {
   $("bar-time").style.width = `${Math.min(m.t_gyr / 13.8, 1) * 100}%`;
   $("hud-fload").textContent = fmt(m.f_load, 5);
   $("bar-fload").style.width = `${m.f_load * 100}%`;
+  $("hud-capacity").textContent = `N_sat = 3.312e122 bits\u00b7 loaded = ${fmt(m.n_vis + m.n_dark)}`;
   $("hud-hubble").textContent = `${fmt(m.hubble)} km/s/Mpc`;
+  const totalBits = m.n_vis + m.n_dark;
+  const quenchPct = totalBits > 0 ? (100 * m.n_dark / totalBits).toFixed(1) : "0.0";
   $("hud-ledger").textContent =
     `\u0394N = ${fmt(m.delta_n_bits)} bits\n` +
     `N_vis = ${fmt(m.n_vis)}  N_dark = ${fmt(m.n_dark)}\n` +
+    `Channel A quench = ${quenchPct}% (target 23/33 = 69.7%)\n` +
     `M_seed = ${fmt(m.seed_mass_msun)} M\u2609`;
   $("hud-debt").textContent = `${fmt(m.landauer_debt_gw)} GW`;
   $("bar-debt").style.width =
@@ -40,6 +44,14 @@ function refreshHud(m) {
   $("inv-fr").classList.toggle("ok", m.delta_fr_zero);
   $("inv-emu").classList.toggle("ok", m.e_munu_zero);
   $("inv-horizon").classList.toggle("ok", m.horizon_frozen);
+  // Causal-point observer activity monitor: admissible observer set
+  // cardinality R_adm and entropy-margin status.
+  const rAdm = m.z <= -0.95 ? 0 : Math.round(Math.min(Math.max((1 + m.z) * 1024, 0), 1024));
+  $("hud-observers").innerHTML = `R<sub>adm</sub> = ${rAdm}`;
+  $("bar-observers").style.width = `${(rAdm / 1024) * 100}%`;
+  $("hud-rentropy").innerHTML = rAdm > 0
+    ? "R<sub>entropy</sub> = N<sub>limit</sub> &minus; C<sub>get</sub> &ge; 0 &mdash; GET active"
+    : "R<sub>entropy</sub> &lt; 0 &mdash; observer set frozen (&empty;)";
   $("zlabel").textContent = `z = ${fmt(m.z, 3)}  a = ${fmt(m.a, 3)}`;
   if (document.activeElement !== $("timeline")) {
     $("timeline").value = zToSlider(m.z);
@@ -57,7 +69,7 @@ async function boot() {
     engine = await wasm.ShbtWebGpuEngine.create("shbt-canvas");
     status(
       `engine online\nparticles: ${engine.particle_count().toLocaleString()}\n` +
-      "timeline: z = 1e12 \u2192 \u22121"
+      "timeline: z = 1e14 \u2192 \u22121"
     );
   } catch (e) {
     status(`engine init failed:\n${e}`);
@@ -98,6 +110,14 @@ document.querySelectorAll(".speed").forEach((b) =>
 );
 $("projection").addEventListener("change", (ev) => {
   if (engine) engine.set_projection(parseInt(ev.target.value, 10));
+  const u = parseInt(ev.target.value, 10) === 1 ? 1 : 0;
+  $("unwrap").value = u;
+  $("unwrap-label").textContent = u.toFixed(2);
+});
+$("unwrap").addEventListener("input", (ev) => {
+  const u = parseFloat(ev.target.value);
+  $("unwrap-label").textContent = u.toFixed(2);
+  if (engine && engine.set_unwrap_transition) engine.set_unwrap_transition(u);
 });
 $("ch-a").addEventListener("change", syncChannels);
 $("ch-b").addEventListener("change", syncChannels);

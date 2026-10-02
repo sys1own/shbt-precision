@@ -88,6 +88,14 @@ export class ShbtWebGpuEngine {
         wasm.shbtwebgpuengine_set_speed(this.__wbg_ptr, speed);
     }
     /**
+     * Continuous torus-unwrap transition, 0.0 = comoving bulk,
+     * 1.0 = flat boundary CFT torus [0, 2pi)^2.
+     * @param {number} value
+     */
+    set_unwrap_transition(value) {
+        wasm.shbtwebgpuengine_set_unwrap_transition(this.__wbg_ptr, value);
+    }
+    /**
      * Advance the timeline and render one frame to the canvas.
      * @param {number} dt_seconds
      */
@@ -112,6 +120,119 @@ export class ShbtWebGpuEngine {
     }
 }
 if (Symbol.dispose) ShbtWebGpuEngine.prototype[Symbol.dispose] = ShbtWebGpuEngine.prototype.free;
+
+/**
+ * Wasm/JS-facing engine: owns the shared simulation buffers and the
+ * epoch ledger; exposes raw buffer pointers for zero-allocation upload.
+ */
+export class WasmShbtEngine {
+    __destroy_into_raw() {
+        const ptr = this.__wbg_ptr;
+        this.__wbg_ptr = 0;
+        WasmShbtEngineFinalization.unregister(this);
+        return ptr;
+    }
+    free() {
+        const ptr = this.__destroy_into_raw();
+        wasm.__wbg_wasmshbtengine_free(ptr, 0);
+    }
+    /**
+     * @returns {number}
+     */
+    causal_point_count() {
+        const ret = wasm.wasmshbtengine_causal_point_count(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    get_causal_point_buffer_byte_len() {
+        const ret = wasm.wasmshbtengine_get_causal_point_buffer_byte_len(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    get_causal_point_buffer_ptr() {
+        const ret = wasm.wasmshbtengine_get_causal_point_buffer_ptr(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {string}
+     */
+    get_hud_telemetry_json() {
+        let deferred1_0;
+        let deferred1_1;
+        try {
+            const ret = wasm.wasmshbtengine_get_hud_telemetry_json(this.__wbg_ptr);
+            deferred1_0 = ret[0];
+            deferred1_1 = ret[1];
+            return getStringFromWasm0(ret[0], ret[1]);
+        } finally {
+            wasm.__wbindgen_free(deferred1_0, deferred1_1, 1);
+        }
+    }
+    /**
+     * @returns {number}
+     */
+    get_particle_buffer_byte_len() {
+        const ret = wasm.wasmshbtengine_get_particle_buffer_byte_len(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    get_particle_buffer_ptr() {
+        const ret = wasm.wasmshbtengine_get_particle_buffer_ptr(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    get_seed_buffer_byte_len() {
+        const ret = wasm.wasmshbtengine_get_seed_buffer_byte_len(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    get_seed_buffer_ptr() {
+        const ret = wasm.wasmshbtengine_get_seed_buffer_ptr(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @param {number} particle_count
+     * @param {number} causal_point_count
+     * @param {number} seed_count
+     */
+    constructor(particle_count, causal_point_count, seed_count) {
+        const ret = wasm.wasmshbtengine_new(particle_count, causal_point_count, seed_count);
+        this.__wbg_ptr = ret;
+        WasmShbtEngineFinalization.register(this, this.__wbg_ptr, this);
+        return this;
+    }
+    /**
+     * @returns {number}
+     */
+    particle_count() {
+        const ret = wasm.wasmshbtengine_particle_count(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    seed_count() {
+        const ret = wasm.wasmshbtengine_seed_count(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @param {number} z
+     */
+    update_epoch(z) {
+        wasm.wasmshbtengine_update_epoch(this.__wbg_ptr, z);
+    }
+}
+if (Symbol.dispose) WasmShbtEngine.prototype[Symbol.dispose] = WasmShbtEngine.prototype.free;
 function __wbg_get_imports() {
     const import0 = {
         __proto__: null,
@@ -861,18 +982,18 @@ function __wbg_get_imports() {
             arg0.writeTimestamp(arg1, arg2 >>> 0);
         },
         __wbindgen_generic_0000000000000001: function(arg0, arg1) {
-            // Cast intrinsic for `Closure(Closure { owned: true, function: Function { arguments: [Externref], shim_idx: 240, ret: Unit, inner_ret: Some(Unit) }, mutable: true }) -> Externref`.
+            // Cast intrinsic for `Closure(Closure { owned: true, function: Function { arguments: [Externref], shim_idx: 246, ret: Unit, inner_ret: Some(Unit) }, mutable: true }) -> Externref`.
             const ret = makeMutClosure(arg0, arg1, wasm_bindgen_740f87ab467470cf___convert__closures_____invoke___wasm_bindgen_740f87ab467470cf___JsValue______true_);
             return ret;
         },
         __wbindgen_generic_0000000000000002: function(arg0, arg1) {
-            // Cast intrinsic for `Closure(Closure { owned: true, function: Function { arguments: [Externref], shim_idx: 267, ret: Result(Unit), inner_ret: Some(Result(Unit)) }, mutable: true }) -> Externref`.
+            // Cast intrinsic for `Closure(Closure { owned: true, function: Function { arguments: [Externref], shim_idx: 273, ret: Result(Unit), inner_ret: Some(Result(Unit)) }, mutable: true }) -> Externref`.
             const ret = makeMutClosure(arg0, arg1, wasm_bindgen_740f87ab467470cf___convert__closures_____invoke___wasm_bindgen_740f87ab467470cf___JsValue__core_608f92abc48d28da___result__Result_____wasm_bindgen_740f87ab467470cf___JsError___true_);
             return ret;
         },
         __wbindgen_generic_0000000000000003: function(arg0, arg1) {
-            // Cast intrinsic for `Closure(Closure { owned: true, function: Function { arguments: [NamedExternref("GPUUncapturedErrorEvent")], shim_idx: 240, ret: Unit, inner_ret: Some(Unit) }, mutable: true }) -> Externref`.
-            const ret = makeMutClosure(arg0, arg1, wasm_bindgen_740f87ab467470cf___convert__closures_____invoke___wasm_bindgen_740f87ab467470cf___JsValue______true__13);
+            // Cast intrinsic for `Closure(Closure { owned: true, function: Function { arguments: [NamedExternref("GPUUncapturedErrorEvent")], shim_idx: 246, ret: Unit, inner_ret: Some(Unit) }, mutable: true }) -> Externref`.
+            const ret = makeMutClosure(arg0, arg1, wasm_bindgen_740f87ab467470cf___convert__closures_____invoke___wasm_bindgen_740f87ab467470cf___JsValue______true__26);
             return ret;
         },
         __wbindgen_generic_0000000000000004: function(arg0) {
@@ -910,8 +1031,8 @@ function wasm_bindgen_740f87ab467470cf___convert__closures_____invoke___wasm_bin
     wasm.wasm_bindgen_740f87ab467470cf___convert__closures_____invoke___wasm_bindgen_740f87ab467470cf___JsValue______true_(arg0, arg1, arg2);
 }
 
-function wasm_bindgen_740f87ab467470cf___convert__closures_____invoke___wasm_bindgen_740f87ab467470cf___JsValue______true__13(arg0, arg1, arg2) {
-    wasm.wasm_bindgen_740f87ab467470cf___convert__closures_____invoke___wasm_bindgen_740f87ab467470cf___JsValue______true__13(arg0, arg1, arg2);
+function wasm_bindgen_740f87ab467470cf___convert__closures_____invoke___wasm_bindgen_740f87ab467470cf___JsValue______true__26(arg0, arg1, arg2) {
+    wasm.wasm_bindgen_740f87ab467470cf___convert__closures_____invoke___wasm_bindgen_740f87ab467470cf___JsValue______true__26(arg0, arg1, arg2);
 }
 
 function wasm_bindgen_740f87ab467470cf___convert__closures_____invoke___wasm_bindgen_740f87ab467470cf___JsValue__core_608f92abc48d28da___result__Result_____wasm_bindgen_740f87ab467470cf___JsError___true_(arg0, arg1, arg2) {
@@ -936,6 +1057,9 @@ const __wbindgen_enum_GpuTextureFormat = ["r8unorm", "r8snorm", "r8uint", "r8sin
 const ShbtWebGpuEngineFinalization = (typeof FinalizationRegistry === 'undefined')
     ? { register: () => {}, unregister: () => {} }
     : new FinalizationRegistry(ptr => wasm.__wbg_shbtwebgpuengine_free(ptr, 1));
+const WasmShbtEngineFinalization = (typeof FinalizationRegistry === 'undefined')
+    ? { register: () => {}, unregister: () => {} }
+    : new FinalizationRegistry(ptr => wasm.__wbg_wasmshbtengine_free(ptr, 1));
 
 function addToExternrefTable0(obj) {
     const idx = wasm.__externref_table_alloc();
