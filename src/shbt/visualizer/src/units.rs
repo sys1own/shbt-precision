@@ -25,6 +25,12 @@ pub const G_SI: f64 = 6.674_30e-11; // Gravitational constant (m^3/kg/s^2)
 pub const MPC_TO_METER: f64 = 3.085_677_581_49e22; // Meters per Megaparsec
 pub const MSUN_TO_KG: f64 = 1.988_47e30; // Kilograms per Solar Mass
 pub const C_KM_S: f64 = 299_792.458; // Speed of light (km/s)
+pub const OMEGA_B0: f64 = 0.049; // Baryon density fraction (Planck-like)
+pub const Z_DEC: f64 = 1089.0; // Photon decoupling redshift
+pub const T_DEC_K: f64 = 2970.0; // Decoupling gas temperature (K)
+pub const K_B_SI: f64 = 1.380_649e-23; // Boltzmann constant (J/K)
+pub const M_H_KG: f64 = 1.673_532_84e-27; // Proton mass (kg)
+pub const MU_NEUTRAL: f64 = 1.22; // Mean molecular weight, neutral gas
 
 /// Cosmological context converting physical scales to dimensionless
 /// code units. The canonical Tier-1 parameters are
@@ -131,6 +137,48 @@ impl CosmologicalContext {
         Self::comoving_distance_mpc(z) / (1.0 + z)
     }
 
+    /// Baryon sound speed c_s(z) in m/s (shbt9 P-PM hydrodynamics).
+    /// Pre-decoupling (z > z_dec): photon-baryon tight coupling,
+    ///   c_s = c / sqrt(3 (1 + 3 rho_b / (4 rho_gamma)))
+    /// with rho_b/rho_gamma = (Omega_b0/Omega_r0) / (1+z).
+    /// Post-decoupling: monatomic adiabatic cooling under the SHBT
+    /// loaded conformal factor (1 + 1/(52 (1+z)))^-1:
+    ///   c_s^2 = (5 k_B T_dec / (3 mu m_H)) ((1+z)/(1+z_dec))^2 (1 + 1/(52(1+z)))^-1
+    pub fn sound_speed_ms(z: f64) -> f64 {
+        if z > Z_DEC {
+            let opz = 1.0 + z;
+            let baryon_photon = (3.0 * OMEGA_B0 / (4.0 * telemetry::OMEGA_R0)) / opz;
+            C_SI / (3.0 * (1.0 + baryon_photon)).sqrt()
+        } else {
+            let opz = 1.0 + z.max(-0.999);
+            let thermal = 5.0 * K_B_SI * T_DEC_K / (3.0 * MU_NEUTRAL * M_H_KG);
+            let cooling = (opz / (1.0 + Z_DEC)).powi(2);
+            let conformal = 1.0 / (1.0 + 1.0 / (52.0 * opz));
+            (thermal * cooling * conformal).sqrt()
+        }
+    }
+
+    /// Dimensionless squared baryon sound speed for the supercomoving
+    /// force kick: (c_s / V_0)^2, scaled by the sandbox
+    /// sound_speed_scale control. The shader applies
+    ///   F_hydro = -cs_sq * a * grad ln rho_b   (visible particles only)
+    /// matching the A(a) conformal weighting of the PM force.
+    pub fn cs_sq_code(&self, z: f64, scale: f32) -> f32 {
+        let ratio = Self::sound_speed_ms(z) / self.v0_si;
+        (ratio * ratio * scale as f64) as f32
+    }
+
+    /// Topological percolation correlation radius (shbt9 Eq. R_filter):
+    ///   R_filter(z) = c / (k_l * a * H(z)) = d_H(z) / k_l
+    /// in comoving Mpc (the comoving horizon over the leptonic level
+    /// k_l = 26, since h^v/K = 12/312 = 1/k_l).
+    pub fn r_filter_mpc(z: f64) -> f64 {
+        const K_L: f64 = 26.0;
+        let a = (1.0 / (1.0 + z)).max(1.0e-6);
+        let h = telemetry::hubble(z); // km/s/Mpc
+        C_KM_S / (K_L * a * h.max(1.0e-6))
+    }
+
     /// Lens-to-source angular diameter distance
     /// D_ds = (chi(z_s) - chi(z_d)) / (1 + z_s) in Mpc.
     pub fn lens_source_distance_mpc(z_d: f64, z_s: f64) -> f64 {
@@ -212,8 +260,14 @@ pub struct GpuSimulationUniforms {
     /// Wall-clock step in seconds (tether alpha decay clock); set by the
     /// engine after prepare_step_uniforms, not part of the metrology contract.
     pub wall_dt: f32,
-    pub _pad2: f32,
+    /// Baryon sound speed squared in code units, folded with the sandbox
+    /// sound_speed_scale control (P-PM hydrodynamics, shbt9 Phase 1).
+    pub cs_sq_scaled: f32,
 }
+
+/// Sandbox observer uniform tail piggy-backed on the emergence-side
+/// metadata: num_sandbox observers is carried in the W-group metadata
+/// buffer, not the 80-byte contract above.
 
 /// Lens post-process uniform layout matching std430 alignment in WGSL
 /// (thin-screen block appended to LensingUniforms).
@@ -307,7 +361,7 @@ impl MetrologyPipeline {
             dt_legacy,
             inv_m_box_msun,
             wall_dt: 0.0,
-            _pad2: 0.0,
+            cs_sq_scaled: 0.0,
         }
     }
 }

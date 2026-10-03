@@ -66,6 +66,11 @@ export class ShbtWebGpuEngine {
 */
   set_lensing_scale(scale: number): void;
 /**
+* Viewport projection toggle: 0 = 3D bulk, 1 = split bulk | phase-space.
+* @param {number} mode
+*/
+  set_viewport_mode(mode: number): void;
+/**
 * Toggle the emergent seed-glitch post effect (Enhancement 11).
 * @param {boolean} enabled
 */
@@ -97,6 +102,36 @@ export class ShbtWebGpuEngine {
 * @param {Uint8Array} header_bytes
 */
   update_frame_telemetry(header_bytes: Uint8Array): void;
+/**
+* shbt9 Phase 2: stream the six sandbox controls from the DOM
+* (sound speed, percolation threshold, lensing strength, chromatic
+* dispersion, target redshift, viewport split mode).
+* @param {number} sound_speed_scale
+* @param {number} percolation_threshold_scale
+* @param {number} lensing_strength
+* @param {number} chromatic_dispersion
+* @param {number} target_redshift
+* @param {number} viewport_split_mode
+*/
+  set_simulation_controls(sound_speed_scale: number, percolation_threshold_scale: number, lensing_strength: number, chromatic_dispersion: number, target_redshift: number, viewport_split_mode: number): void;
+/**
+* Count of active sandbox observers (click-dispatched records whose
+* entropy budget has not depleted).
+* @returns {number}
+*/
+  get_active_observers_count(): number;
+/**
+* shbt9 Phase 2 click-to-measure: unproject the canvas NDC point and
+* dispatch a causal-point observer with entropy budget
+* R_entropy = n_limit - c_get. Returns true when the ray-volume
+* intersection landed inside the bulk box.
+* @param {number} ndc_x
+* @param {number} ndc_y
+* @param {number} c_get
+* @param {number} n_limit
+* @returns {boolean}
+*/
+  unproject_and_dispatch_causal_point(ndc_x: number, ndc_y: number, c_get: number, n_limit: number): boolean;
 /**
 * JSON-encoded HUD metrics of the latest telemetry frame, including
 * the emergent-seed telemetry channel (seedCount, totalMass,
@@ -271,6 +306,7 @@ export interface InitOutput {
   readonly shbtwebgpuengine_capture_frame_rgba: (a: number, b: number) => number;
   readonly shbtwebgpuengine_create: (a: number, b: number) => number;
   readonly shbtwebgpuengine_debug_eparams: (a: number, b: number) => void;
+  readonly shbtwebgpuengine_get_active_observers_count: (a: number) => number;
   readonly shbtwebgpuengine_hud_json: (a: number, b: number) => void;
   readonly shbtwebgpuengine_particle_count: (a: number) => number;
   readonly shbtwebgpuengine_set_channels: (a: number, b: number, c: number) => void;
@@ -284,9 +320,12 @@ export interface InitOutput {
   readonly shbtwebgpuengine_set_playing: (a: number, b: number) => void;
   readonly shbtwebgpuengine_set_projection: (a: number, b: number) => void;
   readonly shbtwebgpuengine_set_redshift: (a: number, b: number) => void;
+  readonly shbtwebgpuengine_set_simulation_controls: (a: number, b: number, c: number, d: number, e: number, f: number, g: number) => void;
   readonly shbtwebgpuengine_set_speed: (a: number, b: number) => void;
   readonly shbtwebgpuengine_set_unwrap_transition: (a: number, b: number) => void;
+  readonly shbtwebgpuengine_set_viewport_mode: (a: number, b: number) => void;
   readonly shbtwebgpuengine_step_frame: (a: number, b: number, c: number) => void;
+  readonly shbtwebgpuengine_unproject_and_dispatch_causal_point: (a: number, b: number, c: number, d: number, e: number) => number;
   readonly shbtwebgpuengine_update_frame_telemetry: (a: number, b: number, c: number, d: number) => void;
   readonly __wbg_wasmshbtengine_free: (a: number) => void;
   readonly wasmshbtengine_causal_point_count: (a: number) => number;

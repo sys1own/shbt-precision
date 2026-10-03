@@ -151,6 +151,34 @@
            style="width:90px" title="seed glitch intensity">
     <span id="glitch-label">0.10</span>
   </div>
+  <div class="row" title="shbt9 sandbox controls">
+    <span>c<sub>s</sub></span>
+    <input id="slider-cs" type="range" min="0" max="3" step="0.05" value="1"
+           style="width:80px" title="baryon sound-speed scale (P-PM hydro)">
+    <span id="cs-label">1.00</span>
+    <span>&eta;<sub>perc</sub></span>
+    <input id="slider-pt" type="range" min="0.5" max="2" step="0.05" value="1"
+           style="width:80px" title="percolation threshold scale">
+    <span id="pt-label">1.00</span>
+    <span>&lambda;<sub>lens</sub></span>
+    <input id="slider-ls" type="range" min="0" max="5" step="0.05" value="1"
+           style="width:80px" title="lensing strength">
+    <span id="ls-label">1.00</span>
+    <span>&delta;<sub>disp</sub></span>
+    <input id="slider-cd" type="range" min="0" max="0.5" step="0.01" value="0.25"
+           style="width:80px" title="chromatic dispersion">
+    <span id="cd-label">0.25</span>
+  </div>
+  <div class="row">
+    <span>z<sub>tgt</sub></span>
+    <input id="slider-z" type="range" min="-12" max="14" step="0.01" value="14"
+           style="width:130px" title="target redshift: log10(1+z)">
+    <select id="select-viewport-mode" title="viewport projection">
+      <option value="0">Bulk 3D</option>
+      <option value="1">Bulk | (x, v&#8339;) phase-space</option>
+    </select>
+    <span id="observer-count" title="click the canvas to dispatch a causal-point observer">Observers: 0</span>
+  </div>
   <div id="epoch-bar">
     <button data-epoch="load">1. Bit Loading (z=1e14)</button>
     <button data-epoch="bary">2. Baryogenesis De-Rendering (z=1e11)</button>

@@ -139,6 +139,8 @@ async function boot() {
       "set_unwrap_transition", "set_channels", "set_lensing_enabled",
       "set_lensing_scale", "set_dispersion", "set_doppler_enabled",
       "set_dark_glow", "set_glitch_enabled", "set_glitch_intensity",
+      "set_simulation_controls", "set_viewport_mode",
+      "unproject_and_dispatch_causal_point",
     ]);
     const raw = engine;
     engine = new Proxy(raw, {
@@ -186,6 +188,13 @@ async function boot() {
     setGlitchEnabled: (b) => engine.set_glitch_enabled(b),
     setGlitchIntensity: (v) => engine.set_glitch_intensity(v),
     setPlaying: (b) => engine.set_playing(b),
+    // shbt9 sandbox controls + click-to-measure dispatch.
+    setSimulationControls: (cs, pt, ls, cd, tz, split) =>
+      engine.set_simulation_controls(cs, pt, ls, cd, tz, split),
+    setViewportMode: (m) => engine.set_viewport_mode(m),
+    dispatchCausalPoint: (nx, ny, cGet, nLimit) =>
+      engine.unproject_and_dispatch_causal_point(nx, ny, cGet, nLimit),
+    getActiveObservers: () => engine.get_active_observers_count(),
   };
   requestAnimationFrame(frame);
 }
@@ -351,6 +360,51 @@ $("glitch-toggle").addEventListener("change", applyGlitch);
 $("glitch-slider").addEventListener("input", (ev) => {
   $("glitch-label").textContent = parseFloat(ev.target.value).toFixed(2);
   applyGlitch();
+});
+
+// shbt9 Phase 2 sandbox controls: P-PM sound-speed scale, percolation
+// threshold, lensing strength, chromatic dispersion, target redshift,
+// and the split-viewport diagnostic mode.
+function applySandboxControls() {
+  if (!engine || !engine.set_simulation_controls) return;
+  engine.set_simulation_controls(
+    parseFloat($("slider-cs").value),
+    parseFloat($("slider-pt").value),
+    parseFloat($("slider-ls").value),
+    parseFloat($("slider-cd").value),
+    sliderToZ(parseFloat($("slider-z").value)),
+    parseInt($("select-viewport-mode").value, 10),
+  );
+}
+[["slider-cs", "cs-label"], ["slider-pt", "pt-label"],
+ ["slider-ls", "ls-label"], ["slider-cd", "cd-label"]].forEach(([sid, lid]) => {
+  $(sid).addEventListener("input", (ev) => {
+    $(lid).textContent = parseFloat(ev.target.value).toFixed(2);
+    applySandboxControls();
+  });
+});
+$("slider-z").addEventListener("input", applySandboxControls);
+$("select-viewport-mode").addEventListener("change", (ev) => {
+  if (engine && engine.set_viewport_mode) {
+    engine.set_viewport_mode(parseInt(ev.target.value, 10));
+  }
+});
+
+// Click-to-measure (shbt9 Phase 2): unproject the click into the bulk
+// box and dispatch a causal-point observer with entropy budget
+// R_entropy = N_limit - C_get.
+$("shbt-canvas").addEventListener("pointerdown", (ev) => {
+  if (!engine || !engine.unproject_and_dispatch_causal_point) return;
+  const c = ev.target;
+  const rect = c.getBoundingClientRect();
+  const ndcX = ((ev.clientX - rect.left) / rect.width) * 2 - 1;
+  const ndcY = 1 - ((ev.clientY - rect.top) / rect.height) * 2;
+  const N_LIMIT = 8.0, C_GET = 1.0;
+  const ok = engine.unproject_and_dispatch_causal_point(ndcX, ndcY, C_GET, N_LIMIT);
+  if (ok && engine.get_active_observers_count) {
+    $("observer-count").textContent =
+      `Observers: ${engine.get_active_observers_count()}`;
+  }
 });
 
 // Keyboard shortcuts: L lensing, D doppler, G dark glow,

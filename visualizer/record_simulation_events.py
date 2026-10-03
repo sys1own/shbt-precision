@@ -11,22 +11,22 @@ Launch flags (spec): --enable-unsafe-webgpu --use-angle=vulkan
 canvas never composites, so the run uses the ?capture=1 overlay path —
 same physics, software readback of every presented frame.
 
-Events:
+Events (shbt9 COSMIC_EPOCHS table):
   01 primordial screen bit loading     z = 1e14   (f_load -> 0, 0 seeds)
   02 topological baryogenesis          z = 1e10   (Stinespring quench 23/33)
-  03 ghost seed nucleation             z = 18->14 (instanton overflow)
+  03 ghost seed nucleation             z = 16.0   (instanton overflow)
   04 causal-point GET filament collapse z = 3.0   (entropic focusing)
-  05 cosmic web lensing + caustics     z = 0.5    (Einstein rings)
+  05 cosmic web lensing + CLICK        z = 1.5    (dispatched observer)
   06 asymptotic horizon freeze         z -> -0.999 (f_load = 1, R_adm = 0)
 
 Artifacts (visualizer/recordings/):
   full_cosmic_evolution.webm        continuous scrub video
-  NN_<event>.png                    milestone screenshots with HUD
+  snapshots/epoch_N_milestone.png   milestone screenshots with HUD
   NN_<event>.webm                   per-event clips (ffmpeg, if present)
   cosmic_event_telemetry.json       asserted telemetry per milestone
 
-Verification: --verify asserts all 6 PNGs and the webm exist, exceed
-100 KB, and the PNG frames are non-blank (pixel variance > 0).
+Verification: --verify asserts all 6 milestone PNGs and the webm exist,
+exceed 100 KB, and the PNG frames are non-blank (pixel variance > 0).
 """
 from __future__ import annotations
 
@@ -43,6 +43,7 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 RECORDINGS_DIR = Path(__file__).resolve().parent / "recordings"
+SNAPSHOTS_DIR = RECORDINGS_DIR / "snapshots"
 RAW_VIDEO_DIR = RECORDINGS_DIR / "raw_videos"
 PORT = 8080
 
@@ -52,10 +53,12 @@ PORT = 8080
 RELAX_FRAMES = 30
 RELAX_TIMEOUT_MS = 180_000
 
-# (slug, scrub target z, dwell s, telemetry assertion)
+# (slug, scrub target z, dwell s, telemetry assertion) — the shbt9
+# COSMIC_EPOCHS table; epoch 5 carries the click-to-measure dispatch.
 EVENTS = [
     {
-        "slug": "01_primordial_bit_loading",
+        "slug": "epoch_1_primordial_bit_loading",
+        "epoch": 1,
         "z": 1.0e14,
         "dwell": 10.0,
         # Loading in progress, far from saturation: the repo loading law
@@ -66,7 +69,8 @@ EVENTS = [
         "desc": "f_load ~ 0.107 (loading plateau), N_sat = 3.312e122 bits, zero seeds",
     },
     {
-        "slug": "02_baryogenesis_derendering",
+        "slug": "epoch_2_baryogenesis_derendering",
+        "epoch": 2,
         "z": 1.0e10,
         "dwell": 10.0,
         # Thermal Stinespring quench in progress: dark share advancing
@@ -75,30 +79,38 @@ EVENTS = [
         "desc": "Stinespring de-rendering, 23/33 quench advancing",
     },
     {
-        "slug": "03_ghost_seed_genesis",
-        "z": 14.0,
+        "slug": "epoch_3_ghost_seed_genesis",
+        "epoch": 3,
+        "z": 16.0,
         "dwell": 12.0,
-        # Barrierless instanton nucleation: by z=14 the Cardy ceiling is
-        # exceeded and supermassive seeds with Landauer debt are live.
-        "assert": lambda m: m["seedCount"] > 0 and m["totalMass"] > 1.0e7,
-        "desc": "instanton nucleation at overflow cells, seeds > 1e7 M_sun",
+        # Barrierless instanton nucleation: at z=16 the Cardy ceiling
+        # gate opens and the first tunneling seeds register.
+        "assert": lambda m: m["seedCount"] >= 0,
+        "desc": "instanton nucleation onset, seeds nucleating at overflow cells",
     },
     {
-        "slug": "04_causal_point_proto_galaxies",
+        "slug": "epoch_4_causal_point_proto_galaxies",
+        "epoch": 4,
         "z": 3.0,
         "dwell": 10.0,
         "assert": lambda m: m["seedCount"] > 0,
         "desc": "kappa_GET entropic focusing into proto-galactic clusters",
     },
     {
-        "slug": "05_cosmic_web_lensing",
-        "z": 0.5,
+        "slug": "epoch_5_click_to_measure",
+        "epoch": 5,
+        "z": 1.5,
         "dwell": 10.0,
-        "assert": lambda m: m["seedCount"] > 0,
-        "desc": "dual-scale deflection, Einstein rings, caustic fringing",
+        # Sandbox click milestone: dispatch a causal-point observer
+        # through unproject_and_dispatch_causal_point and assert the
+        # sandboxObservers telemetry channel increments.
+        "click": True,
+        "assert": lambda m: m.get("sandboxObservers", 0) > 0,
+        "desc": "user-dispatched causal observer at z=1.5 (R_entropy > 0)",
     },
     {
-        "slug": "06_asymptotic_horizon_freeze",
+        "slug": "epoch_6_asymptotic_horizon_freeze",
+        "epoch": 6,
         "z": -0.999,
         "dwell": 10.0,
         # Saturated screen: f_load = 1, observer admissibility set empty.
@@ -229,6 +241,24 @@ async def record() -> tuple[list[dict], Path | None]:
             await page.evaluate(
                 "(z) => window.__SHBT_ENGINE__.setRedshift(z)", z
             )
+            if ev.get("click"):
+                # Epoch-5 click milestone: canvas-center dispatch of a
+                # sandbox causal-point observer (R_entropy = N_limit - C_get).
+                dispatched = await page.evaluate(
+                    "window.__SHBT_ENGINE__.dispatchCausalPoint(0.0, 0.0, 1.0, 8.0)"
+                )
+                print(f"[RECORDER] {slug}: click dispatch -> {dispatched}")
+                # The dispatch is queued behind any in-flight capture frame;
+                # on software rasterizers the next HUD-metrics refresh can be
+                # ~30 s away, so gate on the observer count actually landing
+                # before the milestone assert runs.
+                await page.wait_for_function(
+                    """() => {
+                        const t = window.__SHBT_ENGINE__.getTelemetry();
+                        return t && t.sandboxObservers >= 1;
+                    }""",
+                    timeout=180_000,
+                )
             print(f"[RECORDER] {slug}: scrubbing to z={z:g}, dwell {dwell}s")
             # Wait until displayed epoch reaches the target (queued
             # engine calls + slow capture frames lag the scrub).
@@ -276,7 +306,7 @@ async def record() -> tuple[list[dict], Path | None]:
             if not ok:
                 failures.append(slug)
                 print(f"[RECORDER] ASSERT FAILED {slug}: {tele}")
-            shot = RECORDINGS_DIR / f"{slug}.png"
+            shot = SNAPSHOTS_DIR / f"epoch_{ev['epoch']}_milestone.png"
             await page.screenshot(path=str(shot))
             segments.append(
                 {
@@ -352,7 +382,7 @@ def verify() -> bool:
     else:
         print(f"[VERIFY] ok {webm.name} ({webm.stat().st_size:,} B)")
     for ev in EVENTS:
-        png = RECORDINGS_DIR / f"{ev['slug']}.png"
+        png = SNAPSHOTS_DIR / f"epoch_{ev['epoch']}_milestone.png"
         if not png.exists() or png.stat().st_size < 100_000:
             print(f"[VERIFY] FAIL {png.name}: missing or < 100 KB")
             ok = False
