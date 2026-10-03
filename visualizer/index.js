@@ -25,6 +25,7 @@ function sliderToZ(x) {
 }
 
 function refreshHud(m) {
+  window.__lastHudMetrics = m;
   $("hud-time").textContent = `${fmt(m.t_gyr)} Gyr`;
   $("bar-time").style.width = `${Math.min(m.t_gyr / 13.8, 1) * 100}%`;
   $("hud-fload").textContent = fmt(m.f_load, 5);
@@ -44,6 +45,15 @@ function refreshHud(m) {
   $("inv-fr").classList.toggle("ok", m.delta_fr_zero);
   $("inv-emu").classList.toggle("ok", m.e_munu_zero);
   $("inv-horizon").classList.toggle("ok", m.horizon_frozen);
+  // Emergent defect table: live readout of the condensation kernels
+  // (seedCount / totalMass / landauerDebt come from the GPU readback).
+  const sc = m.seedCount ?? 0;
+  $("seed-count").textContent = `${sc} seed${sc === 1 ? "" : "s"}`;
+  $("seed-table").textContent = sc > 0
+    ? `M_defect = ${fmt(m.totalMass)} M\u2609\n` +
+      `P_Landauer = ${fmt(m.landauerDebt)} GW\n` +
+      `condensation: emergent (\u03b4_eff \u2265 \u03b3 \u2212 1)`
+    : `M_defect = 0\nP_Landauer = 0 GW\nregister sub-critical (N_local < N_limit)`;
   // Causal-point observer activity monitor: admissible observer set
   // cardinality R_adm and entropy-margin status.
   const rAdm = m.z <= -0.95 ? 0 : Math.round(Math.min(Math.max((1 + m.z) * 1024, 0), 1024));
@@ -148,6 +158,24 @@ async function boot() {
     src.parentElement.insertBefore(overlay, src.nextSibling);
     captureCtx = overlay.getContext("2d");
   }
+  // Test hook (Phase 3 invariant gates): deterministic redshift scrub +
+  // emergent-seed telemetry readout. Works in both interactive and
+  // ?capture=1 (queued) modes.
+  window.__SHBT_ENGINE__ = {
+    setRedshift: (z) => engine.set_redshift(z),
+    // In ?capture=1 mode hud_json can race capture_frame_rgba's &mut
+    // borrow of the engine; fall back to the last metrics pushed into the
+    // HUD in that case.
+    getTelemetry: () => {
+      try {
+        return JSON.parse(engine.hud_json());
+      } catch {
+        return window.__lastHudMetrics ?? null;
+      }
+    },
+    wasmMemory: () => engine.memory ? engine.memory.buffer.byteLength : 0,
+    debugEparams: () => JSON.parse(engine.debug_eparams()),
+  };
   requestAnimationFrame(frame);
 }
 
