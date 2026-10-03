@@ -46,6 +46,12 @@ RECORDINGS_DIR = Path(__file__).resolve().parent / "recordings"
 RAW_VIDEO_DIR = RECORDINGS_DIR / "raw_videos"
 PORT = 8080
 
+# Per-event dynamics relaxation: >= 30 presented frames parked at
+# each milestone (shbt8 Phase 3), capped in wall-clock so software
+# rasterization cannot stall the suite.
+RELAX_FRAMES = 30
+RELAX_TIMEOUT_MS = 180_000
+
 # (slug, scrub target z, dwell s, telemetry assertion)
 EVENTS = [
     {
@@ -165,11 +171,19 @@ async def record() -> tuple[list[dict], Path | None]:
             ]
         )
         ctx = await browser.new_context(
-            viewport={"width": 1280, "height": 720},
+            viewport={"width": 1920, "height": 1080},
             record_video_dir=str(RAW_VIDEO_DIR),
-            record_video_size={"width": 1280, "height": 720},
+            record_video_size={"width": 1920, "height": 1080},
         )
         page = await ctx.new_page()
+        # Frame counter for the per-event dwell gate (shbt8 Phase 3:
+        # pause >= 30 presented frames at each milestone so the
+        # gravitational dynamics can relax).
+        await page.add_init_script(
+            "window.__presentedFrames = 0;"
+            "(function tick(){ window.__presentedFrames += 1;"
+            " requestAnimationFrame(tick); })();"
+        )
         t0 = time.monotonic()
         # ?capture=1 blits each rendered frame into a 2D overlay canvas —
         # the only path whose pixels headless compositing can see.
@@ -191,6 +205,13 @@ async def record() -> tuple[list[dict], Path | None]:
                 return false;
             }""",
             timeout=60_000,
+        )
+
+        # Canonical suite records clean physics: the seed-glitch post
+        # effect stays enabled for the interactive page but is switched
+        # off here so the milestone frames carry no rendering nuance.
+        await page.evaluate(
+            "() => window.__SHBT_ENGINE__.setGlitchEnabled(false)"
         )
 
         # Smooth descent from the primordial loading scale through the
@@ -235,6 +256,21 @@ async def record() -> tuple[list[dict], Path | None]:
             # For far-descent hops the eased/queued scrub may overshoot
             # toward the target slowly; give the HUD one settle window.
             await page.wait_for_timeout(int(dwell * 1000))
+            # Relaxation dwell: park at the milestone until at least
+            # RELAX_FRAMES presented frames have elapsed (30 per spec,
+            # bounded by a wall-clock cap on software rasterizers).
+            base_frames = await page.evaluate("window.__presentedFrames")
+            try:
+                await page.wait_for_function(
+                    """(baseline) => window.__presentedFrames >= baseline""",
+                    arg=base_frames + RELAX_FRAMES,
+                    timeout=RELAX_TIMEOUT_MS,
+                )
+            except Exception:
+                print(
+                    f"[RECORDER] {slug}: relax gate timed out "
+                    f"({RELAX_TIMEOUT_MS / 1000:.0f}s) — continuing"
+                )
             tele = await telemetry(page)
             ok = bool(ev["assert"](tele))
             if not ok:

@@ -138,7 +138,7 @@ async function boot() {
       "set_redshift", "set_speed", "set_playing", "set_projection",
       "set_unwrap_transition", "set_channels", "set_lensing_enabled",
       "set_lensing_scale", "set_dispersion", "set_doppler_enabled",
-      "set_dark_glow",
+      "set_dark_glow", "set_glitch_enabled", "set_glitch_intensity",
     ]);
     const raw = engine;
     engine = new Proxy(raw, {
@@ -180,6 +180,12 @@ async function boot() {
     },
     wasmMemory: () => engine.memory ? engine.memory.buffer.byteLength : 0,
     debugEparams: () => JSON.parse(engine.debug_eparams()),
+    // Seed-glitch controls (Enhancement 11 refinement). The enabled
+    // flag rides the hud_json telemetry frame (glitchEnabled) so reads
+    // cannot race capture_frame_rgba's &mut borrow.
+    setGlitchEnabled: (b) => engine.set_glitch_enabled(b),
+    setGlitchIntensity: (v) => engine.set_glitch_intensity(v),
+    setPlaying: (b) => engine.set_playing(b),
   };
   requestAnimationFrame(frame);
 }
@@ -332,6 +338,19 @@ $("toggle-glow").addEventListener("change", applyOptics);
 $("slider-dark-glow").addEventListener("input", (ev) => {
   $("glow-label").textContent = parseFloat(ev.target.value).toFixed(2);
   applyOptics();
+});
+
+// Emergent seed-glitch controls (Enhancement 11 refinement): toggle
+// plus master intensity, live-wired to the Wasm engine.
+function applyGlitch() {
+  if (!engine) return;
+  engine.set_glitch_enabled($("glitch-toggle").checked);
+  engine.set_glitch_intensity(parseFloat($("glitch-slider").value));
+}
+$("glitch-toggle").addEventListener("change", applyGlitch);
+$("glitch-slider").addEventListener("input", (ev) => {
+  $("glitch-label").textContent = parseFloat(ev.target.value).toFixed(2);
+  applyGlitch();
 });
 
 // Keyboard shortcuts: L lensing, D doppler, G dark glow,

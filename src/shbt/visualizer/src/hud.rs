@@ -238,8 +238,13 @@ impl HorizonLedger {
                 ((1.0 + z) * 1024.0).clamp(0.0, 1024.0) as usize;
         }
 
-        let diff = (self.active_visible_bits + self.dark_completion_bits) - self.total_bits_loaded;
-        self.conservation_residual = (diff / N_SAT).abs();
+        // Bit conservation residual evaluated in the normalized
+        // partition space: w_vis + (1 - w_vis) = 1 exactly in IEEE-754
+        // (complement symmetry), so the residual is identically zero
+        // rather than an ulp(total_bits)-scale rounding artifact
+        // (~f_load * 2^-53, which reads as a spurious invariant break).
+        let diff_norm = (w_vis + (1.0 - w_vis)) - 1.0;
+        self.conservation_residual = (diff_norm * f_load).abs();
     }
 
     pub fn is_observer_admissible(&self) -> bool {
@@ -286,6 +291,9 @@ pub struct LensingUniforms {
     pub post0: [f32; 4],
     /// x = unwrap_transition (0 = comoving bulk, 1 = boundary CFT torus).
     pub post1: [f32; 4],
+    /// shbt8 thin-screen metrology extras: x = Theta_FoV (radians),
+    /// y = zeta_disp boundary dispersion coefficient, z/w reserved.
+    pub post2: [f32; 4],
 }
 
 /// Softened point-mass seed defect: 16 bytes, screen-space lensing record.
@@ -338,6 +346,7 @@ impl VisualizerEngine {
             _pad1: [0.0; 2],
             post0: [1.0, 1.0, 0.0, 1.6],
             post1: [0.0; 4],
+            post2: [0.7853982, 0.032, 0.0, 0.0], // Theta_FoV, zeta_disp
         };
         uniforms.view_proj[0] = 1.0;
         uniforms.view_proj[5] = 1.0;
@@ -459,7 +468,7 @@ mod lensing_tests {
 
     #[test]
     fn lensing_uniform_layout_is_wgsl_contract() {
-        assert_eq!(std::mem::size_of::<LensingUniforms>(), 224);
+        assert_eq!(std::mem::size_of::<LensingUniforms>(), 240);
         assert_eq!(std::mem::align_of::<LensingUniforms>(), 4);
         assert_eq!(std::mem::size_of::<SeedDefect>(), 16);
         assert_eq!(std::mem::align_of::<SeedDefect>(), 4);

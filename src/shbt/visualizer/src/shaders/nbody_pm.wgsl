@@ -1,13 +1,27 @@
-// Fast-PM / 2LPT particle drift compute shader (SHBT boundary cosmology).
-// Advances comoving particle trajectories under the boundary-loaded
-// conformal background with Stinespring anti-baryon de-rendering.
+// Symplectic supercomoving KDK compute shader (shbt8 Phase 1 / Thm 9.11).
+// Advances particle trajectories in supercomoving coordinates
+//   x_tilde = x / L_box,  p_tilde = a * v / V_0
+// under the Martel-Shapiro conformal Hamiltonian
+//   H = p_tilde^2/2 + a^2 Phi_tilde
+// with the adaptive Plummer kernel
+//   eps_tilde = eta_soft / N_grid   (eta_soft ~ 0.3333)
+// replacing the fixed 50 kpc softening. Each step is
+//   p_{n+1/2} = p_n + (dtau/2) * F(x_n, a_n)
+//   x_{n+1}  = fract(x_n + dtau * p_{n+1/2})          (torus wrap)
+//   p_{n+1}  = p_{n+1/2} + (dtau/2) * F(x_{n+1}, a_{n+1})
+// with dtau = Da / (a_{1/2}^3 * H(a_{1/2})) and the boundary-loaded
+// conformal coupling A(a) = (3/2) Omega_m0 * a * (1 - (10/33) f_load).
 //
-// shbt6 update: the four hardcoded ghost-seed wells are gone. Seed gravity
-// now comes from the emergent condensation pipeline via
-// compute_seed_gravitational_acceleration() reading the `active_seeds`
-// buffer written by seed_emergence.wgsl (cs_temporal_tracking):
-//   a_seed(x) = -sum_k G M_seed,k (x - x_seed,k) / (|x - x_seed,k|^2 + eps^2)^(3/2)
-// with eps = 50 kpc softening and the minimum-image convention on the torus.
+// Force decomposition at each evaluation point:
+//   F_PM   = -A(a) * grad Phi_tilde(x_tilde)          (PM texture rgb)
+//   F_seed = -(3 Omega_m0/2)^2 * a * (1 - (10/33) f_load)
+//            * sum_k M_tilde,k * dr / (|dr|^2 + eps_tilde^2)^(3/2)
+//   F_GET  = -kappa_GET * grad ln rho_proj(x_tilde)   (PM texture alpha)
+// Emergent seed masses arrive as M_sun and convert via inv_m_box.
+//
+// Velocity convention: particle.velocity stores p_tilde (dimensionless
+// supercomoving momentum); render passes recover the physical velocity
+// as v = p_tilde * V_0 / a for Doppler beaming.
 //
 // Stinespring de-rendering (Eq. 164): when a Channel-A anti-baryon's gauge
 // charge quenches, the particle flips to Channel B and emits a pair of
@@ -26,16 +40,28 @@ struct Particle {
     pad: vec2<f32>,
 };
 
+// shbt8 SimulationUniforms — byte-exact mirror of
+// units::GpuSimulationUniforms (80 bytes, std430 uniform layout).
 struct CosmologicalParams {
-    a: f32,
-    hubble: f32,
-    dt: f32,
-    d1_growth: f32,
-    d2_growth: f32,
+    a: f32,                  // scale factor at step start
+    a_next: f32,             // scale factor at step end
+    dtau: f32,               // supercomoving increment Delta_tau
+    half_dtau: f32,          // Delta_tau / 2
+    h_h0: f32,               // H_SHBT(a_half) / H0
+    omega_m0: f32,
     f_load: f32,
-    box_size: f32,
-    grid_dim: u32,
+    eta_soft: f32,           // adaptive softening scale ~0.3333
+    grid_size: f32,          // PM grid N_grid
+    eps_soft_sq: f32,        // (eta_soft / N_grid)^2
+    kappa_get: f32,          // GET entropic coupling kappa_GET(f_load)
+    num_seeds: u32,
     num_particles: u32,
+    g_code: f32,             // (3/2) Omega_m0
+    a_coupling: f32,         // A(a_n) = g_code * a * (1 - (10/33) f_load)
+    box_size: f32,           // L_box, comoving Mpc/h
+    dt_legacy: f32,          // code-time tick for de-render accruals
+    inv_m_box: f32,          // 1 / M_box in M_sun^-1
+    _pad: vec2<f32>,
 };
 
 // Emergent seed defect record (mirrors seed_emergence.wgsl output).
@@ -105,28 +131,68 @@ fn emit_stinespring_tether(pos_a: vec3<f32>, pos_b: vec3<f32>) {
     tethers[base + 1u] = TetherVertex(pos_b, 1.0, vec4<f32>(0.15, 0.05, 0.45, 0.0));
 }
 
-// Softened Newtonian acceleration from emergent topological defect seeds
-// (epsilon = 50 kpc -> 0.05 Mpc; masses in 1e10 M_sun units for G_const).
-fn compute_seed_gravitational_acceleration(pos: vec3<f32>, box_size: f32) -> vec3<f32> {
-    var total_acc = vec3<f32>(0.0);
-    let count = min(seed_state[1], 256u);
-    let G_const = 4.30091e-3; // (km/s)^2 * Mpc / (10^10 M_sun)
-    let softening_sq = 0.0025; // (50 kpc)^2 softening length
+// PM channel: sample the comoving force gradient field and the
+// projected register density (alpha channel) at a supercomoving point.
+fn pm_grad(x_tilde: vec3<f32>) -> vec3<f32> {
+    return textureSampleLevel(force_grid, force_sampler, fract(x_tilde), 0.0).xyz;
+}
 
+fn pm_rho(x_tilde: vec3<f32>) -> f32 {
+    return textureSampleLevel(force_grid, force_sampler, fract(x_tilde), 0.0).w;
+}
+
+// F_PM = -A(a) * grad Phi_tilde(x_tilde), where A(a) folds the boundary
+// load drag 1 - (10/33) f_load into the conformal coupling (shbt8 Eq. 5).
+fn compute_pm_force(x_tilde: vec3<f32>, a_coupling: f32) -> vec3<f32> {
+    return -a_coupling * pm_grad(x_tilde);
+}
+
+// Emergent seed gravity (shbt8 Eq. 6): supercomoving Plummer force
+//   F_seed = -(3 Omega_m0/2)^2 * a * (1 - (10/33) f_load)
+//            * sum_k M_tilde,k * dr / (|dr|^2 + eps_tilde^2)^(3/2)
+// with minimum-image separation dr on the torus and eps_tilde =
+// eta_soft / N_grid adaptive softening. The kernel coefficient factors
+// as a_coupling * g_code.
+fn compute_seed_force(x_tilde: vec3<f32>, a_coupling: f32) -> vec3<f32> {
+    var acc = vec3<f32>(0.0);
+    let count = min(seed_state[1], 256u);
     for (var k = 0u; k < count; k = k + 1u) {
         let seed = active_seeds[k];
         if (seed.position.w > 0.5) {
-            var r_vec = seed.position.xyz - pos;
-            r_vec = r_vec - box_size * round(r_vec / box_size);
-
-            let r_sq = dot(r_vec, r_vec);
-            let inv_dist_cube = 1.0 / pow(r_sq + softening_sq, 1.5);
-            let m_scaled = seed.dynamics.x * 1e-10;
-
-            total_acc = total_acc + G_const * m_scaled * r_vec * inv_dist_cube;
+            let x_seed = seed.position.xyz / cosmo.box_size;
+            var dr = x_tilde - x_seed;
+            dr = dr - round(dr); // minimum image on the torus
+            let m_code = seed.dynamics.x * cosmo.inv_m_box;
+            acc = acc + m_code * dr / pow(dot(dr, dr) + cosmo.eps_soft_sq, 1.5);
         }
     }
-    return total_acc;
+    return -a_coupling * cosmo.g_code * acc;
+}
+
+// GET entropic transport (shbt7 Thm 9.8 / shbt8 Eq. 7):
+//   F_GET = -kappa_GET(f_load) * grad ln rho_proj(x_tilde)
+// evaluated by central differences on the projected density carried in
+// the PM texture alpha channel.
+fn compute_get_force(x_tilde: vec3<f32>, kappa_get: f32) -> vec3<f32> {
+    let eps = 1.0 / cosmo.grid_size;
+    let rho_c = pm_rho(x_tilde);
+    let gx = pm_rho(x_tilde + vec3<f32>(eps, 0.0, 0.0))
+        - pm_rho(x_tilde - vec3<f32>(eps, 0.0, 0.0));
+    let gy = pm_rho(x_tilde + vec3<f32>(0.0, eps, 0.0))
+        - pm_rho(x_tilde - vec3<f32>(0.0, eps, 0.0));
+    let gz = pm_rho(x_tilde + vec3<f32>(0.0, 0.0, eps))
+        - pm_rho(x_tilde - vec3<f32>(0.0, 0.0, eps));
+    let grad_ln_rho = vec3<f32>(gx, gy, gz) / (2.0 * eps * max(rho_c, 1.0e-3));
+    return -kappa_get * grad_ln_rho * 0.01;
+}
+
+// Total supercomoving force at (x_tilde, a): PM + seed + GET.
+fn compute_total_force(x_tilde: vec3<f32>, a_eval: f32) -> vec3<f32> {
+    let drag = 1.0 - (10.0 / 33.0) * cosmo.f_load;
+    let a_c = cosmo.g_code * a_eval * drag;
+    return compute_pm_force(x_tilde, a_c)
+        + compute_seed_force(x_tilde, a_c)
+        + compute_get_force(x_tilde, cosmo.kappa_get);
 }
 
 @compute @workgroup_size(256, 1, 1)
@@ -157,58 +223,45 @@ fn cs_advance_particles(@builtin(global_invocation_id) global_id: vec3<u32>) {
     if (p.channel == 1u) {
         // Quenched ghosts keep accruing small debt as the register erases
         // residual coordinate bits (visual heat accumulation only).
-        p.landauer_debt += 906.0 * cosmo.dt * 1.0e3;
+        p.landauer_debt += 906.0 * cosmo.dt_legacy * 1.0e3;
     }
 
-    // Comoving coordinate mapping to normalized grid texture UVW [0, 1]
-    let uvw = fract(p.position / cosmo.box_size);
-    var force = textureSampleLevel(force_grid, force_sampler, uvw, 0.0).xyz;
+    // Martel-Shapiro supercomoving KDK step (shbt8 Eq. 3-8):
+    //   Stage 1: half-kick at (x_n, a_n)
+    //   Stage 2: drift x_{n+1} = fract(x_n + dtau * p_{n+1/2})
+    //   Stage 3: half-kick at (x_{n+1}, a_{n+1})
+    var x_tilde = fract(p.position / cosmo.box_size);
+    var p_tilde = p.velocity;
 
-    // Boundary loaded conformal friction factor
-    let friction = 1.0 + (cosmo.f_load * (10.0 / 33.0));
+    // Kick 1 (x_n, a_n)
+    p_tilde = p_tilde + cosmo.half_dtau * compute_total_force(x_tilde, cosmo.a);
+    // Drift
+    x_tilde = fract(x_tilde + vec3<f32>(1.0) + cosmo.dtau * p_tilde);
+    // Kick 2 (x_{n+1}, a_{n+1})
+    p_tilde = p_tilde + cosmo.half_dtau * compute_total_force(x_tilde, cosmo.a_next);
 
-    // Primordial fluctuation growth boost across the condensation window
-    // z in [2, 30]: strengthens the density-gradient field so that basins
-    // deepen organically into capacity-overflow nucleation sites.
-    let seed_gain = select(1.0, 3.0, z_current >= 2.0 && z_current <= 20.0);
+    // Numerical bound: cap the supercomoving momentum so a single
+    // soft-kernel fluctuation cannot send the particle to NaN (register
+    // overflow in the integrator corresponds to a frame-drop in the
+    // SHBT picture). |p_tilde| <= 0.5 keeps the drift sub-box per step.
+    p_tilde = clamp(p_tilde, vec3<f32>(-0.5), vec3<f32>(0.5));
 
-    // Pre-condensation homogeneity (z > 17.5): the bulk register is
-    // thermalized and structure cannot condense, so gravitational kicks
-    // are suppressed until the linear growth factor opens the window.
-    force = force * select(0.0, 1.0, z_current <= 17.5);
-
-    // Emergent ghost-seed attraction, replacing the hardcoded well table.
-    var a_seed = vec3<f32>(0.0);
-    if (z_current <= 30.0) {
-        a_seed = compute_seed_gravitational_acceleration(p.position, cosmo.box_size);
-    }
-
-    // Symplectic Kick-Drift step under loaded background with both PM grid
-    // force and emergent point-mass a_seed.
-    let total_force = force * seed_gain + a_seed;
-    let kick = (total_force / (cosmo.a * cosmo.a * friction)) * cosmo.dt;
-    p.velocity += kick;
-    // Numerical bound: cap peculiar velocity so a single soft-kernel
-    // fluctuation cannot send the particle to NaN (register overflow in
-    // the integrator corresponds to a frame-drop in the SHBT picture).
-    p.velocity = clamp(p.velocity, vec3<f32>(-5.0e2), vec3<f32>(5.0e2));
-    p.position += (p.velocity / (cosmo.a * cosmo.hubble)) * cosmo.dt;
-
-    // Periodic boundary wrapping across the holographic spatial patch
-    p.position = (p.position + vec3<f32>(cosmo.box_size)) % vec3<f32>(cosmo.box_size);
+    p.velocity = p_tilde;
+    p.position = x_tilde * cosmo.box_size;
 
     // Projected tidal shear estimate from the PM field for the Channel-B
     // billboard stretch (gamma ~ grad of the sampled force magnitude).
-    let eps = 1.0 / f32(cosmo.grid_dim);
+    let eps = 1.0 / cosmo.grid_size;
+    let uvw = x_tilde;
     let fx1 = textureSampleLevel(force_grid, force_sampler, uvw + vec3<f32>(eps, 0.0, 0.0), 0.0).x;
     let fx0 = textureSampleLevel(force_grid, force_sampler, uvw - vec3<f32>(eps, 0.0, 0.0), 0.0).x;
     let fy1 = textureSampleLevel(force_grid, force_sampler, uvw + vec3<f32>(0.0, eps, 0.0), 0.0).y;
     let fy0 = textureSampleLevel(force_grid, force_sampler, uvw - vec3<f32>(0.0, eps, 0.0), 0.0).y;
-    p.shear = vec4<f32>(fx1 - fx0, fy1 - fy0, length(force), 0.0);
+    p.shear = vec4<f32>(fx1 - fx0, fy1 - fy0, length(pm_grad(uvw)), 0.0);
 
     particles[idx] = p;
 
     // Scatter particle density onto the PM grid cell.
-    let cell = vec3<i32>(uvw * f32(cosmo.grid_dim));
+    let cell = vec3<i32>(uvw * cosmo.grid_size);
     textureStore(density_grid, cell, vec4<f32>(p.grav_mass));
 }
