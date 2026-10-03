@@ -2410,7 +2410,10 @@ impl ShbtWebGpuEngine {
         let camera = CameraParams {
             view_proj: vp,
             params: [
-                0.006 - 0.002 * self.unwrap_transition,
+                // Halved point extent vs the hardcoded-well era: the
+                // uniform pre-onset foam otherwise stacks ~11 quads/pixel
+                // and additively saturates to white.
+                0.003 - 0.001 * self.unwrap_transition,
                 BOX_SIZE,
                 self.unwrap_transition,
                 self.redshift as f32,

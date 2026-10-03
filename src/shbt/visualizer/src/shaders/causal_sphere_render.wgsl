@@ -52,7 +52,11 @@ fn vs_entropy_sphere(
     let r_sphere = obs.radius * pow(max(ratio, 1.0e-3), 1.0 / 3.0);
 
     var clip = causal_cam.view_proj * vec4<f32>(center_world, 1.0);
-    let extent = r_sphere * causal_cam.params.x * 0.12 * f32(obs.active_get_flag);
+    // r_sphere is a normalized box fraction; keep the billboard a modest
+    // screen fraction (~6% of the frame). Multiplying by params.x (box
+    // size in world units) produced quads ~3x the screen width, and 64
+    // additive shells fused into a frame-wide wash.
+    let extent = r_sphere * 0.25 * f32(obs.active_get_flag);
     clip.x += corner.x * extent * clip.w;
     clip.y += corner.y * extent * clip.w;
 
@@ -85,7 +89,7 @@ fn fs_entropy_sphere(in: SphereOut) -> SphereFragOut {
     let depleted_red = vec3<f32>(0.95, 0.08, 0.08);
     let col = mix(depleted_red, healthy_green, ratio);
 
-    let alpha = (fresnel * 0.7 + 0.12) * ratio;
+    let alpha = (fresnel * 0.5 + 0.06) * ratio;
     out.channel_a = vec4<f32>(col, alpha) * causal_cam.params.z;
     out.channel_b = vec4<f32>(0.0);
     return out;

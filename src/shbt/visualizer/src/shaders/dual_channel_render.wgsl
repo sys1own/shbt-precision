@@ -131,7 +131,9 @@ fn sample_crystallization_flash(pos: vec3<f32>, time: f32) -> vec3<f32> {
             let dist = distance(pos, ev.origin);
             let profile = exp(-pow((dist - radius) / wave_thickness, 2.0));
             let fade = 1.0 - (dt / 0.55);
-            let cyan_flash = vec3<f32>(0.7, 0.95, 1.0) * (ev.intensity * 3.5);
+            // 0.25: 64 concurrent condensation shells cover the whole box;
+            // any higher gain fuses them into a uniform cyan-white wash.
+            let cyan_flash = vec3<f32>(0.7, 0.95, 1.0) * (ev.intensity * 0.25);
             emission += cyan_flash * (profile * fade);
         }
     }
@@ -221,9 +223,11 @@ fn vs_particle_billboard(
     // emergent basin render as oversized pulsing attractor markers.
     var psize = camera.params.x;
     var seed_glow = 0.0;
-    if (z_cam <= 30.0 && z_cam >= 2.0 && d_min < 0.06) {
-        seed_glow = 1.0 - d_min / 0.06;
-        psize = psize * 4.0;
+    // Radius kept small: 64 saturated defects otherwise overlap into a
+    // screen-filling starburst wash.
+    if (z_cam <= 30.0 && z_cam >= 2.0 && d_min < 0.025) {
+        seed_glow = 1.0 - d_min / 0.025;
+        psize = psize * 2.5;
     }
     // Active-baryon branch renders slightly larger so the 10/33 share stays
     // legible against the 23/33 anti-baryon population.
@@ -333,15 +337,20 @@ fn fs_render_dual_channel(in: VertexOutput) -> GBufferOutput {
     if (in.seed_glow > 0.0) {
         let ring_dist = abs(dist_from_center - 0.40);
         let caustic_fringe = exp(-pow(ring_dist * 30.0, 2.0)) * (0.85 + 0.15 * sin(dist_from_center * 45.0 + z * 0.4));
-        let seed_core = vec3<f32>(1.0, 0.98, 0.85) * exp(-dist_from_center * 12.0) * pulse * 4.5;
-        let seed_ring = vec3<f32>(1.0, 0.85, 0.35) * caustic_fringe * pulse * 3.0 + vec3<f32>(0.3, 0.8, 1.0) * caustic_fringe * 1.8;
+        // Gains trimmed so 64 concurrent defects read as distinct
+        // starbursts rather than a merged white field.
+        let seed_core = vec3<f32>(1.0, 0.98, 0.85) * exp(-dist_from_center * 12.0) * pulse * 2.0;
+        let seed_ring = vec3<f32>(1.0, 0.85, 0.35) * caustic_fringe * pulse * 1.5 + vec3<f32>(0.3, 0.8, 1.0) * caustic_fringe * 1.0;
         glow_rgb += (seed_core + seed_ring) * in.seed_glow;
         glow_a = max(glow_a, in.seed_glow * (core_intensity + caustic_fringe));
     }
     // Channel A: spectral radiance in RGB, normalized line-of-sight
     // depth in A for the depth-aware bilateral post pass.
     let depth_norm = clamp(in.linear_depth / 4000.0, 0.0, 1.0);
-    output.visible_gauge_glow = vec4<f32>(glow_rgb, depth_norm * max(glow_a, 0.001));
+    // Emission budget: ~10+ billboards overlap per pixel at these particle
+    // counts; keep per-particle radiance low so the post tone map resolves
+    // the emergent structure instead of saturating the whole frame.
+    output.visible_gauge_glow = vec4<f32>(glow_rgb * 0.07, depth_norm * max(glow_a, 0.001));
 
     // Channel B: Passive Gravitational Ghost Distortion
     // Persists regardless of vis_factor, tracking total stress-energy
@@ -350,10 +359,14 @@ fn fs_render_dual_channel(in: VertexOutput) -> GBufferOutput {
     if (length(in.world_pos.xy) > 1.0e-4) {
         shear_dir = normalize(in.world_pos.xy);
     }
+    // Landauer-debt shear bias uses the log-normalized heat scale (0..3.8),
+    // not the raw debt: accumulated debts exceed 1e9 late in the scrub and
+    // an unbounded bias warps the lens field into a full-screen white-out.
+    let debt_heat = compute_landauer_emission(in.landauer_debt).r;
     var gravitational_shear = vec2<f32>(
         shear_dir.x * core_intensity * 0.05,
         shear_dir.y * core_intensity * 0.05
-    ) + vec2<f32>(in.landauer_debt * 1.0e-9);
+    ) + vec2<f32>(debt_heat * 0.02);
 
     // Enhanced caustic lensing shear for condensed seed cores
     if (in.seed_glow > 0.0) {
@@ -366,9 +379,12 @@ fn fs_render_dual_channel(in: VertexOutput) -> GBufferOutput {
     //   RG: gravitational shear components (gamma_1, gamma_2)
     //   B:  convergence kappa = 1/2 nabla^2 psi (ghost mass weighted)
     //   A:  observer causal entropy budget (visibility share)
-    let kappa = (in.mass * 0.1 + dark_ghost_weight) * core_intensity
+    // κ is summed across ~10+ overlapping billboards in the post pass;
+    // keep per-particle weights small so stacked convergence resolves as
+    // structure instead of saturating the dark-glow palette.
+    let kappa = (in.mass * 0.05 + dark_ghost_weight * 0.2) * core_intensity
         + in.causal_env * 0.35 + in.seed_glow * 1.2 * core_intensity
-        + compute_landauer_emission(in.landauer_debt).r * 0.2;
+        + debt_heat * 0.2;
     let causal_entropy = in.vis_factor;
     output.passive_metric_distortion = vec4<f32>(
         gravitational_shear.x + in.causal_env * 0.02,

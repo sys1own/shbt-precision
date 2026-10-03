@@ -266,11 +266,20 @@ fn fs_post(in: VertexOutput) -> @location(0) vec4<f32> {
         let diff = warped_uv - s.screen_pos;
         let r2 = dot(diff, diff);
         let core2 = s.core_radius * s.core_radius;
-        let defl_mag = (s.theta_e * s.theta_e) / (r2 + core2);
+        // Clamp the near-core singularity: 64 emergent defects at
+        // theta_E^2/core^2 ~ 20 otherwise drag every pixel into a core and
+        // smear the frame into a white wash.
+        let defl_mag = min((s.theta_e * s.theta_e) / (r2 + core2), 0.05);
         alpha_seeds = alpha_seeds + diff * (defl_mag * params.lensing_strength);
     }
 
-    let alpha_total = alpha_macro + alpha_seeds;
+    var alpha_total = alpha_macro + alpha_seeds;
+    // Bound the summed warp to 20% of the frame so overlapping defects
+    // produce ring structure rather than a global smear.
+    let alpha_len = length(alpha_total);
+    if (alpha_len > 0.2) {
+        alpha_total = alpha_total * (0.2 / alpha_len);
+    }
 
     // Wave-optics 3-tap chromatic dispersion: R/G/B sample coordinates
     // scaled by delta_disp so critical curves fringe into spectra.
@@ -301,7 +310,9 @@ fn fs_post(in: VertexOutput) -> @location(0) vec4<f32> {
     if (params.post0.y > 0.5) {
         let smooth_conv = sample_bilateral_convergence(warped_uv, texel, center_depth);
         let dark_glow_palette = vec3<f32>(0.15, 0.35, 0.85);
-        dark_glow_emission = dark_glow_palette * (smooth_conv * params.dark_glow_intensity);
+        // Soft-cap the summed convergence so stacked billboards can't
+        // push the palette into the tone-map's white saturation point.
+        dark_glow_emission = dark_glow_palette * min(smooth_conv * params.dark_glow_intensity, 0.6);
     }
 
     // Sharp caustic rings around dominant Einstein radii.
@@ -312,7 +323,7 @@ fn fs_post(in: VertexOutput) -> @location(0) vec4<f32> {
         let d = warped_uv - s.screen_pos;
         let dist = sqrt(d.x * d.x * aspect * aspect + d.y * d.y);
         let ring_diff = abs(dist - s.theta_e);
-        caustic_ring_accent = caustic_ring_accent + exp(-ring_diff * ring_diff * 4000.0) * 0.4;
+        caustic_ring_accent = caustic_ring_accent + exp(-ring_diff * ring_diff * 4000.0) * 0.15;
     }
     let caustic_rgb = vec3<f32>(caustic_ring_accent * 0.4, caustic_ring_accent * 0.8, caustic_ring_accent)
         * params.lensing_strength * params.post0.y;
@@ -337,8 +348,13 @@ fn fs_post(in: VertexOutput) -> @location(0) vec4<f32> {
     let grid_rgb = vec3<f32>(0.02, 0.05, 0.08) * clamp(grid_line, 0.0, 1.0)
         * (0.35 + 0.65 * params.post1.x);
 
-    let final_composite = (lensed_color + dark_glow_emission + caustic_rgb + causal_rgb + horizon_rgb + grid_rgb)
+    let raw_composite = (lensed_color + dark_glow_emission + caustic_rgb + causal_rgb + horizon_rgb + grid_rgb)
         * params.post0.w;
+
+    // Filmic tone map: the uniform pre-onset foam additively stacks many
+    // quads per pixel; compress highlights so dense regions expose detail
+    // instead of clipping to white. 1 - exp(-x) keeps dark lanes dark.
+    let final_composite = vec3<f32>(1.0) - exp(-raw_composite);
 
     // Conformal boundary unwrap HUD inset (Enhancement 1).
     let composed = render_boundary_overlay(uv, vec4<f32>(final_composite, 1.0));
