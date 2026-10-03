@@ -209,7 +209,10 @@ pub struct GpuSimulationUniforms {
     pub box_size: f32,
     pub dt_legacy: f32,
     pub inv_m_box_msun: f32,
-    pub _pad2: [f32; 2],
+    /// Wall-clock step in seconds (tether alpha decay clock); set by the
+    /// engine after prepare_step_uniforms, not part of the metrology contract.
+    pub wall_dt: f32,
+    pub _pad2: f32,
 }
 
 /// Lens post-process uniform layout matching std430 alignment in WGSL
@@ -303,7 +306,8 @@ impl MetrologyPipeline {
             box_size,
             dt_legacy,
             inv_m_box_msun,
-            _pad2: [0.0; 2],
+            wall_dt: 0.0,
+            _pad2: 0.0,
         }
     }
 }

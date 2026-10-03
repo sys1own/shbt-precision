@@ -47,6 +47,12 @@ const TARGET_FORMAT: TextureFormat = TextureFormat::Rgba16Float;
 const MAX_SEEDS: usize = 256;
 const CAUSAL_NODE_COUNT: usize = 8;
 const TRACER_COUNT: u32 = 10_000;
+/// Wireframe past-light-cone spokes are drawn only for the top N
+/// most-active causal observers (mass-ordered observer table).
+const TOP_CONE_OBSERVERS: u32 = 10;
+/// Half-resolution bloom chain targets.
+const BLOOM_WIDTH: u32 = 640;
+const BLOOM_HEIGHT: u32 = 360;
 const TETHER_CAP: u32 = 65_536;
 const BOUNDARY_RES: u32 = 256;
 
@@ -289,6 +295,12 @@ pub struct ShbtWebGpuEngine {
     compute_pipeline: ComputePipeline,
     render_pipeline: RenderPipeline,
     post_pipeline: RenderPipeline,
+    bloom_pipeline: RenderPipeline,
+    bloom_bgl: BindGroupLayout,
+    bloom_a_tex: Texture,
+    bloom_b_tex: Texture,
+    bloom_ubo_h: Buffer,
+    bloom_ubo_v: Buffer,
     causal_pipeline: RenderPipeline,
     tether_pipeline: RenderPipeline,
     cone_pipeline: RenderPipeline,
@@ -406,6 +418,8 @@ pub struct ShbtWebGpuEngine {
     doppler_enabled: bool,
     glitch_intensity: f32,
     glitch_enabled: bool,
+    bloom_intensity: f32,
+    fog_density: f32,
     telemetry: VisualizerTelemetry,
     buffer_index: usize,
     width: u32,
@@ -624,6 +638,103 @@ impl ShbtWebGpuEngine {
                 Self::tex2d_entry(5, ShaderStages::FRAGMENT),
                 Self::storage_entry(6, ShaderStages::FRAGMENT, true),
                 Self::uniform_entry(7, ShaderStages::FRAGMENT),
+                Self::tex2d_entry(8, ShaderStages::FRAGMENT),
+            ],
+        })
+    }
+
+    /// Half-res render target for the bloom chain (Enhancement 12).
+    fn mk_bloom_target(device: &Device, label: &str) -> Texture {
+        device.create_texture(&TextureDescriptor {
+            label: Some(label),
+            size: Extent3d {
+                width: BLOOM_WIDTH,
+                height: BLOOM_HEIGHT,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: TextureDimension::D2,
+            format: TARGET_FORMAT,
+            usage: TextureUsages::RENDER_ATTACHMENT | TextureUsages::TEXTURE_BINDING,
+            view_formats: &[],
+        })
+    }
+
+    fn mk_bloom_ubo(device: &Device, label: &str, dir: [f32; 2], texel: [f32; 2], threshold: f32) -> Buffer {
+        device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some(label),
+            contents: bytemuck::bytes_of(&[
+                dir[0], dir[1], texel[0], texel[1], threshold, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
+            ]),
+            usage: BufferUsages::UNIFORM | BufferUsages::COPY_DST,
+        })
+    }
+
+    /// Separable-Gaussian bloom pre-pass (Enhancement 12): tex@0 + sampler
+    /// @1 + BloomUniforms@2 -> half-res Rgba16Float.
+    fn build_bloom_pipeline(device: &Device) -> (BindGroupLayout, RenderPipeline) {
+        let bgl = device.create_bind_group_layout(&BindGroupLayoutDescriptor {
+            label: Some("bloom layout"),
+            entries: &[
+                Self::tex2d_entry(0, ShaderStages::FRAGMENT),
+                Self::sampler_entry(1, ShaderStages::FRAGMENT),
+                Self::uniform_entry(2, ShaderStages::FRAGMENT),
+            ],
+        });
+        let shader = device.create_shader_module(ShaderModuleDescriptor {
+            label: Some("bloom_blur.wgsl"),
+            source: ShaderSource::Wgsl(include_str!("shaders/bloom_blur.wgsl").into()),
+        });
+        let layout = device.create_pipeline_layout(&PipelineLayoutDescriptor {
+            label: Some("bloom pipeline layout"),
+            bind_group_layouts: &[&bgl],
+            push_constant_ranges: &[],
+        });
+        let pipeline = device.create_render_pipeline(&RenderPipelineDescriptor {
+            label: Some("bloom pipeline"),
+            layout: Some(&layout),
+            vertex: VertexState {
+                module: &shader,
+                entry_point: "vs_bloom",
+                buffers: &[],
+            },
+            fragment: Some(FragmentState {
+                module: &shader,
+                entry_point: "fs_bloom",
+                targets: &[Some(ColorTargetState {
+                    format: TARGET_FORMAT,
+                    blend: Some(BlendState::REPLACE),
+                    write_mask: ColorWrites::ALL,
+                })],
+            }),
+            primitive: PrimitiveState::default(),
+            depth_stencil: None,
+            multisample: MultisampleState::default(),
+            multiview: None,
+        });
+        (bgl, pipeline)
+    }
+
+    fn bloom_bind_group(&self, src: &Texture, ubo: &Buffer) -> BindGroup {
+        self.device.create_bind_group(&BindGroupDescriptor {
+            label: Some("bloom bind group"),
+            layout: &self.bloom_bgl,
+            entries: &[
+                BindGroupEntry {
+                    binding: 0,
+                    resource: BindingResource::TextureView(
+                        &src.create_view(&TextureViewDescriptor::default()),
+                    ),
+                },
+                BindGroupEntry {
+                    binding: 1,
+                    resource: BindingResource::Sampler(&self.sampler),
+                },
+                BindGroupEntry {
+                    binding: 2,
+                    resource: ubo.as_entire_binding(),
+                },
             ],
         })
     }
@@ -1418,6 +1529,25 @@ impl ShbtWebGpuEngine {
 
         let post_bgl = Self::build_post_layout(&device);
         let post_pipeline = Self::build_post_pipeline(&device, &post_bgl, TARGET_FORMAT);
+        let (bloom_bgl, bloom_pipeline) = Self::build_bloom_pipeline(&device);
+        let bloom_a_tex = Self::mk_bloom_target(&device, "bloom_a_tex");
+        let bloom_b_tex = Self::mk_bloom_target(&device, "bloom_b_tex");
+        // H pass: bright-pass + horizontal blur over the full-res channel;
+        // V pass: plain vertical blur over the half-res intermediate.
+        let bloom_ubo_h = Self::mk_bloom_ubo(
+            &device,
+            "bloom_ubo_h",
+            [1.0, 0.0],
+            [1.0 / 1280.0, 1.0 / 720.0],
+            1.4,
+        );
+        let bloom_ubo_v = Self::mk_bloom_ubo(
+            &device,
+            "bloom_ubo_v",
+            [0.0, 1.0],
+            [1.0 / BLOOM_WIDTH as f32, 1.0 / BLOOM_HEIGHT as f32],
+            0.0,
+        );
         let (causal_pipeline, _e, causal_bgl) = Self::build_causal_pipeline(&device);
         let (
             tether_bgl,
@@ -1462,6 +1592,12 @@ impl ShbtWebGpuEngine {
             compute_pipeline,
             render_pipeline,
             post_pipeline,
+            bloom_pipeline,
+            bloom_bgl,
+            bloom_a_tex,
+            bloom_b_tex,
+            bloom_ubo_h,
+            bloom_ubo_v,
             causal_pipeline,
             tether_pipeline,
             cone_pipeline,
@@ -1558,6 +1694,8 @@ impl ShbtWebGpuEngine {
             doppler_enabled: true,
             glitch_intensity: 0.1,
             glitch_enabled: true,
+            bloom_intensity: 0.08,
+            fog_density: 0.6,
             telemetry: VisualizerTelemetry::default(),
             buffer_index: 0,
             width: 1280,
@@ -1708,7 +1846,16 @@ impl ShbtWebGpuEngine {
     /// mass saturates its register cell.
     fn update_observer_table(&mut self, view_proj: &[[f32; 4]; 4]) {
         let mut observers = [CausalObserver::default(); MAX_SEEDS];
-        for (i, s) in self.emergent_seeds.iter().enumerate().take(MAX_SEEDS) {
+        // Order by accretion mass so the cone subset below resolves to
+        // the most active observers (spec: top ~10).
+        let mut order: Vec<usize> = (0..self.emergent_seeds.len().min(MAX_SEEDS)).collect();
+        order.sort_by(|&a, &b| {
+            self.emergent_seeds[b]
+                .mass_msun
+                .total_cmp(&self.emergent_seeds[a].mass_msun)
+        });
+        for (i, &s_idx) in order.iter().enumerate() {
+            let s = &self.emergent_seeds[s_idx];
             let norm = [
                 s.pos[0] / BOX_SIZE,
                 s.pos[1] / BOX_SIZE,
@@ -2373,6 +2520,12 @@ impl ShbtWebGpuEngine {
                     binding: 7,
                     resource: self.glitch_buffer.as_entire_binding(),
                 },
+                BindGroupEntry {
+                    binding: 8,
+                    resource: BindingResource::TextureView(
+                        &self.bloom_b_tex.create_view(&TextureViewDescriptor::default()),
+                    ),
+                },
             ],
         })
     }
@@ -2513,7 +2666,7 @@ impl ShbtWebGpuEngine {
         let dtau = dt_code;
         let a_half_probe = a_now.max(1.0e-3);
         let da = dtau * a_half_probe.powi(3) * h_h0;
-        let cosmo: CosmoParams = self.metrology.prepare_step_uniforms(
+        let mut cosmo: CosmoParams = self.metrology.prepare_step_uniforms(
             a_now,
             da,
             h_h0,
@@ -2526,6 +2679,9 @@ impl ShbtWebGpuEngine {
             BOX_SIZE,
             dt_code,
         );
+        // Wall-clock step feeds the Stinespring tether fade clock
+        // (alpha *= exp(-wall_dt / 0.5 s)) independent of sim time.
+        cosmo.wall_dt = dt_seconds as f32;
         self.queue
             .write_buffer(&self.cosmo_buffer, 0, bytemuck::bytes_of(&cosmo));
 
@@ -2615,13 +2771,13 @@ impl ShbtWebGpuEngine {
             time: self.frame_index as f32 / 60.0,
             _pad0: 0.0,
             _pad1: [0.0; 2],
-            post0: [self.channel_a, self.channel_b, f_load as f32, 1.6],
+            post0: [self.channel_a, self.channel_b, f_load as f32, 0.8],
             post1: [self.unwrap_transition, 0.0, 0.0, 0.0],
             post2: [
                 45.0f32.to_radians(), // Theta_FoV (rad)
                 self.dispersion_coeff * 0.04, // zeta_disp boundary dispersion
-                0.0,
-                0.0,
+                self.bloom_intensity,         // bloom lift gain (Enhancement 12)
+                self.fog_density,             // exponential depth fog (Enhancement 13)
             ],
         };
         self.queue
@@ -2815,10 +2971,12 @@ impl ShbtWebGpuEngine {
             rpass.set_bind_group(1, &tcbg, &[]);
             rpass.draw(0..6, 0..TRACER_COUNT);
 
-            // Past light cone wireframes (Enhancement 7).
+            // Past light cone wireframes (Enhancement 7): only the top
+            // most-active observers (mass-ordered in update_observer_table)
+            // get cone spokes; the rest keep their entropy shell.
             rpass.set_pipeline(&self.cone_pipeline);
             rpass.set_bind_group(0, &obg, &[]);
-            rpass.draw(0..32, 0..MAX_SEEDS as u32);
+            rpass.draw(0..32, 0..TOP_CONE_OBSERVERS);
 
             // Entropy budget spheres (Enhancement 8).
             rpass.set_pipeline(&self.sphere_pipeline);
@@ -2836,6 +2994,51 @@ impl ShbtWebGpuEngine {
                 rpass.set_bind_group(1, &cbg, &[]);
                 rpass.draw(0..6, 0..CAUSAL_NODE_COUNT as u32);
             }
+        }
+        // Bloom chain (Enhancement 12): bright-pass + horizontal Gaussian
+        // from the Channel-A scene texture into bloom_a, then vertical
+        // into bloom_b; fs_post lifts the composite by bloom_b.
+        {
+            let bloom_view_a = self.bloom_a_tex.create_view(&TextureViewDescriptor::default());
+            let bg_h = self.bloom_bind_group(&self.visible_tex, &self.bloom_ubo_h);
+            let mut rpass = encoder.begin_render_pass(&RenderPassDescriptor {
+                label: Some("bloom bright+horizontal pass"),
+                color_attachments: &[Some(RenderPassColorAttachment {
+                    view: &bloom_view_a,
+                    resolve_target: None,
+                    ops: Operations {
+                        load: LoadOp::Clear(Color::BLACK),
+                        store: StoreOp::Store,
+                    },
+                })],
+                depth_stencil_attachment: None,
+                timestamp_writes: None,
+                occlusion_query_set: None,
+            });
+            rpass.set_pipeline(&self.bloom_pipeline);
+            rpass.set_bind_group(0, &bg_h, &[]);
+            rpass.draw(0..3, 0..1);
+        }
+        {
+            let bloom_view_b = self.bloom_b_tex.create_view(&TextureViewDescriptor::default());
+            let bg_v = self.bloom_bind_group(&self.bloom_a_tex, &self.bloom_ubo_v);
+            let mut rpass = encoder.begin_render_pass(&RenderPassDescriptor {
+                label: Some("bloom vertical pass"),
+                color_attachments: &[Some(RenderPassColorAttachment {
+                    view: &bloom_view_b,
+                    resolve_target: None,
+                    ops: Operations {
+                        load: LoadOp::Clear(Color::BLACK),
+                        store: StoreOp::Store,
+                    },
+                })],
+                depth_stencil_attachment: None,
+                timestamp_writes: None,
+                occlusion_query_set: None,
+            });
+            rpass.set_pipeline(&self.bloom_pipeline);
+            rpass.set_bind_group(0, &bg_v, &[]);
+            rpass.draw(0..3, 0..1);
         }
         if let Some(target_view) = target {
             let bg = self.post_bind_group();

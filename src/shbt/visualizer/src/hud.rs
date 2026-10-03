@@ -292,7 +292,8 @@ pub struct LensingUniforms {
     /// x = unwrap_transition (0 = comoving bulk, 1 = boundary CFT torus).
     pub post1: [f32; 4],
     /// shbt8 thin-screen metrology extras: x = Theta_FoV (radians),
-    /// y = zeta_disp boundary dispersion coefficient, z/w reserved.
+    /// y = zeta_disp boundary dispersion coefficient, z = bloom lift gain
+    /// (Enhancement 12), w = exponential depth-fog density (Enhancement 13).
     pub post2: [f32; 4],
 }
 
@@ -346,7 +347,7 @@ impl VisualizerEngine {
             _pad1: [0.0; 2],
             post0: [1.0, 1.0, 0.0, 1.6],
             post1: [0.0; 4],
-            post2: [0.7853982, 0.032, 0.0, 0.0], // Theta_FoV, zeta_disp
+            post2: [0.7853982, 0.032, 0.08, 0.6], // Theta_FoV, zeta_disp, bloom, fog
         };
         uniforms.view_proj[0] = 1.0;
         uniforms.view_proj[5] = 1.0;
