@@ -36,3 +36,4 @@ shbt_tensor_cls.csv
 sim_results.tex
 .xwin-cache/
 visualizer/recordings/raw_videos/
+tests/browser/node_modules/

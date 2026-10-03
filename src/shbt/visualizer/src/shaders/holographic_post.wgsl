@@ -1,15 +1,23 @@
-// Full-screen holographic composite pass (shbt5 gravitational optics spec).
+// Full-screen holographic composite pass (shbt6 gravitational optics spec).
 //
 // Dual-scale gravitational lensing:
 //   1. Macro-deflection from the Channel B convergence field via central
 //      differences:  alpha_macro(u) = lambda_lens * (grad kappa + Gamma * grad kappa)
-//   2. Micro-deflection from analytical softened point-mass seed defects:
-//      alpha_seed(u) = sum_s theta_E,s^2 (u - u_s) / (|u - u_s|^2 + eps_core^2)
-// A 3-tap chromatic dispersion splits the deflected sample into R/G/B
-// coordinates scaled by delta_disp, producing spectral caustic fringes
-// along the critical curves. A depth-aware bilateral blur over kappa
-// produces the volumetric dark-matter halo glow, and sharp caustic rings
-// accent the dominant Einstein radii.
+//   2. Micro-deflection from emergent topological seed defects; the
+//      Einstein radius is evaluated dynamically from each condensed mass:
+//        theta_E,k = sqrt(4 G M_seed,k / c^2 * D_ds / (D_d D_s))
+//      (see evaluate_holographic_lensing; the host projects the emergent
+//      centroids and fills theta_e per seed each frame).
+//
+// shbt6 visual enhancements composited here:
+//   - Conformal Boundary Unwrap Overlay (Enhancement 1): lower-right inset
+//     sampling BoundaryTex2D (R: rho_B loading density, G: rho_E
+//     entanglement entropy density) over the CFT torus [0, 2pi)^2.
+//   - Wave-Optics Caustic Fringing (Enhancement 10): Airy-regularized
+//     chromatic dispersion across critical curves det A = 0, red (700 nm)
+//     deflected further than blue (440 nm).
+//   - Emergent Seed Glitch (Enhancement 11): localized UV quantization and
+//     register-overflow tearing ahead of each condensation event.
 //
 // Channel A (visible_gauge_glow):   RGB spectral radiance, A = normalized depth.
 // Channel B (passive_metric_distortion): RG = shear (gamma_1, gamma_2),
@@ -41,11 +49,27 @@ struct SeedDefect {
     core_radius: f32,             // softening core epsilon_core
 };
 
+// Emergent condensation glitch record (Enhancement 11).
+struct CondensationSeed {
+    screen_pos: vec2<f32>,
+    saturation: f32,              // N_local / N_limit saturation ratio
+    lifetime: f32,
+    _pad: f32,
+};
+
+struct GlitchUniforms {
+    count: u32,
+    _pad: vec4<f32>,
+};
+
 @group(0) @binding(0) var channel_a_tex: texture_2d<f32>;
 @group(0) @binding(1) var channel_b_tex: texture_2d<f32>;
 @group(0) @binding(2) var tex_sampler: sampler;
 @group(0) @binding(3) var<uniform> params: LensingUniforms;
 @group(0) @binding(4) var<storage, read> seeds: array<SeedDefect>;
+@group(0) @binding(5) var boundary_register_tex: texture_2d<f32>;
+@group(0) @binding(6) var<storage, read> condensing_seeds: array<CondensationSeed>;
+@group(0) @binding(7) var<uniform> glitch: GlitchUniforms;
 
 // Conformal boundary unwrapping: roll the 3D comoving bulk onto the
 // 2D CFT torus [0, 2pi)^2 as unwrap_transition goes 0 -> 1.
@@ -55,6 +79,102 @@ fn unwrap_torus_projection(uv: vec2<f32>) -> vec2<f32> {
     let theta2 = uv.y * pi2;
     let torus = vec2<f32>((cos(theta1) + 1.0) * 0.5, (sin(theta2) + 1.0) * 0.5);
     return mix(uv, torus, params.post1.x);
+}
+
+// Enhancement 1: toroidal HUD inset unwrap of the 2D boundary register.
+fn unwrap_torus_inset(screen_uv: vec2<f32>, inset_pos: vec2<f32>, inset_size: vec2<f32>) -> vec2<f32> {
+    let local_uv = (screen_uv - inset_pos) / inset_size;
+    let theta_1 = fract(local_uv.x) * 6.28318530718;
+    let theta_2 = fract(local_uv.y) * 6.28318530718;
+    return vec2<f32>(theta_1 / 6.28318530718, theta_2 / 6.28318530718);
+}
+
+fn render_boundary_overlay(screen_uv: vec2<f32>, in_color: vec4<f32>) -> vec4<f32> {
+    let inset_pos = vec2<f32>(0.74, 0.74);
+    let inset_size = vec2<f32>(0.24, 0.24);
+
+    if (screen_uv.x >= inset_pos.x && screen_uv.x <= (inset_pos.x + inset_size.x) &&
+        screen_uv.y >= inset_pos.y && screen_uv.y <= (inset_pos.y + inset_size.y)) {
+
+        let torus_uv = unwrap_torus_inset(screen_uv, inset_pos, inset_size);
+        let cft_sample = textureSampleLevel(boundary_register_tex, tex_sampler, torus_uv, 0.0);
+        let rho_b = cft_sample.r;
+        let rho_e = cft_sample.g;
+
+        let entanglement_cyan = vec3<f32>(0.02, 0.45, 0.88);
+        let saturation_magenta = vec3<f32>(0.98, 0.12, 0.45);
+        let cft_color = mix(entanglement_cyan * rho_e, saturation_magenta * rho_b, clamp(rho_b - 0.5, 0.0, 1.0));
+
+        let grid_lines = step(0.97, fract(torus_uv.x * 16.0)) + step(0.97, fract(torus_uv.y * 16.0));
+        let composed = cft_color + vec3<f32>(0.2) * grid_lines;
+
+        return mix(in_color, vec4<f32>(composed, 0.95), 0.85);
+    }
+    return in_color;
+}
+
+// Enhancement 10: lensing Jacobian det A = (1 - kappa)^2 - |gamma|^2 over
+// the Channel-B shear/convergence G-buffer.
+fn compute_lens_jacobian(uv: vec2<f32>) -> f32 {
+    let s = textureSampleLevel(channel_b_tex, tex_sampler, uv, 0.0);
+    let g_sq = dot(s.xy, s.xy);
+    let kappa = s.z;
+    return (1.0 - kappa) * (1.0 - kappa) - g_sq;
+}
+
+// Airy diffraction fringing: split R/G/B samples along grad(det A) with
+// chromatic scaling (red x1.30, green x1.00, blue x0.70).
+fn evaluate_caustic_fringing(uv: vec2<f32>, texel_delta: vec2<f32>, base: vec3<f32>) -> vec3<f32> {
+    let j_center = compute_lens_jacobian(uv);
+    let j_dx = compute_lens_jacobian(uv + vec2<f32>(texel_delta.x, 0.0));
+    let j_dy = compute_lens_jacobian(uv + vec2<f32>(0.0, texel_delta.y));
+    let grad_j = vec2<f32>(j_dx - j_center, j_dy - j_center);
+
+    let caustic_weight = 1.0 - smoothstep(0.0, 0.065, abs(j_center));
+    if (caustic_weight <= 0.001) {
+        return base;
+    }
+
+    let dir = normalize(grad_j + vec2<f32>(1e-6));
+    let fringe = 0.015 * caustic_weight;
+
+    let col_r = textureSampleLevel(channel_a_tex, tex_sampler, uv + dir * (fringe * 1.30), 0.0).r;
+    let col_g = textureSampleLevel(channel_a_tex, tex_sampler, uv + dir * (fringe * 1.00), 0.0).g;
+    let col_b = textureSampleLevel(channel_a_tex, tex_sampler, uv + dir * (fringe * 0.70), 0.0).b;
+
+    return vec3<f32>(col_r, col_g, col_b);
+}
+
+fn hash_noise(p: vec2<f32>) -> f32 {
+    let p3 = fract(vec3<f32>(p.xyx) * 0.1031);
+    let dot_val = dot(p3, p3.yzx + 33.33);
+    return fract((p3.x + p3.y) * dot_val);
+}
+
+// Enhancement 11: localized UV quantization / tearing around condensing
+// register cells (pre-nucleation overflow glitch).
+fn apply_condensation_glitch(uv: vec2<f32>, base_color: vec3<f32>, time: f32) -> vec3<f32> {
+    var out_col = base_color;
+    let count = min(glitch.count, 64u);
+
+    for (var i = 0u; i < count; i = i + 1u) {
+        let seed = condensing_seeds[i];
+        let d = distance(uv, seed.screen_pos);
+        let glitch_radius = 0.075 * clamp(seed.saturation, 0.0, 1.2);
+
+        if (d < glitch_radius) {
+            let falloff = 1.0 - (d / glitch_radius);
+            let coarse_uv = floor(uv * 48.0) / 48.0;
+            let noise = hash_noise(floor(uv * 128.0) + floor(time * 60.0));
+
+            var glitch_sample = textureSampleLevel(channel_a_tex, tex_sampler, coarse_uv, 0.0).rgb;
+            if (noise > 0.6) {
+                glitch_sample = mix(glitch_sample, vec3<f32>(0.2, 0.9, 1.0) * noise, 0.85);
+            }
+            out_col = mix(out_col, glitch_sample, falloff * clamp(seed.saturation, 0.1, 0.95));
+        }
+    }
+    return out_col;
 }
 
 struct VertexOutput {
@@ -137,7 +257,8 @@ fn fs_post(in: VertexOutput) -> @location(0) vec4<f32> {
 
     var alpha_macro = (grad_kappa + sheared_grad) * (params.lensing_strength * 0.0005);
 
-    // Analytical softened point-mass micro-deflection over active seeds.
+    // Analytical softened point-mass micro-deflection over emergent seeds:
+    // theta_E,k expands dynamically as each defect accretes boundary bits.
     var alpha_seeds = vec2<f32>(0.0, 0.0);
     let num_seeds = min(params.seed_count, 64u);
     for (var i = 0u; i < num_seeds; i = i + 1u) {
@@ -158,10 +279,22 @@ fn fs_post(in: VertexOutput) -> @location(0) vec4<f32> {
     let uv_g = clamp(warped_uv - alpha_total, vec2<f32>(0.0), vec2<f32>(1.0));
     let uv_b = clamp(warped_uv - alpha_total * (1.0 + disp), vec2<f32>(0.0), vec2<f32>(1.0));
 
-    let rad_r = textureSampleLevel(channel_a_tex, tex_sampler, uv_r, 0.0).r;
-    let rad_g = textureSampleLevel(channel_a_tex, tex_sampler, uv_g, 0.0).g;
-    let rad_b = textureSampleLevel(channel_a_tex, tex_sampler, uv_b, 0.0).b;
-    let lensed_color = vec3<f32>(rad_r, rad_g, rad_b) * params.post0.x;
+    var rad_r = textureSampleLevel(channel_a_tex, tex_sampler, uv_r, 0.0).r;
+    var rad_g = textureSampleLevel(channel_a_tex, tex_sampler, uv_g, 0.0).g;
+    var rad_b = textureSampleLevel(channel_a_tex, tex_sampler, uv_b, 0.0).b;
+
+    // Wave-optics caustic fringing regularizes det A = 0 into Airy
+    // patterns (Enhancement 10) applied on the deflected sample.
+    let fringe_col = evaluate_caustic_fringing(warped_uv, texel, vec3<f32>(rad_r, rad_g, rad_b));
+    rad_r = mix(rad_r, fringe_col.r, params.dispersion_coeff);
+    rad_g = mix(rad_g, fringe_col.g, params.dispersion_coeff);
+    rad_b = mix(rad_b, fringe_col.b, params.dispersion_coeff);
+
+    var lensed_color = vec3<f32>(rad_r, rad_g, rad_b) * params.post0.x;
+
+    // Emergent condensation glitch (Enhancement 11): pre-nucleation
+    // register overflow tears the UV field around saturating cells.
+    lensed_color = apply_condensation_glitch(warped_uv, lensed_color, params.time);
 
     // Depth-aware bilateral convergence -> volumetric dark-matter halo glow.
     var dark_glow_emission = vec3<f32>(0.0);
@@ -207,5 +340,7 @@ fn fs_post(in: VertexOutput) -> @location(0) vec4<f32> {
     let final_composite = (lensed_color + dark_glow_emission + caustic_rgb + causal_rgb + horizon_rgb + grid_rgb)
         * params.post0.w;
 
-    return vec4<f32>(final_composite, 1.0);
+    // Conformal boundary unwrap HUD inset (Enhancement 1).
+    let composed = render_boundary_overlay(uv, vec4<f32>(final_composite, 1.0));
+    return composed;
 }

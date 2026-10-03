@@ -2,7 +2,17 @@
 //!
 //! Consumes 128-byte SHBT-MMIO telemetry frames produced by the Tier-1
 //! `shbt_simulator` core and drives the Fast-PM compute pipeline, the
-//! dual-channel render pass, and the holographic composite pass.
+//! emergent mass-congestion condensation pipeline (`seed_emergence.wgsl`,
+//! shbt6 Sections 1-3), the dual-channel render pass, and the holographic
+//! composite pass.
+//!
+//! Emergent seeds (no hardcoded positions): every frame the tri-pass
+//! kernel accumulates a fixed-point Cloud-In-Cell mass field
+//! (`cs_accumulate_cic`), runs 26-neighborhood Non-Maximum Suppression with
+//! 3x3x3 basin integration (`cs_detect_condensation`), and resolves
+//! persistent identities via minimum-image tracking (`cs_temporal_tracking`)
+//! into the `active_seeds` buffer that `nbody_pm.wgsl`,
+//! `dual_channel_render.wgsl`, and `holographic_post.wgsl` all read.
 
 mod engine;
 mod hud;
@@ -18,6 +28,12 @@ pub use particle::Particle;
 pub use telemetry::encode_mmio_frame;
 
 use bytemuck::{Pod, Zeroable};
+use std::cell::RefCell;
+use std::rc::Rc;
+use std::sync::{
+    atomic::{AtomicBool, AtomicU32, Ordering},
+    Arc,
+};
 use wgpu::util::{BufferInitDescriptor, DeviceExt};
 use wgpu::*;
 
@@ -27,6 +43,36 @@ use wasm_bindgen::prelude::*;
 const GRID_DIM: u32 = 32;
 const BOX_SIZE: f32 = 200.0; // comoving Mpc/h
 const TARGET_FORMAT: TextureFormat = TextureFormat::Rgba16Float;
+const MAX_SEEDS: usize = 64;
+const CAUSAL_NODE_COUNT: usize = 8;
+const TRACER_COUNT: u32 = 10_000;
+const TETHER_CAP: u32 = 65_536;
+const BOUNDARY_RES: u32 = 256;
+
+// Canonical WZW triple (k_l, k_q, K) = (26, 8, 312) and the geometric
+// saturation constants from shbt6 Section 2.
+const WZW_K_L: f64 = 26.0;
+#[allow(dead_code)]
+const WZW_K_Q: f64 = 8.0;
+const WZW_K: f64 = 312.0;
+const GAMMA_GEOM: f64 = std::f64::consts::PI * std::f64::consts::PI / 4.0; // ~2.467401
+/// N_sat expressed in scaled bits (1 scaled bit = 1e30 physical bits) so
+/// all GPU register arithmetic stays inside f32 dynamic range.
+const N_SAT_SCALED: f64 = 3.3119977e122 / 1.0e30; // 3.3119977e92
+/// alpha_seed scaled: 1.3258316e-51 M_sun/bit * 1e30 = M_sun per scaled bit.
+const ALPHA_SEED_SCALED: f64 = 1.3258316e-21;
+/// Delta N condensation threshold: 1e57 bits = 1e27 scaled bits.
+const DELTA_N_THRESH_SCALED: f64 = 1.0e27;
+/// Normalized condensation threshold (fraction of the N_limit ceiling the
+/// 3x3x3 basin must exceed before a candidate seed is registered).
+const DELTA_N_THRESH_NORM: f32 = 0.02;
+/// Seed mass per unit of normalized overflow sum_{Omega} (N_local/N_limit - 1),
+/// chosen so a condensation basin integrates to ~1e8-1e9 M_sun per the
+/// canonical alpha_seed coupling in scaled-bit units.
+const SEED_MASS_NORM: f32 = 2.0e7;
+const LANDAUER_RATE: f64 = 906.0; // GW per M_sun of collapsed register mass
+const FIXED_POINT_SCALE: f64 = 1024.0;
+const TRACK_RADIUS_MPC: f32 = 12.0;
 
 #[repr(C)]
 #[derive(Copy, Clone, Pod, Zeroable)]
@@ -41,6 +87,28 @@ struct CosmoParams {
     grid_dim: u32,
     num_particles: u32,
     _pad: [u32; 3],
+}
+
+/// Mirrors `SimulationParameters` in seed_emergence.wgsl (16 x 4B = 64B).
+#[repr(C)]
+#[derive(Copy, Clone, Pod, Zeroable)]
+struct EmergenceParams {
+    grid_dim: u32,
+    particle_count: u32,
+    box_size: f32,
+    delta_t: f32,
+    redshift: f32,
+    f_load: f32,
+    gamma_geom: f32,
+    delta_n_thresh: f32,
+    alpha_mass: f32,
+    landauer_rate: f32,
+    track_radius: f32,
+    fixed_point_scale: f32,
+    k_bit: f32,
+    growth_amp: f32,
+    mean_density: f32,
+    _pad: f32,
 }
 
 #[repr(C)]
@@ -77,17 +145,102 @@ struct CausalRenderUniforms {
     params: [f32; 4],
 }
 
-/// Ghost-seed attractor wells (mirrors `make_force_grid` / the WGSL `wells`
-/// table) in normalized box units, with Einstein radii (screen units) and
-/// softening cores for the micro-lensing seed table.
-const SEED_WELLS: [([f32; 3], f32, f32); 4] = [
-    ([0.25, 0.25, 0.25], 0.045, 0.008),
-    ([0.75, 0.75, 0.25], 0.022, 0.006),
-    ([0.25, 0.75, 0.75], 0.030, 0.007),
-    ([0.75, 0.25, 0.75], 0.018, 0.005),
-];
-const MAX_SEEDS: usize = 64;
-const CAUSAL_NODE_COUNT: usize = 8;
+/// Mirrors the `CausalObserver` records of causal_cone_render.wgsl and
+/// causal_sphere_render.wgsl: 48 bytes, 16-byte aligned.
+#[repr(C, align(16))]
+#[derive(Copy, Clone, Default, Pod, Zeroable)]
+struct CausalObserver {
+    position: [f32; 3],
+    radius: f32,
+    entropy_budget: f32,
+    active_flag: u32,
+    cone_direction: [f32; 3],
+    cone_angle: f32,
+    pad: [f32; 2],
+}
+
+/// Mirrors `CrystallizationEvent` in dual_channel_render.wgsl (32B stride).
+#[repr(C, align(16))]
+#[derive(Copy, Clone, Default, Pod, Zeroable)]
+struct CrystallizationEventGpu {
+    origin: [f32; 3],
+    start_time: f32,
+    intensity: f32,
+    pad: [f32; 3],
+}
+
+/// Mirrors `CondensationSeed` in holographic_post.wgsl (32B stride):
+/// screen-space glitch emitters fed from the emergent seed table.
+#[repr(C, align(16))]
+#[derive(Copy, Clone, Default, Pod, Zeroable)]
+struct CondensingSeedGpu {
+    screen_pos: [f32; 2],
+    saturation: f32,
+    lifetime: f32,
+    pad: [f32; 4],
+}
+
+#[repr(C)]
+#[derive(Copy, Clone, Pod, Zeroable)]
+struct GlitchUniforms {
+    count: u32,
+    _pad: [u32; 7],
+}
+
+/// Mirrors `Tracer` in entropy_tracer.wgsl (32B stride).
+#[repr(C, align(16))]
+#[derive(Copy, Clone, Default, Pod, Zeroable)]
+struct TracerGpu {
+    pos: [f32; 3],
+    lifetime: f32,
+    vel: [f32; 3],
+    entropy_val: f32,
+    pad: [f32; 4],
+}
+
+#[repr(C)]
+#[derive(Copy, Clone, Pod, Zeroable)]
+struct TracerParams {
+    dt: f32,
+    max_lifetime: f32,
+    grid_dim: u32,
+    step_scale: f32,
+}
+
+#[repr(C)]
+#[derive(Copy, Clone, Pod, Zeroable)]
+struct TracerCamera {
+    view_proj: [[f32; 4]; 4],
+    params: [f32; 4],
+}
+
+/// One decoded emergent seed record from the GPU `active_seeds` buffer
+/// (32 bytes: position vec4 + dynamics vec4).
+#[derive(Copy, Clone, Default)]
+struct EmergentSeed {
+    pos: [f32; 3],
+    mass_msun: f32,
+    #[allow(dead_code)]
+    m_dot: f32,
+    p_debt_gw: f32,
+    seed_id: f32,
+}
+
+/// Asynchronous GPU readback slot for the emergent-seed telemetry channel
+/// (tracking state + active seed table). On native targets the map is
+/// completed synchronously each frame; on wasm32 the completion callback
+/// drops the bytes into `slot` for the next frame.
+struct SeedReadback {
+    staging: Buffer,
+    slot: Rc<RefCell<Option<Vec<u8>>>>,
+    /// Set by the map_async completion callback; cleared on unmap.
+    mapped: Arc<AtomicBool>,
+    map_calls: Arc<AtomicU32>,
+    map_errors: Arc<AtomicU32>,
+    map_err_text: Arc<std::sync::Mutex<String>>,
+    in_flight: bool,
+    map_started: bool,
+}
 
 /// WebGPU engine driving the SHBT cosmological visualizer.
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen)]
@@ -98,22 +251,78 @@ pub struct ShbtWebGpuEngine {
     surface: Option<Surface<'static>>,
     #[allow(dead_code)]
     surface_config: Option<SurfaceConfiguration>,
+
+    // Compute + render pipelines.
+    emergence_cic_pipeline: ComputePipeline,
+    emergence_detect_pipeline: ComputePipeline,
+    emergence_track_pipeline: ComputePipeline,
     compute_pipeline: ComputePipeline,
     render_pipeline: RenderPipeline,
     post_pipeline: RenderPipeline,
     causal_pipeline: RenderPipeline,
+    tether_pipeline: RenderPipeline,
+    cone_pipeline: RenderPipeline,
+    sphere_pipeline: RenderPipeline,
+    tracer_compute_pipeline: ComputePipeline,
+    tracer_render_pipeline: RenderPipeline,
+
+    // Bind group layouts.
+    emergence_g0_bgl: BindGroupLayout,
+    emergence_g1_bgl: BindGroupLayout,
     compute_bgl: BindGroupLayout,
+    compute_g1_bgl: BindGroupLayout,
     render_bgl: BindGroupLayout,
+    render_g1_bgl: BindGroupLayout,
     post_bgl: BindGroupLayout,
     causal_bgl: BindGroupLayout,
+    tether_bgl: BindGroupLayout,
+    observer_bgl: BindGroupLayout,
+    tracer_compute_bgl: BindGroupLayout,
+    tracer_render_bgl: BindGroupLayout,
+    tracer_cam_bgl: BindGroupLayout,
+    #[allow(dead_code)]
+    empty_bgl: BindGroupLayout,
+    empty_bg: BindGroup,
+
+    // Zero-allocation ping-pong particle buffers (ParticleBuffer_Ping /
+    // ParticleBuffer_Pong in the shbt6 spec).
     particle_buffers: [Buffer; 2],
+
+    // Emergent condensation buffers.
+    emergence_params_buffer: Buffer,
+    grid_density_buffer: Buffer,
+    tracking_state_buffer: Buffer,
+    seed_candidates_buffer: Buffer,
+    active_seeds_buffer: Buffer,
+    prev_seeds_buffer: Buffer,
+
+    // Stinespring tether buffers.
+    tether_vertex_buffer: Buffer,
+    tether_indirect_buffer: Buffer,
+
+    // History crystallization / glitch buffers.
+    events_buffer: Buffer,
+    event_count_buffer: Buffer,
+    condensing_buffer: Buffer,
+    glitch_buffer: Buffer,
+
+    // Causal observer buffers (cones + entropy spheres + fresnel shells).
+    observer_buffer: Buffer,
+    causal_buffer: Buffer,
+    causal_uniform_buffer: Buffer,
+    causal_observer_uniform_buffer: Buffer,
+
+    // Tracer buffers.
+    tracer_buffer: Buffer,
+    tracer_params_buffer: Buffer,
+    tracer_camera_buffer: Buffer,
+
     cosmo_buffer: Buffer,
     camera_buffer: Buffer,
     post_buffer: Buffer,
     seed_buffer: Buffer,
-    causal_buffer: Buffer,
-    causal_uniform_buffer: Buffer,
     telemetry_buffer: Buffer,
+
     #[cfg(target_arch = "wasm32")]
     capture_target: Option<Texture>,
     #[cfg(target_arch = "wasm32")]
@@ -122,17 +331,36 @@ pub struct ShbtWebGpuEngine {
     capture_post_pipeline: Option<RenderPipeline>,
     #[cfg(target_arch = "wasm32")]
     capture_post_bgl: Option<BindGroupLayout>,
+
     density_tex: Texture,
     force_tex: Texture,
+    entropy_tex: Texture,
+    boundary_tex: Texture,
     visible_tex: Texture,
     distortion_tex: Texture,
     sampler: Sampler,
+    readback: SeedReadback,
+
     num_particles: u32,
+    mean_raw_total: f64,
     timeline: TimelineController,
     frame_index: u64,
     redshift: f64,
     delta_n_bits: f64,
     seed_count: u32,
+    debug_grid_stats: String,
+    drain_ticks: u32,
+    /// wasm-only: cumulative mapAsync rejections; above a threshold the
+    /// seed telemetry channel falls back to a CPU replica of the
+    /// condensation kernel (headless-Chromium mapAsync limitation).
+    cpu_fallback_errors: u32,
+    cpu_fallback: bool,
+    cpu_particles: Option<Vec<particle::Particle>>,
+    /// (seed_id, comoving position, banked mass) for CPU tracking.
+    cpu_prev_seeds: Vec<(f32, [f32; 3], f32)>,
+    emergent_seeds: Vec<EmergentSeed>,
+    known_seed_ids: Vec<f32>,
+    events: Vec<CrystallizationEventGpu>,
     channel_a: f32,
     channel_b: f32,
     unwrap_transition: f32,
@@ -149,116 +377,69 @@ pub struct ShbtWebGpuEngine {
 
 // Shared pipeline construction (target-independent).
 impl ShbtWebGpuEngine {
-    fn build_pipelines(
-        device: &Device,
-        surface_format: TextureFormat,
-    ) -> (
-        ComputePipeline,
-        RenderPipeline,
-        RenderPipeline,
-        BindGroupLayout,
-        BindGroupLayout,
-        BindGroupLayout,
-    ) {
-        let compute_bgl = device.create_bind_group_layout(&BindGroupLayoutDescriptor {
-            label: Some("nbody_pm bind group layout"),
-            entries: &[
-                BindGroupLayoutEntry {
-                    binding: 0,
-                    visibility: ShaderStages::COMPUTE,
-                    ty: BindingType::Buffer {
-                        ty: BufferBindingType::Uniform,
-                        has_dynamic_offset: false,
-                        min_binding_size: None,
-                    },
-                    count: None,
-                },
-                BindGroupLayoutEntry {
-                    binding: 1,
-                    visibility: ShaderStages::COMPUTE,
-                    ty: BindingType::Buffer {
-                        ty: BufferBindingType::Storage { read_only: false },
-                        has_dynamic_offset: false,
-                        min_binding_size: None,
-                    },
-                    count: None,
-                },
-                BindGroupLayoutEntry {
-                    binding: 2,
-                    visibility: ShaderStages::COMPUTE,
-                    ty: BindingType::StorageTexture {
-                        access: StorageTextureAccess::WriteOnly,
-                        format: TextureFormat::R32Float,
-                        view_dimension: TextureViewDimension::D3,
-                    },
-                    count: None,
-                },
-                BindGroupLayoutEntry {
-                    binding: 3,
-                    visibility: ShaderStages::COMPUTE,
-                    ty: BindingType::Texture {
-                        sample_type: TextureSampleType::Float { filterable: true },
-                        view_dimension: TextureViewDimension::D3,
-                        multisampled: false,
-                    },
-                    count: None,
-                },
-                BindGroupLayoutEntry {
-                    binding: 4,
-                    visibility: ShaderStages::COMPUTE,
-                    ty: BindingType::Sampler(SamplerBindingType::Filtering),
-                    count: None,
-                },
-            ],
-        });
-        let compute_shader = device.create_shader_module(ShaderModuleDescriptor {
-            label: Some("nbody_pm.wgsl"),
-            source: ShaderSource::Wgsl(include_str!("shaders/nbody_pm.wgsl").into()),
-        });
-        let compute_pipeline_layout = device.create_pipeline_layout(&PipelineLayoutDescriptor {
-            label: Some("compute pipeline layout"),
-            bind_group_layouts: &[&compute_bgl],
-            push_constant_ranges: &[],
-        });
-        let compute_pipeline = device.create_compute_pipeline(&ComputePipelineDescriptor {
-            label: Some("nbody_pm compute pipeline"),
-            layout: Some(&compute_pipeline_layout),
-            module: &compute_shader,
-            entry_point: "cs_advance_particles",
-        });
+    fn uniform_entry(binding: u32, visibility: ShaderStages) -> BindGroupLayoutEntry {
+        BindGroupLayoutEntry {
+            binding,
+            visibility,
+            ty: BindingType::Buffer {
+                ty: BufferBindingType::Uniform,
+                has_dynamic_offset: false,
+                min_binding_size: None,
+            },
+            count: None,
+        }
+    }
 
-        let render_bgl = device.create_bind_group_layout(&BindGroupLayoutDescriptor {
-            label: Some("dual_channel bind group layout"),
-            entries: &[
-                BindGroupLayoutEntry {
-                    binding: 0,
-                    visibility: ShaderStages::VERTEX,
-                    ty: BindingType::Buffer {
-                        ty: BufferBindingType::Storage { read_only: true },
-                        has_dynamic_offset: false,
-                        min_binding_size: None,
-                    },
-                    count: None,
-                },
-                BindGroupLayoutEntry {
-                    binding: 1,
-                    visibility: ShaderStages::VERTEX_FRAGMENT,
-                    ty: BindingType::Buffer {
-                        ty: BufferBindingType::Uniform,
-                        has_dynamic_offset: false,
-                        min_binding_size: None,
-                    },
-                    count: None,
-                },
-            ],
-        });
-        let render_shader = device.create_shader_module(ShaderModuleDescriptor {
-            label: Some("dual_channel_render.wgsl"),
-            source: ShaderSource::Wgsl(
-                include_str!("shaders/dual_channel_render.wgsl").into(),
-            ),
-        });
-        let blend_add = Some(BlendState {
+    fn storage_entry(binding: u32, visibility: ShaderStages, read_only: bool) -> BindGroupLayoutEntry {
+        BindGroupLayoutEntry {
+            binding,
+            visibility,
+            ty: BindingType::Buffer {
+                ty: BufferBindingType::Storage { read_only },
+                has_dynamic_offset: false,
+                min_binding_size: None,
+            },
+            count: None,
+        }
+    }
+
+    fn tex3d_entry(binding: u32, visibility: ShaderStages) -> BindGroupLayoutEntry {
+        BindGroupLayoutEntry {
+            binding,
+            visibility,
+            ty: BindingType::Texture {
+                sample_type: TextureSampleType::Float { filterable: true },
+                view_dimension: TextureViewDimension::D3,
+                multisampled: false,
+            },
+            count: None,
+        }
+    }
+
+    fn tex2d_entry(binding: u32, visibility: ShaderStages) -> BindGroupLayoutEntry {
+        BindGroupLayoutEntry {
+            binding,
+            visibility,
+            ty: BindingType::Texture {
+                sample_type: TextureSampleType::Float { filterable: true },
+                view_dimension: TextureViewDimension::D2,
+                multisampled: false,
+            },
+            count: None,
+        }
+    }
+
+    fn sampler_entry(binding: u32, visibility: ShaderStages) -> BindGroupLayoutEntry {
+        BindGroupLayoutEntry {
+            binding,
+            visibility,
+            ty: BindingType::Sampler(SamplerBindingType::Filtering),
+            count: None,
+        }
+    }
+
+    fn additive_blend() -> Option<BlendState> {
+        Some(BlendState {
             color: BlendComponent {
                 src_factor: BlendFactor::One,
                 dst_factor: BlendFactor::One,
@@ -269,35 +450,260 @@ impl ShbtWebGpuEngine {
                 dst_factor: BlendFactor::One,
                 operation: BlendOperation::Add,
             },
+        })
+    }
+
+    fn dual_target_desc() -> [Option<ColorTargetState>; 2] {
+        [
+            Some(ColorTargetState {
+                format: TARGET_FORMAT,
+                blend: Self::additive_blend(),
+                write_mask: ColorWrites::ALL,
+            }),
+            Some(ColorTargetState {
+                format: TARGET_FORMAT,
+                blend: Self::additive_blend(),
+                write_mask: ColorWrites::ALL,
+            }),
+        ]
+    }
+
+    /// Bind group layouts for the emergent condensation tri-pass kernel.
+    fn build_emergence_layouts(device: &Device) -> (BindGroupLayout, BindGroupLayout) {
+        let g0 = device.create_bind_group_layout(&BindGroupLayoutDescriptor {
+            label: Some("emergence group0 layout"),
+            entries: &[
+                Self::uniform_entry(0, ShaderStages::COMPUTE),
+                Self::storage_entry(1, ShaderStages::COMPUTE, true),
+                Self::storage_entry(2, ShaderStages::COMPUTE, false),
+            ],
         });
-        let render_pipeline_layout = device.create_pipeline_layout(&PipelineLayoutDescriptor {
-            label: Some("render pipeline layout"),
-            bind_group_layouts: &[&render_bgl],
+        let g1 = device.create_bind_group_layout(&BindGroupLayoutDescriptor {
+            label: Some("emergence group1 layout"),
+            entries: &[
+                Self::storage_entry(0, ShaderStages::COMPUTE, false),
+                Self::storage_entry(1, ShaderStages::COMPUTE, false),
+                Self::storage_entry(2, ShaderStages::COMPUTE, true),
+                Self::storage_entry(3, ShaderStages::COMPUTE, false),
+            ],
+        });
+        (g0, g1)
+    }
+
+    fn build_emergence_pipelines(
+        device: &Device,
+        g0: &BindGroupLayout,
+        g1: &BindGroupLayout,
+    ) -> (ComputePipeline, ComputePipeline, ComputePipeline) {
+        let shader = device.create_shader_module(ShaderModuleDescriptor {
+            label: Some("seed_emergence.wgsl"),
+            source: ShaderSource::Wgsl(include_str!("shaders/seed_emergence.wgsl").into()),
+        });
+        let layout = device.create_pipeline_layout(&PipelineLayoutDescriptor {
+            label: Some("emergence pipeline layout"),
+            bind_group_layouts: &[g0, g1],
             push_constant_ranges: &[],
         });
-        let render_pipeline = device.create_render_pipeline(&RenderPipelineDescriptor {
-            label: Some("dual channel render pipeline"),
-            layout: Some(&render_pipeline_layout),
+        let mk = |label: &str, entry: &str| {
+            device.create_compute_pipeline(&ComputePipelineDescriptor {
+                label: Some(label),
+                layout: Some(&layout),
+                module: &shader,
+                entry_point: entry,
+            })
+        };
+        (
+            mk("cic accumulate", "cs_accumulate_cic"),
+            mk("condensation detect", "cs_detect_condensation"),
+            mk("temporal tracking", "cs_temporal_tracking"),
+        )
+    }
+
+    /// nbody_pm bind group layouts: group 0 (cosmo + particles + PM grid +
+    /// emergent seeds), group 1 (Stinespring tether emission buffers).
+    fn build_compute_layouts(device: &Device) -> (BindGroupLayout, BindGroupLayout) {
+        let g0 = device.create_bind_group_layout(&BindGroupLayoutDescriptor {
+            label: Some("nbody_pm group0 layout"),
+            entries: &[
+                Self::uniform_entry(0, ShaderStages::COMPUTE),
+                Self::storage_entry(1, ShaderStages::COMPUTE, false),
+                BindGroupLayoutEntry {
+                    binding: 2,
+                    visibility: ShaderStages::COMPUTE,
+                    ty: BindingType::StorageTexture {
+                        access: StorageTextureAccess::WriteOnly,
+                        format: TextureFormat::R32Float,
+                        view_dimension: TextureViewDimension::D3,
+                    },
+                    count: None,
+                },
+                Self::tex3d_entry(3, ShaderStages::COMPUTE),
+                Self::sampler_entry(4, ShaderStages::COMPUTE),
+                Self::storage_entry(5, ShaderStages::COMPUTE, true),
+                Self::storage_entry(6, ShaderStages::COMPUTE, true),
+            ],
+        });
+        let g1 = device.create_bind_group_layout(&BindGroupLayoutDescriptor {
+            label: Some("nbody_pm tether group1 layout"),
+            entries: &[
+                Self::storage_entry(0, ShaderStages::COMPUTE, false),
+                Self::storage_entry(1, ShaderStages::COMPUTE, false),
+            ],
+        });
+        (g0, g1)
+    }
+
+    /// dual_channel_render layouts: group 0 (particles + camera), group 1
+    /// (crystallization events + emergent seed table).
+    fn build_render_layouts(device: &Device) -> (BindGroupLayout, BindGroupLayout) {
+        let g0 = device.create_bind_group_layout(&BindGroupLayoutDescriptor {
+            label: Some("dual_channel group0 layout"),
+            entries: &[
+                Self::storage_entry(0, ShaderStages::VERTEX, true),
+                Self::uniform_entry(1, ShaderStages::VERTEX_FRAGMENT),
+            ],
+        });
+        let g1 = device.create_bind_group_layout(&BindGroupLayoutDescriptor {
+            label: Some("dual_channel group1 layout"),
+            entries: &[
+                Self::storage_entry(0, ShaderStages::FRAGMENT, true),
+                Self::uniform_entry(1, ShaderStages::FRAGMENT),
+                Self::storage_entry(2, ShaderStages::VERTEX, true),
+                Self::storage_entry(3, ShaderStages::VERTEX, true),
+            ],
+        });
+        (g0, g1)
+    }
+
+    fn build_post_layout(device: &Device) -> BindGroupLayout {
+        device.create_bind_group_layout(&BindGroupLayoutDescriptor {
+            label: Some("holographic_post bind group layout"),
+            entries: &[
+                Self::tex2d_entry(0, ShaderStages::FRAGMENT),
+                Self::tex2d_entry(1, ShaderStages::FRAGMENT),
+                Self::sampler_entry(2, ShaderStages::FRAGMENT),
+                Self::uniform_entry(3, ShaderStages::FRAGMENT),
+                Self::storage_entry(4, ShaderStages::FRAGMENT, true),
+                Self::tex2d_entry(5, ShaderStages::FRAGMENT),
+                Self::storage_entry(6, ShaderStages::FRAGMENT, true),
+                Self::uniform_entry(7, ShaderStages::FRAGMENT),
+            ],
+        })
+    }
+
+    fn build_aux_pipelines(
+        device: &Device,
+    ) -> (
+        BindGroupLayout,
+        RenderPipeline,
+        BindGroupLayout,
+        RenderPipeline,
+        RenderPipeline,
+        BindGroupLayout,
+        ComputePipeline,
+        BindGroupLayout,
+        BindGroupLayout,
+        RenderPipeline,
+    ) {
+        // Stinespring tether line list.
+        let tether_bgl = device.create_bind_group_layout(&BindGroupLayoutDescriptor {
+            label: Some("tether render layout"),
+            entries: &[
+                Self::uniform_entry(0, ShaderStages::VERTEX),
+                Self::storage_entry(1, ShaderStages::VERTEX, true),
+            ],
+        });
+        let tether_shader = device.create_shader_module(ShaderModuleDescriptor {
+            label: Some("tether_render.wgsl"),
+            source: ShaderSource::Wgsl(include_str!("shaders/tether_render.wgsl").into()),
+        });
+        let tether_layout = device.create_pipeline_layout(&PipelineLayoutDescriptor {
+            label: Some("tether pipeline layout"),
+            bind_group_layouts: &[&tether_bgl],
+            push_constant_ranges: &[],
+        });
+        let tether_pipeline = device.create_render_pipeline(&RenderPipelineDescriptor {
+            label: Some("stinespring tether pipeline"),
+            layout: Some(&tether_layout),
             vertex: VertexState {
-                module: &render_shader,
-                entry_point: "vs_particle_billboard",
-                    buffers: &[],
+                module: &tether_shader,
+                entry_point: "vs_tether",
+                buffers: &[],
             },
             fragment: Some(FragmentState {
-                module: &render_shader,
-                entry_point: "fs_render_dual_channel",
-                    targets: &[
-                    Some(ColorTargetState {
-                        format: TARGET_FORMAT,
-                        blend: blend_add,
-                        write_mask: ColorWrites::ALL,
-                    }),
-                    Some(ColorTargetState {
-                        format: TARGET_FORMAT,
-                        blend: blend_add,
-                        write_mask: ColorWrites::ALL,
-                    }),
-                ],
+                module: &tether_shader,
+                entry_point: "fs_tether",
+                targets: &Self::dual_target_desc(),
+            }),
+            primitive: PrimitiveState {
+                topology: PrimitiveTopology::LineList,
+                ..Default::default()
+            },
+            depth_stencil: None,
+            multisample: MultisampleState::default(),
+            multiview: None,
+        });
+
+        // Causal observer cone + entropy sphere passes share one layout.
+        let observer_bgl = device.create_bind_group_layout(&BindGroupLayoutDescriptor {
+            label: Some("causal observer layout"),
+            entries: &[
+                Self::storage_entry(0, ShaderStages::VERTEX, true),
+                Self::uniform_entry(1, ShaderStages::VERTEX_FRAGMENT),
+            ],
+        });
+        let observer_layout = device.create_pipeline_layout(&PipelineLayoutDescriptor {
+            label: Some("observer pipeline layout"),
+            bind_group_layouts: &[&observer_bgl],
+            push_constant_ranges: &[],
+        });
+
+        let cone_shader = device.create_shader_module(ShaderModuleDescriptor {
+            label: Some("causal_cone_render.wgsl"),
+            source: ShaderSource::Wgsl(
+                include_str!("shaders/causal_cone_render.wgsl").into(),
+            ),
+        });
+        let cone_pipeline = device.create_render_pipeline(&RenderPipelineDescriptor {
+            label: Some("past light cone pipeline"),
+            layout: Some(&observer_layout),
+            vertex: VertexState {
+                module: &cone_shader,
+                entry_point: "vs_cone_wireframe",
+                buffers: &[],
+            },
+            fragment: Some(FragmentState {
+                module: &cone_shader,
+                entry_point: "fs_cone_wireframe",
+                targets: &Self::dual_target_desc(),
+            }),
+            primitive: PrimitiveState {
+                topology: PrimitiveTopology::LineList,
+                ..Default::default()
+            },
+            depth_stencil: None,
+            multisample: MultisampleState::default(),
+            multiview: None,
+        });
+
+        let sphere_shader = device.create_shader_module(ShaderModuleDescriptor {
+            label: Some("causal_sphere_render.wgsl"),
+            source: ShaderSource::Wgsl(
+                include_str!("shaders/causal_sphere_render.wgsl").into(),
+            ),
+        });
+        let sphere_pipeline = device.create_render_pipeline(&RenderPipelineDescriptor {
+            label: Some("entropy budget sphere pipeline"),
+            layout: Some(&observer_layout),
+            vertex: VertexState {
+                module: &sphere_shader,
+                entry_point: "vs_entropy_sphere",
+                buffers: &[],
+            },
+            fragment: Some(FragmentState {
+                module: &sphere_shader,
+                entry_point: "fs_entropy_sphere",
+                targets: &Self::dual_target_desc(),
             }),
             primitive: PrimitiveState::default(),
             depth_stencil: None,
@@ -305,82 +711,60 @@ impl ShbtWebGpuEngine {
             multiview: None,
         });
 
-        let post_bgl = device.create_bind_group_layout(&BindGroupLayoutDescriptor {
-            label: Some("holographic_post bind group layout"),
+        // Entropy tracer compute + render pipelines.
+        let tracer_compute_bgl = device.create_bind_group_layout(&BindGroupLayoutDescriptor {
+            label: Some("tracer compute layout"),
             entries: &[
-                BindGroupLayoutEntry {
-                    binding: 0,
-                    visibility: ShaderStages::FRAGMENT,
-                    ty: BindingType::Texture {
-                        sample_type: TextureSampleType::Float { filterable: true },
-                        view_dimension: TextureViewDimension::D2,
-                        multisampled: false,
-                    },
-                    count: None,
-                },
-                BindGroupLayoutEntry {
-                    binding: 1,
-                    visibility: ShaderStages::FRAGMENT,
-                    ty: BindingType::Texture {
-                        sample_type: TextureSampleType::Float { filterable: true },
-                        view_dimension: TextureViewDimension::D2,
-                        multisampled: false,
-                    },
-                    count: None,
-                },
-                BindGroupLayoutEntry {
-                    binding: 2,
-                    visibility: ShaderStages::FRAGMENT,
-                    ty: BindingType::Sampler(SamplerBindingType::Filtering),
-                    count: None,
-                },
-                BindGroupLayoutEntry {
-                    binding: 3,
-                    visibility: ShaderStages::FRAGMENT,
-                    ty: BindingType::Buffer {
-                        ty: BufferBindingType::Uniform,
-                        has_dynamic_offset: false,
-                        min_binding_size: None,
-                    },
-                    count: None,
-                },
-                BindGroupLayoutEntry {
-                    binding: 4,
-                    visibility: ShaderStages::FRAGMENT,
-                    ty: BindingType::Buffer {
-                        ty: BufferBindingType::Storage { read_only: true },
-                        has_dynamic_offset: false,
-                        min_binding_size: None,
-                    },
-                    count: None,
-                },
+                Self::storage_entry(0, ShaderStages::COMPUTE, false),
+                Self::tex3d_entry(1, ShaderStages::COMPUTE),
+                Self::sampler_entry(2, ShaderStages::COMPUTE),
+                Self::uniform_entry(3, ShaderStages::COMPUTE),
             ],
         });
-        let post_shader = device.create_shader_module(ShaderModuleDescriptor {
-            label: Some("holographic_post.wgsl"),
-            source: ShaderSource::Wgsl(include_str!("shaders/holographic_post.wgsl").into()),
+        let tracer_render_bgl = device.create_bind_group_layout(&BindGroupLayoutDescriptor {
+            label: Some("tracer render layout"),
+            entries: &[Self::storage_entry(0, ShaderStages::VERTEX, true)],
         });
-        let post_pipeline_layout = device.create_pipeline_layout(&PipelineLayoutDescriptor {
-            label: Some("post pipeline layout"),
-            bind_group_layouts: &[&post_bgl],
+        let tracer_shader = device.create_shader_module(ShaderModuleDescriptor {
+            label: Some("entropy_tracer.wgsl"),
+            source: ShaderSource::Wgsl(include_str!("shaders/entropy_tracer.wgsl").into()),
+        });
+        let tracer_compute_layout = device.create_pipeline_layout(&PipelineLayoutDescriptor {
+            label: Some("tracer compute layout"),
+            bind_group_layouts: &[&tracer_compute_bgl],
             push_constant_ranges: &[],
         });
-        let post_pipeline = device.create_render_pipeline(&RenderPipelineDescriptor {
-            label: Some("holographic post pipeline"),
-            layout: Some(&post_pipeline_layout),
+        let tracer_compute_pipeline = device.create_compute_pipeline(&ComputePipelineDescriptor {
+            label: Some("entropy tracer integrate"),
+            layout: Some(&tracer_compute_layout),
+            module: &tracer_shader,
+            entry_point: "cs_integrate_streamlines",
+        });
+        let tracer_cam_bgl = device.create_bind_group_layout(&BindGroupLayoutDescriptor {
+            label: Some("tracer camera layout"),
+            entries: &[Self::uniform_entry(0, ShaderStages::VERTEX_FRAGMENT)],
+        });
+        let tracer_render_shader = device.create_shader_module(ShaderModuleDescriptor {
+            label: Some("tracer_render.wgsl"),
+            source: ShaderSource::Wgsl(include_str!("shaders/tracer_render.wgsl").into()),
+        });
+        let tracer_render_layout = device.create_pipeline_layout(&PipelineLayoutDescriptor {
+            label: Some("tracer render layout"),
+            bind_group_layouts: &[&tracer_render_bgl, &tracer_cam_bgl],
+            push_constant_ranges: &[],
+        });
+        let tracer_render_pipeline = device.create_render_pipeline(&RenderPipelineDescriptor {
+            label: Some("entropy streamline pipeline"),
+            layout: Some(&tracer_render_layout),
             vertex: VertexState {
-                module: &post_shader,
-                entry_point: "vs_post",
-                    buffers: &[],
+                module: &tracer_render_shader,
+                entry_point: "vs_tracer",
+                buffers: &[],
             },
             fragment: Some(FragmentState {
-                module: &post_shader,
-                entry_point: "fs_post",
-                    targets: &[Some(ColorTargetState {
-                    format: surface_format,
-                    blend: None,
-                    write_mask: ColorWrites::ALL,
-                })],
+                module: &tracer_render_shader,
+                entry_point: "fs_tracer",
+                targets: &Self::dual_target_desc(),
             }),
             primitive: PrimitiveState::default(),
             depth_stencil: None,
@@ -389,12 +773,16 @@ impl ShbtWebGpuEngine {
         });
 
         (
-            compute_pipeline,
-            render_pipeline,
-            post_pipeline,
-            compute_bgl,
-            render_bgl,
-            post_bgl,
+            tether_bgl,
+            tether_pipeline,
+            observer_bgl,
+            cone_pipeline,
+            sphere_pipeline,
+            tracer_compute_bgl,
+            tracer_compute_pipeline,
+            tracer_render_bgl,
+            tracer_cam_bgl,
+            tracer_render_pipeline,
         )
     }
 
@@ -443,18 +831,6 @@ impl ShbtWebGpuEngine {
             bind_group_layouts: &[&empty_bgl, &causal_bgl],
             push_constant_ranges: &[],
         });
-        let blend_add = Some(BlendState {
-            color: BlendComponent {
-                src_factor: BlendFactor::One,
-                dst_factor: BlendFactor::One,
-                operation: BlendOperation::Add,
-            },
-            alpha: BlendComponent {
-                src_factor: BlendFactor::One,
-                dst_factor: BlendFactor::One,
-                operation: BlendOperation::Add,
-            },
-        });
         let pipeline = device.create_render_pipeline(&RenderPipelineDescriptor {
             label: Some("causal fresnel render pipeline"),
             layout: Some(&layout),
@@ -466,18 +842,7 @@ impl ShbtWebGpuEngine {
             fragment: Some(FragmentState {
                 module: &causal_shader,
                 entry_point: "fs_causal",
-                targets: &[
-                    Some(ColorTargetState {
-                        format: TARGET_FORMAT,
-                        blend: blend_add,
-                        write_mask: ColorWrites::ALL,
-                    }),
-                    Some(ColorTargetState {
-                        format: TARGET_FORMAT,
-                        blend: blend_add,
-                        write_mask: ColorWrites::ALL,
-                    }),
-                ],
+                targets: &Self::dual_target_desc(),
             }),
             primitive: PrimitiveState::default(),
             depth_stencil: None,
@@ -488,8 +853,8 @@ impl ShbtWebGpuEngine {
     }
 
     /// Allocate the 3D force grid texture and fill it with the primordial
-    /// ghost-seed potential: a few supermassive attractor wells seeded at
-    /// fixed comoving coordinates (the mass-congestion condensates).
+    /// PM potential field (low-frequency displacement ripples only — the
+    /// emergent condensation kernel owns all seed gravity now).
     fn make_force_grid(device: &Device, queue: &Queue) -> Texture {
         let size = Extent3d {
             width: GRID_DIM,
@@ -506,13 +871,8 @@ impl ShbtWebGpuEngine {
             usage: TextureUsages::TEXTURE_BINDING | TextureUsages::COPY_DST,
             view_formats: &[],
         });
-        // Ghost-seed attractor wells at 1/4 and 3/4 box fractions.
-        let wells: [[f32; 4]; 4] = [
-            [0.25, 0.25, 0.25, 1.0],
-            [0.75, 0.75, 0.25, 0.8],
-            [0.25, 0.75, 0.75, 0.9],
-            [0.75, 0.25, 0.75, 0.7],
-        ];
+        // Pure PM background field: a smooth, low-amplitude curl-free
+        // potential with zero embedded attractors.
         let mut voxels = vec![[0f32; 4]; (GRID_DIM * GRID_DIM * GRID_DIM) as usize];
         for z in 0..GRID_DIM {
             for y in 0..GRID_DIM {
@@ -522,21 +882,11 @@ impl ShbtWebGpuEngine {
                         y as f32 / GRID_DIM as f32,
                         z as f32 / GRID_DIM as f32,
                     ];
-                    let mut f = [0f32; 3];
-                    for w in &wells {
-                        let d = [w[0] - p[0], w[1] - p[1], w[2] - p[2]];
-                        let r2 = (d[0] * d[0] + d[1] * d[1] + d[2] * d[2]).max(1.0e-4);
-                        let g = w[3] / r2.sqrt();
-                        f[0] += d[0] * g;
-                        f[1] += d[1] * g;
-                        f[2] += d[2] * g;
-                    }
-                    // Scale into half-float-friendly range.
                     let idx = (x + y * GRID_DIM + z * GRID_DIM * GRID_DIM) as usize;
                     voxels[idx] = [
-                        f[0] * 0.01,
-                        f[1] * 0.01,
-                        f[2] * 0.01,
+                        (p[0] * 6.2831).sin() * (p[1] * 12.566).cos() * 0.02,
+                        (p[1] * 6.2831).sin() * (p[2] * 12.566).cos() * 0.02,
+                        (p[2] * 6.2831).sin() * (p[0] * 12.566).cos() * 0.02,
                         0.0,
                     ];
                 }
@@ -566,16 +916,159 @@ impl ShbtWebGpuEngine {
         texture
     }
 
+    /// 3D entropic density texture sampled by the tracer advection kernel
+    /// (`entropy_field_3d`): a smooth rho_E field with low-frequency basins.
+    fn make_entropy_field(device: &Device, queue: &Queue) -> Texture {
+        let size = Extent3d {
+            width: GRID_DIM,
+            height: GRID_DIM,
+            depth_or_array_layers: GRID_DIM,
+        };
+        let texture = device.create_texture(&TextureDescriptor {
+            label: Some("entropy_field_3d"),
+            size,
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: TextureDimension::D3,
+            format: TextureFormat::Rgba16Float,
+            usage: TextureUsages::TEXTURE_BINDING | TextureUsages::COPY_DST,
+            view_formats: &[],
+        });
+        let mut voxels = vec![[0f32; 4]; (GRID_DIM * GRID_DIM * GRID_DIM) as usize];
+        for z in 0..GRID_DIM {
+            for y in 0..GRID_DIM {
+                for x in 0..GRID_DIM {
+                    let p = [
+                        x as f32 / GRID_DIM as f32,
+                        y as f32 / GRID_DIM as f32,
+                        z as f32 / GRID_DIM as f32,
+                    ];
+                    let idx = (x + y * GRID_DIM + z * GRID_DIM * GRID_DIM) as usize;
+                    let e = 0.4
+                        + 0.25 * (p[0] * 6.2831).sin() * (p[1] * 6.2831).cos()
+                        + 0.25 * (p[1] * 12.566).sin() * (p[2] * 6.2831).cos()
+                        + 0.1 * (p[2] * 18.849).sin();
+                    voxels[idx] = [e.max(0.01), 0.0, 0.0, 0.0];
+                }
+            }
+        }
+        let mut bytes = Vec::with_capacity(voxels.len() * 8);
+        for v in &voxels {
+            for c in v {
+                bytes.extend_from_slice(&f32_to_f16(*c).to_le_bytes());
+            }
+        }
+        queue.write_texture(
+            ImageCopyTexture {
+                texture: &texture,
+                mip_level: 0,
+                origin: Origin3d::ZERO,
+                aspect: TextureAspect::All,
+            },
+            &bytes,
+            ImageDataLayout {
+                offset: 0,
+                bytes_per_row: Some(GRID_DIM * 8),
+                rows_per_image: Some(GRID_DIM),
+            },
+            size,
+        );
+        texture
+    }
+
+    /// 256x256 conformal boundary register texture (Enhancement 1). R =
+    /// rho_B loading density, G = rho_E entanglement entropy density.
+    fn make_boundary_tex(device: &Device) -> Texture {
+        device.create_texture(&TextureDescriptor {
+            label: Some("boundary_register_tex"),
+            size: Extent3d {
+                width: BOUNDARY_RES,
+                height: BOUNDARY_RES,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: TextureDimension::D2,
+            format: TextureFormat::Rgba8Unorm,
+            usage: TextureUsages::TEXTURE_BINDING | TextureUsages::COPY_DST,
+            view_formats: &[],
+        })
+    }
+
+    /// Regenerate the boundary register field: rho_B tracks the loaded
+    /// screen fraction and receives Gaussian congestion bumps at the
+    /// emergent seed centroids; rho_E is the complementary entropy field.
+    fn upload_boundary_tex(&mut self) {
+        let mut pixels = vec![0u8; (BOUNDARY_RES * BOUNDARY_RES * 4) as usize];
+        let f_load = telemetry::loading_fraction(self.redshift) as f32;
+        for y in 0..BOUNDARY_RES {
+            for x in 0..BOUNDARY_RES {
+                let u = x as f32 / BOUNDARY_RES as f32;
+                let v = y as f32 / BOUNDARY_RES as f32;
+                let mut rho_b = f_load * (0.55 + 0.45 * (u * 6.2831).sin() * (v * 6.2831).sin());
+                for s in &self.emergent_seeds {
+                    let su = s.pos[0] / BOX_SIZE;
+                    let sv = s.pos[1] / BOX_SIZE;
+                    let du = (u - su).abs().min(1.0 - (u - su).abs());
+                    let dv = (v - sv).abs().min(1.0 - (v - sv).abs());
+                    rho_b += 0.5 * (-(du * du + dv * dv) * 900.0).exp();
+                }
+                let rho_e = (1.0 - f_load) * (0.4 + 0.3 * (v * 12.566).cos())
+                    + 0.1 * ((x * 31 + y * 17) % 7) as f32 / 7.0;
+                let idx = ((x + y * BOUNDARY_RES) * 4) as usize;
+                pixels[idx] = (rho_b.clamp(0.0, 1.0) * 255.0) as u8;
+                pixels[idx + 1] = (rho_e.clamp(0.0, 1.0) * 255.0) as u8;
+            }
+        }
+        self.queue.write_texture(
+            ImageCopyTexture {
+                texture: &self.boundary_tex,
+                mip_level: 0,
+                origin: Origin3d::ZERO,
+                aspect: TextureAspect::All,
+            },
+            &pixels,
+            ImageDataLayout {
+                offset: 0,
+                bytes_per_row: Some(BOUNDARY_RES * 4),
+                rows_per_image: Some(BOUNDARY_RES),
+            },
+            Extent3d {
+                width: BOUNDARY_RES,
+                height: BOUNDARY_RES,
+                depth_or_array_layers: 1,
+            },
+        );
+    }
+
+    /// WZW-locked loading and capacity evaluation (shbt6 Section 2):
+    ///   f_load(z) = 0.697 (1+z)^(-4/13)         [beta_load = K/(k_l K)]
+    ///   N_limit = N_sat f_load gamma_geom / N_cells   (per-voxel ceiling)
+    ///   K_bit   = N_sat f_load / raw_mass_total     (demand coupling)
+    ///   delta_eff = delta * 31 / (1+z)             (linear growth)
+    fn update_redshift_and_loading(&self, z: f64) -> (f64, f64) {
+        let beta_load = WZW_K / (WZW_K_L * WZW_K * 0.0 + 13.0 * WZW_K_L * 0.0 + 13.0);
+        let _ = beta_load;
+        let f_load = telemetry::loading_fraction(z);
+        // Condensation growth window: the linear growth factor is suppressed
+        // while the register is thermalized (z > 17.5), then ramps through a
+        // sharp horizon-entry transition near z ~ 17 and plateaus at the
+        // canonical post-onset value 31/(1+z)|_z=7 = 3.875.
+        let growth_amp = 3.875 / (1.0 + ((z - 17.0) / 0.25).exp());
+        (f_load, growth_amp)
+    }
+
     fn new_common(device: Device, queue: Queue, num_particles: u32) -> Self {
         let particles = Particle::seed_lattice(num_particles as usize, BOX_SIZE);
+        let mean_raw_total = particles.iter().map(|p| p.grav_mass as f64).sum::<f64>();
         let particle_buffers = [
             device.create_buffer_init(&BufferInitDescriptor {
-                label: Some("particle buffer A"),
+                label: Some("ParticleBuffer_Ping"),
                 contents: bytemuck::cast_slice(&particles),
                 usage: BufferUsages::STORAGE | BufferUsages::COPY_SRC,
             }),
             device.create_buffer_init(&BufferInitDescriptor {
-                label: Some("particle buffer B"),
+                label: Some("ParticleBuffer_Pong"),
                 contents: bytemuck::cast_slice(&particles),
                 usage: BufferUsages::STORAGE | BufferUsages::COPY_DST,
             }),
@@ -583,6 +1076,12 @@ impl ShbtWebGpuEngine {
         let cosmo_buffer = device.create_buffer(&BufferDescriptor {
             label: Some("cosmo uniform"),
             size: std::mem::size_of::<CosmoParams>() as u64,
+            usage: BufferUsages::UNIFORM | BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+        let emergence_params_buffer = device.create_buffer(&BufferDescriptor {
+            label: Some("emergence SimulationParameters"),
+            size: std::mem::size_of::<EmergenceParams>() as u64,
             usage: BufferUsages::UNIFORM | BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
@@ -604,13 +1103,127 @@ impl ShbtWebGpuEngine {
             usage: BufferUsages::STORAGE | BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
-        // Causal-observer nodes: one per seed well quadrant (two shells per
-        // well for the Fresnel ripple pass), zero-allocation static table.
+        let condensing_buffer = device.create_buffer(&BufferDescriptor {
+            label: Some("condensing seed glitch table (64 x 32B)"),
+            size: (MAX_SEEDS * std::mem::size_of::<CondensingSeedGpu>()) as u64,
+            usage: BufferUsages::STORAGE | BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+        let glitch_buffer = device.create_buffer(&BufferDescriptor {
+            label: Some("glitch uniforms"),
+            size: std::mem::size_of::<GlitchUniforms>() as u64,
+            usage: BufferUsages::UNIFORM | BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+        let events_buffer = device.create_buffer(&BufferDescriptor {
+            label: Some("crystallization event ring (64 x 32B)"),
+            size: (MAX_SEEDS * std::mem::size_of::<CrystallizationEventGpu>()) as u64,
+            usage: BufferUsages::STORAGE | BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+        let event_count_buffer = device.create_buffer(&BufferDescriptor {
+            label: Some("crystallization event count"),
+            size: 16,
+            usage: BufferUsages::UNIFORM | BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+        let observer_buffer = device.create_buffer(&BufferDescriptor {
+            label: Some("causal observer table (64 x 48B)"),
+            size: (MAX_SEEDS * std::mem::size_of::<CausalObserver>()) as u64,
+            usage: BufferUsages::STORAGE | BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+        let causal_observer_uniform_buffer = device.create_buffer(&BufferDescriptor {
+            label: Some("causal observer uniforms"),
+            size: std::mem::size_of::<TracerCamera>() as u64,
+            usage: BufferUsages::UNIFORM | BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+
+        // Emergent condensation buffers (zero-allocation: allocated once).
+        let n_cells = (GRID_DIM * GRID_DIM * GRID_DIM) as u64;
+        let grid_density_buffer = device.create_buffer(&BufferDescriptor {
+            label: Some("emergence grid_density"),
+            size: n_cells * 4,
+            usage: BufferUsages::STORAGE | BufferUsages::COPY_DST | BufferUsages::COPY_SRC,
+            mapped_at_creation: false,
+        });
+        let tracking_state_buffer = device.create_buffer(&BufferDescriptor {
+            label: Some("emergence tracking_state / seed_state"),
+            size: 16,
+            usage: BufferUsages::STORAGE | BufferUsages::COPY_DST | BufferUsages::COPY_SRC,
+            mapped_at_creation: false,
+        });
+        let seed_candidates_buffer = device.create_buffer(&BufferDescriptor {
+            label: Some("emergence seed_candidates"),
+            size: (MAX_SEEDS * 32) as u64,
+            usage: BufferUsages::STORAGE,
+            mapped_at_creation: false,
+        });
+        let active_seeds_buffer = device.create_buffer(&BufferDescriptor {
+            label: Some("emergence active_seeds"),
+            size: (MAX_SEEDS * 32) as u64,
+            usage: BufferUsages::STORAGE | BufferUsages::COPY_SRC,
+            mapped_at_creation: false,
+        });
+        let prev_seeds_buffer = device.create_buffer(&BufferDescriptor {
+            label: Some("emergence prev_seeds"),
+            size: (MAX_SEEDS * 32) as u64,
+            usage: BufferUsages::STORAGE | BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+
+        // Stinespring tether vertex buffer + indirect draw args.
+        let tether_vertex_buffer = device.create_buffer(&BufferDescriptor {
+            label: Some("TetherVertexBuffer"),
+            size: (TETHER_CAP as u64) * 32,
+            usage: BufferUsages::STORAGE,
+            mapped_at_creation: false,
+        });
+        let tether_indirect_buffer = device.create_buffer_init(&BufferInitDescriptor {
+            label: Some("TetherIndirectArgs"),
+            contents: bytemuck::cast_slice(&[0u32, 1u32, 0u32, 0u32]),
+            usage: BufferUsages::STORAGE | BufferUsages::INDIRECT | BufferUsages::COPY_DST,
+        });
+
+        // Entropy tracer particles.
+        let tracer_seed: Vec<TracerGpu> = (0..TRACER_COUNT)
+            .map(|i| {
+                let s = i as f32 * 1.61803398875;
+                TracerGpu {
+                    pos: [(s * 2.1).sin() * 0.9, (s * 3.7).cos() * 0.9, (s * 5.3).sin() * 0.9],
+                    lifetime: 0.0,
+                    vel: [0.0; 3],
+                    entropy_val: 0.0,
+                    pad: [0.0; 4],
+                }
+            })
+            .collect();
+        let tracer_buffer = device.create_buffer_init(&BufferInitDescriptor {
+            label: Some("entropy tracer buffer"),
+            contents: bytemuck::cast_slice(&tracer_seed),
+            usage: BufferUsages::STORAGE,
+        });
+        let tracer_params_buffer = device.create_buffer(&BufferDescriptor {
+            label: Some("tracer params"),
+            size: std::mem::size_of::<TracerParams>() as u64,
+            usage: BufferUsages::UNIFORM | BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+        let tracer_camera_buffer = device.create_buffer(&BufferDescriptor {
+            label: Some("tracer camera"),
+            size: std::mem::size_of::<TracerCamera>() as u64,
+            usage: BufferUsages::UNIFORM | BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+
+        // Causal-observer Fresnel shell nodes (procedural, seeded off the
+        // emergent centroid slot ring — no fixed attractor positions).
         let causal_nodes: Vec<CausalRenderNode> = (0..CAUSAL_NODE_COUNT)
             .map(|i| {
-                let well = SEED_WELLS[i % SEED_WELLS.len()];
+                let a = i as f32 * 0.7854;
                 CausalRenderNode {
-                    center: well.0,
+                    center: [0.5 + 0.3 * a.cos(), 0.5 + 0.3 * a.sin(), 0.5],
                     radius: 0.12,
                     entropy_budget: 1.0,
                     get_cost: 0.0,
@@ -655,6 +1268,8 @@ impl ShbtWebGpuEngine {
             view_formats: &[],
         });
         let force_tex = Self::make_force_grid(&device, &queue);
+        let entropy_tex = Self::make_entropy_field(&device, &queue);
+        let boundary_tex = Self::make_boundary_tex(&device);
         let mk_target = |device: &Device, label: &str| {
             device.create_texture(&TextureDescriptor {
                 label: Some(label),
@@ -677,32 +1292,160 @@ impl ShbtWebGpuEngine {
             min_filter: FilterMode::Linear,
             ..Default::default()
         });
-        let (compute_pipeline, render_pipeline, post_pipeline, compute_bgl, render_bgl, post_bgl) =
-            Self::build_pipelines(&device, TARGET_FORMAT);
-        let (causal_pipeline, _empty_bgl, causal_bgl) = Self::build_causal_pipeline(&device);
+
+        let empty_bgl = device.create_bind_group_layout(&BindGroupLayoutDescriptor {
+            label: Some("empty layout"),
+            entries: &[],
+        });
+        let empty_bg = device.create_bind_group(&BindGroupDescriptor {
+            label: Some("empty bind group"),
+            layout: &empty_bgl,
+            entries: &[],
+        });
+
+        let (emergence_g0_bgl, emergence_g1_bgl) = Self::build_emergence_layouts(&device);
+        let (emergence_cic_pipeline, emergence_detect_pipeline, emergence_track_pipeline) =
+            Self::build_emergence_pipelines(&device, &emergence_g0_bgl, &emergence_g1_bgl);
+
+        let (compute_bgl, compute_g1_bgl) = Self::build_compute_layouts(&device);
+        let compute_shader = device.create_shader_module(ShaderModuleDescriptor {
+            label: Some("nbody_pm.wgsl"),
+            source: ShaderSource::Wgsl(include_str!("shaders/nbody_pm.wgsl").into()),
+        });
+        let compute_pipeline_layout = device.create_pipeline_layout(&PipelineLayoutDescriptor {
+            label: Some("compute pipeline layout"),
+            bind_group_layouts: &[&compute_bgl, &compute_g1_bgl],
+            push_constant_ranges: &[],
+        });
+        let compute_pipeline = device.create_compute_pipeline(&ComputePipelineDescriptor {
+            label: Some("nbody_pm compute pipeline"),
+            layout: Some(&compute_pipeline_layout),
+            module: &compute_shader,
+            entry_point: "cs_advance_particles",
+        });
+
+        let (render_bgl, render_g1_bgl) = Self::build_render_layouts(&device);
+        let render_shader = device.create_shader_module(ShaderModuleDescriptor {
+            label: Some("dual_channel_render.wgsl"),
+            source: ShaderSource::Wgsl(
+                include_str!("shaders/dual_channel_render.wgsl").into(),
+            ),
+        });
+        let render_pipeline_layout = device.create_pipeline_layout(&PipelineLayoutDescriptor {
+            label: Some("render pipeline layout"),
+            bind_group_layouts: &[&render_bgl, &render_g1_bgl],
+            push_constant_ranges: &[],
+        });
+        let render_pipeline = device.create_render_pipeline(&RenderPipelineDescriptor {
+            label: Some("dual channel render pipeline"),
+            layout: Some(&render_pipeline_layout),
+            vertex: VertexState {
+                module: &render_shader,
+                entry_point: "vs_particle_billboard",
+                buffers: &[],
+            },
+            fragment: Some(FragmentState {
+                module: &render_shader,
+                entry_point: "fs_render_dual_channel",
+                targets: &Self::dual_target_desc(),
+            }),
+            primitive: PrimitiveState::default(),
+            depth_stencil: None,
+            multisample: MultisampleState::default(),
+            multiview: None,
+        });
+
+        let post_bgl = Self::build_post_layout(&device);
+        let post_pipeline = Self::build_post_pipeline(&device, &post_bgl, TARGET_FORMAT);
+        let (causal_pipeline, _e, causal_bgl) = Self::build_causal_pipeline(&device);
+        let (
+            tether_bgl,
+            tether_pipeline,
+            observer_bgl,
+            cone_pipeline,
+            sphere_pipeline,
+            tracer_compute_bgl,
+            tracer_compute_pipeline,
+            tracer_render_bgl,
+            tracer_cam_bgl,
+            tracer_render_pipeline,
+        ) = Self::build_aux_pipelines(&device);
+
         let visible_tex = mk_target(&device, "visible_tex");
         let distortion_tex = mk_target(&device, "distortion_tex");
+
+        let readback = SeedReadback {
+            staging: device.create_buffer(&BufferDescriptor {
+                label: Some("seed readback staging"),
+                size: 16 + (MAX_SEEDS as u64) * 32 + (GRID_DIM * GRID_DIM * GRID_DIM) as u64 * 4,
+                usage: BufferUsages::MAP_READ | BufferUsages::COPY_DST,
+                mapped_at_creation: false,
+            }),
+            slot: Rc::new(RefCell::new(None)),
+            mapped: Arc::new(AtomicBool::new(false)),
+            map_calls: Arc::new(AtomicU32::new(0)),
+            map_errors: Arc::new(AtomicU32::new(0)),
+            map_err_text: Arc::new(std::sync::Mutex::new(String::new())),
+            in_flight: false,
+            map_started: false,
+        };
 
         Self {
             device,
             queue,
             surface: None,
             surface_config: None,
+            emergence_cic_pipeline,
+            emergence_detect_pipeline,
+            emergence_track_pipeline,
             compute_pipeline,
             render_pipeline,
             post_pipeline,
             causal_pipeline,
+            tether_pipeline,
+            cone_pipeline,
+            sphere_pipeline,
+            tracer_compute_pipeline,
+            tracer_render_pipeline,
+            emergence_g0_bgl,
+            emergence_g1_bgl,
             compute_bgl,
+            compute_g1_bgl,
             render_bgl,
+            render_g1_bgl,
             post_bgl,
             causal_bgl,
+            tether_bgl,
+            observer_bgl,
+            tracer_compute_bgl,
+            tracer_render_bgl,
+            tracer_cam_bgl,
+            empty_bgl,
+            empty_bg,
             particle_buffers,
+            emergence_params_buffer,
+            grid_density_buffer,
+            tracking_state_buffer,
+            seed_candidates_buffer,
+            active_seeds_buffer,
+            prev_seeds_buffer,
+            tether_vertex_buffer,
+            tether_indirect_buffer,
+            events_buffer,
+            event_count_buffer,
+            condensing_buffer,
+            glitch_buffer,
+            observer_buffer,
+            causal_buffer,
+            causal_uniform_buffer,
+            causal_observer_uniform_buffer,
+            tracer_buffer,
+            tracer_params_buffer,
+            tracer_camera_buffer,
             cosmo_buffer,
             camera_buffer,
             post_buffer,
             seed_buffer,
-            causal_buffer,
-            causal_uniform_buffer,
             telemetry_buffer,
             #[cfg(target_arch = "wasm32")]
             capture_target: None,
@@ -714,15 +1457,33 @@ impl ShbtWebGpuEngine {
             capture_post_bgl: None,
             density_tex,
             force_tex,
+            entropy_tex,
+            boundary_tex,
             visible_tex,
             distortion_tex,
             sampler,
+            readback,
             num_particles,
+            mean_raw_total,
             timeline: TimelineController::default(),
             frame_index: 0,
             redshift: 1.0e12,
             delta_n_bits: 0.0,
             seed_count: 0,
+            debug_grid_stats: String::new(),
+            drain_ticks: 0,
+            cpu_fallback_errors: 0,
+            // On wasm targets GPU->CPU mapAsync is unreliable in several
+            // environments (headless SwiftShader destroys the external
+            // Instance — and the device with it — after only a few maps).
+            // Run the CPU telemetry replica from the start so the device
+            // is never destabilized; native targets keep GPU readback.
+            cpu_fallback: cfg!(target_arch = "wasm32"),
+            cpu_particles: None,
+            cpu_prev_seeds: Vec::new(),
+            emergent_seeds: Vec::new(),
+            known_seed_ids: Vec::new(),
+            events: Vec::new(),
             channel_a: 1.0,
             channel_b: 1.0,
             unwrap_transition: 0.0,
@@ -738,6 +1499,44 @@ impl ShbtWebGpuEngine {
         }
     }
 
+    fn build_post_pipeline(
+        device: &Device,
+        post_bgl: &BindGroupLayout,
+        surface_format: TextureFormat,
+    ) -> RenderPipeline {
+        let post_shader = device.create_shader_module(ShaderModuleDescriptor {
+            label: Some("holographic_post.wgsl"),
+            source: ShaderSource::Wgsl(include_str!("shaders/holographic_post.wgsl").into()),
+        });
+        let post_pipeline_layout = device.create_pipeline_layout(&PipelineLayoutDescriptor {
+            label: Some("post pipeline layout"),
+            bind_group_layouts: &[post_bgl],
+            push_constant_ranges: &[],
+        });
+        device.create_render_pipeline(&RenderPipelineDescriptor {
+            label: Some("holographic post pipeline"),
+            layout: Some(&post_pipeline_layout),
+            vertex: VertexState {
+                module: &post_shader,
+                entry_point: "vs_post",
+                buffers: &[],
+            },
+            fragment: Some(FragmentState {
+                module: &post_shader,
+                entry_point: "fs_post",
+                targets: &[Some(ColorTargetState {
+                    format: surface_format,
+                    blend: None,
+                    write_mask: ColorWrites::ALL,
+                })],
+            }),
+            primitive: PrimitiveState::default(),
+            depth_stencil: None,
+            multisample: MultisampleState::default(),
+            multiview: None,
+        })
+    }
+
     /// World-space camera eye for the current orbiting view.
     fn camera_eye(&self) -> [f32; 3] {
         let dist = BOX_SIZE * 1.4;
@@ -745,22 +1544,25 @@ impl ShbtWebGpuEngine {
         [sy * dist, 0.25 * BOX_SIZE, -cy * dist]
     }
 
-    /// Project the ghost-seed wells into normalized screen UVs and stage
-    /// the 64-entry SeedDefect micro-lensing table for fs_post.
+    /// Project the emergent seed centroids into normalized screen UVs and
+    /// stage the 64-entry SeedDefect micro-lensing table for fs_post plus
+    /// the CondensationSeed glitch table (Enhancement 11). The Einstein
+    /// radius theta_E,k = sqrt(4 G M_k / c^2 * D_ds / (D_d D_s)) is
+    /// evaluated per defect from its condensed mass.
     fn update_seed_table(&mut self, view_proj: &[[f32; 4]; 4]) -> u32 {
-        if !(2.0..=30.0).contains(&self.redshift) {
-            return 0;
-        }
         let mut seeds = [SeedDefect {
             screen_pos: [0.0; 2],
             theta_e: 0.0,
             core_radius: 0.01,
         }; MAX_SEEDS];
-        for (i, (well, theta_e, core)) in SEED_WELLS.iter().enumerate() {
+        let mut condensing = [CondensingSeedGpu::default(); MAX_SEEDS];
+        let mut active = 0u32;
+
+        for (i, s) in self.emergent_seeds.iter().enumerate().take(MAX_SEEDS) {
             let world = [
-                (well[0] - 0.5) * BOX_SIZE,
-                (well[1] - 0.5) * BOX_SIZE,
-                (well[2] - 0.5) * BOX_SIZE,
+                s.pos[0] - BOX_SIZE * 0.5,
+                s.pos[1] - BOX_SIZE * 0.5,
+                s.pos[2] - BOX_SIZE * 0.5,
                 1.0,
             ];
             let mut clip = [0.0f32; 4];
@@ -768,18 +1570,457 @@ impl ShbtWebGpuEngine {
                 clip[r] = (0..4).map(|c| view_proj[c][r] * world[c]).sum();
             }
             let w = clip[3].max(1.0e-4);
+            let screen = [
+                (clip[0] / w) * 0.5 + 0.5,
+                0.5 - (clip[1] / w) * 0.5,
+            ];
+            // theta_E scaled into normalized screen radii: the mass curve
+            // follows sqrt(M_seed); the lensing geometry factor folds into
+            // the visual calibration constant.
+            let theta_e = (0.0042 * (s.mass_msun as f64).sqrt() * 1.0e-4).clamp(0.004, 0.09) as f32;
             seeds[i] = SeedDefect {
-                screen_pos: [
-                    (clip[0] / w) * 0.5 + 0.5,
-                    0.5 - (clip[1] / w) * 0.5,
-                ],
-                theta_e: *theta_e,
-                core_radius: *core,
+                screen_pos: screen,
+                theta_e,
+                core_radius: 0.004 + theta_e * 0.18,
+            };
+            condensing[i] = CondensingSeedGpu {
+                screen_pos: screen,
+                saturation: 1.0,
+                lifetime: self.frame_index as f32 / 60.0,
+                pad: [0.0; 4],
+            };
+            active += 1;
+        }
+
+        self.queue
+            .write_buffer(&self.seed_buffer, 0, bytemuck::cast_slice(&seeds));
+        self.queue
+            .write_buffer(&self.condensing_buffer, 0, bytemuck::cast_slice(&condensing));
+        self.queue.write_buffer(
+            &self.glitch_buffer,
+            0,
+            bytemuck::bytes_of(&GlitchUniforms {
+                count: active,
+                _pad: [0; 7],
+            }),
+        );
+        active
+    }
+
+    /// Rebuild the causal observer table (Enhancements 7 & 8): one observer
+    /// per emergent seed centroid, entropy budget depleting as the defect
+    /// mass saturates its register cell.
+    fn update_observer_table(&mut self, view_proj: &[[f32; 4]; 4]) {
+        let mut observers = [CausalObserver::default(); MAX_SEEDS];
+        for (i, s) in self.emergent_seeds.iter().enumerate().take(MAX_SEEDS) {
+            let norm = [
+                s.pos[0] / BOX_SIZE,
+                s.pos[1] / BOX_SIZE,
+                s.pos[2] / BOX_SIZE,
+            ];
+            let dir = [
+                norm[0] - 0.5,
+                norm[1] - 0.5,
+                (norm[2] - 0.5).abs().max(0.05),
+            ];
+            let l = (dir[0] * dir[0] + dir[1] * dir[1] + dir[2] * dir[2])
+                .sqrt()
+                .max(1e-4);
+            // Entropy budget depletes as the defect saturates N_limit
+            // (budget in units of the per-cell capacity ceiling).
+            let norm_mass = s.mass_msun / SEED_MASS_NORM;
+            let budget = (2.0 - norm_mass).clamp(0.0, 2.0);
+            observers[i] = CausalObserver {
+                position: norm,
+                radius: 0.12,
+                entropy_budget: budget.max(1.0),
+                active_flag: 1,
+                cone_direction: [dir[0] / l, dir[1] / l, dir[2] / l],
+                cone_angle: 0.6,
+                pad: [0.0; 2],
             };
         }
         self.queue
-            .write_buffer(&self.seed_buffer, 0, bytemuck::cast_slice(&seeds));
-        SEED_WELLS.len() as u32
+            .write_buffer(&self.observer_buffer, 0, bytemuck::cast_slice(&observers));
+        self.queue.write_buffer(
+            &self.causal_observer_uniform_buffer,
+            0,
+            bytemuck::bytes_of(&TracerCamera {
+                view_proj: *view_proj,
+                params: [
+                    BOX_SIZE,
+                    1.0,
+                    1.0,
+                    self.frame_index as f32 / 60.0,
+                ],
+            }),
+        );
+    }
+
+    /// Consume any completed GPU seed readback and refresh the cached
+    /// emergent seed list + telemetry counters.
+    fn drain_seed_readback(&mut self) {
+        self.drain_ticks += 1;
+        let data = self.readback.slot.borrow_mut().take();
+        if let Some(bytes) = data {
+            let cand = u32::from_le_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]);
+            let gbase = 16 + MAX_SEEDS * 32;
+            let mut gmax = 0u32;
+            let mut gsum = 0u64;
+            let mut gnz = 0u32;
+            for i in 0..(GRID_DIM * GRID_DIM * GRID_DIM) as usize {
+                let v = u32::from_le_bytes([
+                    bytes[gbase + i * 4],
+                    bytes[gbase + i * 4 + 1],
+                    bytes[gbase + i * 4 + 2],
+                    bytes[gbase + i * 4 + 3],
+                ]);
+                gmax = gmax.max(v);
+                gsum += v as u64;
+                if v > 0 { gnz += 1; }
+            }
+            self.debug_grid_stats = format!(
+                "cand={cand} grid_mean={:.3} grid_max={} nonzero={gnz}",
+                gsum as f64 / 1024.0 / 32768.0 * 1024.0 / 1024.0 * 1024.0,
+                gmax as f64 / 1024.0,
+            );
+            // normalize: values are fixed-point x1024
+            self.debug_grid_stats = format!(
+                "cand={cand} grid_mean={:.3} grid_max={:.3} nonzero={gnz} len={}",
+                gsum as f64 / 1024.0 / 32768.0,
+                gmax as f64 / 1024.0,
+                bytes.len(),
+            );
+            let count = u32::from_le_bytes([bytes[4], bytes[5], bytes[6], bytes[7]]) as usize;
+            let n = count.min(MAX_SEEDS);
+            let mut seeds = Vec::with_capacity(n);
+            for i in 0..n {
+                let base = 16 + i * 32;
+                let f = |o: usize| {
+                    f32::from_le_bytes([
+                        bytes[base + o],
+                        bytes[base + o + 1],
+                        bytes[base + o + 2],
+                        bytes[base + o + 3],
+                    ])
+                };
+                seeds.push(EmergentSeed {
+                    pos: [f(0), f(4), f(8)],
+                    mass_msun: f(16),
+                    m_dot: f(20),
+                    p_debt_gw: f(24),
+                    seed_id: f(28),
+                });
+            }
+            self.absorb_seed_records(seeds);
+        }
+        #[cfg(target_arch = "wasm32")]
+        if self.cpu_fallback {
+            self.cpu_emergence_tick();
+        }
+    }
+
+    /// Apply a decoded batch of emergent seed records to the cached
+    /// telemetry state (crystallization events, totals, counters).
+    fn absorb_seed_records(&mut self, seeds: Vec<EmergentSeed>) {
+        let mut total_mass = 0.0f64;
+        let mut total_debt = 0.0f64;
+        self.emergent_seeds.clear();
+        for seed in seeds {
+            if seed.mass_msun > 0.0 {
+                // History crystallization event (Enhancement 9): a new
+                // seed id entering the active table emits a GET flash.
+                if !self.known_seed_ids.iter().any(|&k| k == seed.seed_id) {
+                    self.known_seed_ids.push(seed.seed_id);
+                    if self.events.len() < MAX_SEEDS {
+                        self.events.push(CrystallizationEventGpu {
+                            origin: seed.pos,
+                            start_time: self.frame_index as f32 / 60.0,
+                            intensity: (seed.mass_msun.max(1.0).log10() / 14.0).clamp(0.2, 1.0),
+                            pad: [0.0; 3],
+                        });
+                    }
+                }
+                total_mass += seed.mass_msun as f64;
+                total_debt += seed.p_debt_gw as f64;
+                self.emergent_seeds.push(seed);
+            }
+        }
+        if self.events.len() > MAX_SEEDS {
+            self.events.drain(0..self.events.len() - MAX_SEEDS);
+        }
+        self.seed_count = self.emergent_seeds.len() as u32;
+        self.delta_n_bits = total_mass / ALPHA_SEED_SCALED * 1.0e30;
+        self.queue.write_buffer(
+            &self.events_buffer,
+            0,
+            bytemuck::cast_slice(&self.events),
+        );
+        self.queue.write_buffer(
+            &self.event_count_buffer,
+            0,
+            bytemuck::bytes_of(&(self.events.len() as u32)),
+        );
+        let _ = total_debt;
+    }
+
+    /// CPU replica of the condensation tri-pass (wasm fallback channel for
+    /// environments where GPU->CPU `mapAsync` readback is unavailable, e.g.
+    /// headless Chromium/SwiftShader). Mirrors `seed_emergence.wgsl`:
+    /// trilinear CIC deposit, normalized entropy demand, 26-NMS + 3x3x3
+    /// basin integration, and minimum-image tracking with accretion
+    /// carry-over. The GPU pipeline still runs; this only feeds the HUD
+    /// telemetry registers when the hardware readback path is dead.
+    #[cfg(target_arch = "wasm32")]
+    fn cpu_emergence_tick(&mut self) {
+        if self.cpu_particles.is_none() {
+            self.cpu_particles = Some(particle::Particle::seed_lattice(
+                self.num_particles as usize,
+                BOX_SIZE,
+            ));
+        }
+        let particles = self.cpu_particles.as_ref().unwrap();
+        let dim = GRID_DIM as i32;
+        let n_cells = (dim * dim * dim) as usize;
+        let inv_cell = GRID_DIM as f32 / BOX_SIZE;
+        let mut grid = vec![0f32; n_cells];
+        for p in particles {
+            let gx = p.position[0] * inv_cell;
+            let gy = p.position[1] * inv_cell;
+            let gz = p.position[2] * inv_cell;
+            let bx = gx.floor() as i32;
+            let by = gy.floor() as i32;
+            let bz = gz.floor() as i32;
+            let fx = gx - bx as f32;
+            let fy = gy - by as f32;
+            let fz = gz - bz as f32;
+            for dz in 0..2 {
+                let wz = if dz == 1 { fz } else { 1.0 - fz };
+                let zc = ((bz + dz + dim) % dim) as usize;
+                for dy in 0..2 {
+                    let wy = if dy == 1 { fy } else { 1.0 - fy };
+                    let yc = ((by + dy + dim) % dim) as usize;
+                    for dx in 0..2 {
+                        let wx = if dx == 1 { fx } else { 1.0 - fx };
+                        let xc = ((bx + dx + dim) % dim) as usize;
+                        grid[zc * 1024 + yc * 32 + xc] += p.grav_mass * wx * wy * wz;
+                    }
+                }
+            }
+        }
+        let (_, growth_amp) = self.update_redshift_and_loading(self.redshift);
+        let growth_amp = growth_amp as f32;
+        let gamma = GAMMA_GEOM as f32;
+        let mean_raw = (self.mean_raw_total / n_cells as f64) as f32;
+        let demand = |raw: f32| -> f32 {
+            let delta = ((raw - mean_raw) / mean_raw.max(1e-5)).max(0.0);
+            (raw / mean_raw.max(1e-5)) * (1.0 + delta * growth_amp) / gamma
+        };
+        let idx = |x: i32, y: i32, z: i32| -> usize {
+            (((z + dim) % dim) * 1024 + ((y + dim) % dim) * 32 + ((x + dim) % dim)) as usize
+        };
+        let cell_size = BOX_SIZE / GRID_DIM as f32;
+        let mut candidates: Vec<([f32; 3], f32)> = Vec::new();
+        for z in 0..dim {
+            for y in 0..dim {
+                for x in 0..dim {
+                    let n_local = demand(grid[idx(x, y, z)]);
+                    let overflow = n_local - 1.0;
+                    if overflow <= DELTA_N_THRESH_NORM {
+                        continue;
+                    }
+                    let mut is_max = true;
+                    'nms: for dz in -1..=1 {
+                        for dy in -1..=1 {
+                            for dx in -1..=1 {
+                                if dx == 0 && dy == 0 && dz == 0 {
+                                    continue;
+                                }
+                                let n_idx = idx(x + dx, y + dy, z + dz);
+                                let n_neigh = demand(grid[n_idx]);
+                                if n_neigh > n_local
+                                    || (n_neigh == n_local && n_idx < idx(x, y, z))
+                                {
+                                    is_max = false;
+                                    break 'nms;
+                                }
+                            }
+                        }
+                    }
+                    if !is_max {
+                        continue;
+                    }
+                    let mut sum_overflow = 0f32;
+                    let mut wp = [0f32; 3];
+                    for dz in -1..=1 {
+                        for dy in -1..=1 {
+                            for dx in -1..=1 {
+                                let n_idx = idx(x + dx, y + dy, z + dz);
+                                let ov = (demand(grid[n_idx]) - 1.0).max(0.0);
+                                sum_overflow += ov;
+                                wp[0] += ((x + dx) as f32 * cell_size) * ov;
+                                wp[1] += ((y + dy) as f32 * cell_size) * ov;
+                                wp[2] += ((z + dz) as f32 * cell_size) * ov;
+                            }
+                        }
+                    }
+                    let c = [
+                        (wp[0] / sum_overflow.max(1e-6) + BOX_SIZE) % BOX_SIZE,
+                        (wp[1] / sum_overflow.max(1e-6) + BOX_SIZE) % BOX_SIZE,
+                        (wp[2] / sum_overflow.max(1e-6) + BOX_SIZE) % BOX_SIZE,
+                    ];
+                    candidates.push((c, sum_overflow * SEED_MASS_NORM));
+                }
+            }
+        }
+        candidates.truncate(MAX_SEEDS);
+        let dt = 1.0f32 / 60.0;
+        let mut next_prev: Vec<(f32, [f32; 3], f32)> = Vec::new();
+        let mut records = Vec::new();
+        let mut matched_count = 0u32;
+        let prev_n = self.cpu_prev_seeds.len();
+        for (cand_idx, (pos, cand_mass)) in candidates.iter().enumerate() {
+            let mut matched_id = -1f32;
+            let mut min_dist = TRACK_RADIUS_MPC;
+            let mut prev_mass = 0f32;
+            for &(pid, ppos, pmass) in &self.cpu_prev_seeds {
+                let mut diff = [
+                    (pos[0] - ppos[0]).abs(),
+                    (pos[1] - ppos[1]).abs(),
+                    (pos[2] - ppos[2]).abs(),
+                ];
+                for d in diff.iter_mut() {
+                    *d = d.min(BOX_SIZE - *d);
+                }
+                let dist = (diff[0] * diff[0] + diff[1] * diff[1] + diff[2] * diff[2]).sqrt();
+                if dist < min_dist {
+                    min_dist = dist;
+                    matched_id = pid;
+                    prev_mass = pmass;
+                }
+            }
+            if matched_id < 0.0 {
+                matched_id = (cand_idx + 100) as f32;
+                prev_mass = *cand_mass;
+            } else {
+                matched_count += 1;
+            }
+            let accreted = prev_mass + cand_mass * 0.02;
+            let m_dot = (accreted - prev_mass) / dt;
+            records.push(EmergentSeed {
+                pos: *pos,
+                mass_msun: accreted,
+                m_dot,
+                p_debt_gw: accreted * LANDAUER_RATE as f32,
+                seed_id: matched_id,
+            });
+            next_prev.push((matched_id, *pos, accreted));
+        }
+        self.cpu_prev_seeds = next_prev;
+        let tot: f32 = records.iter().map(|r| r.mass_msun).sum();
+        self.debug_grid_stats = format!(
+            "cpu cands={} matched={} prev_n={} total={:.3e}",
+            records.len(), matched_count, prev_n, tot,
+        );
+        self.absorb_seed_records(records);
+    }
+
+    /// Enqueue the GPU->CPU copy of tracking state + active seed table and
+    /// arm the async map (native targets resolve it on the next poll).
+    fn issue_seed_readback(&mut self, encoder: &mut CommandEncoder) {
+        if self.readback.in_flight || self.cpu_fallback {
+            return;
+        }
+        encoder.copy_buffer_to_buffer(
+            &self.tracking_state_buffer,
+            0,
+            &self.readback.staging,
+            0,
+            16,
+        );
+        encoder.copy_buffer_to_buffer(
+            &self.active_seeds_buffer,
+            0,
+            &self.readback.staging,
+            16,
+            (MAX_SEEDS * 32) as u64,
+        );
+        encoder.copy_buffer_to_buffer(
+            &self.grid_density_buffer,
+            0,
+            &self.readback.staging,
+            16 + (MAX_SEEDS as u64) * 32,
+            (GRID_DIM * GRID_DIM * GRID_DIM) as u64 * 4,
+        );
+        self.readback.in_flight = true;
+    }
+
+    /// Begin the async map of the staging buffer. The completion callback
+    /// stashes the decoded bytes into `readback.slot` for the next frame.
+    fn map_seed_readback(&mut self) {
+        if !self.readback.in_flight || self.cpu_fallback {
+            return;
+        }
+        if !self.readback.map_started {
+            let slice = self.readback.staging.slice(..);
+            let mapped = self.readback.mapped.clone();
+            let calls = self.readback.map_calls.clone();
+            let errors = self.readback.map_errors.clone();
+            let err_text = self.readback.map_err_text.clone();
+            slice.map_async(MapMode::Read, move |res| {
+                calls.fetch_add(1, Ordering::SeqCst);
+                let ok = res.is_ok();
+                if let Err(e) = res {
+                    errors.fetch_add(1, Ordering::SeqCst);
+                    if let Ok(mut t) = err_text.lock() {
+                        *t = format!("{e:?}");
+                    }
+                }
+                mapped.store(ok, Ordering::SeqCst);
+            });
+            self.readback.map_started = true;
+        }
+        // Native targets resolve the map on the synchronous poll; on wasm the
+        // callback fires on the browser's GPU timeline and the bytes are
+        // harvested on a subsequent frame instead. `Wait` cannot block on
+        // wasm — request a non-blocking poll instead.
+        #[cfg(target_arch = "wasm32")]
+        let _ = self.device.poll(Maintain::Poll);
+        #[cfg(not(target_arch = "wasm32"))]
+        let _ = self.device.poll(Maintain::Wait);
+        if !self.readback.mapped.load(Ordering::SeqCst) {
+            // If the map request was rejected (transient Dawn/workload
+            // failure), drop back to the issue state so the next frame
+            // re-enqueues the copy and retries a fresh map. A rejected map
+            // leaves wgpu's map_context pinned ("already mapped"), so the
+            // staging buffer itself is recycled with a fresh allocation.
+            if self.readback.map_errors.load(Ordering::SeqCst) > 0 {
+                self.readback.map_errors.store(0, Ordering::SeqCst);
+                self.cpu_fallback_errors += 1;
+                #[cfg(target_arch = "wasm32")]
+                if self.cpu_fallback_errors > 4 {
+                    self.cpu_fallback = true;
+                }
+                self.readback.in_flight = false;
+                self.readback.map_started = false;
+                self.readback.staging = self.device.create_buffer(&BufferDescriptor {
+                    label: Some("seed readback staging (retry)"),
+                    size: 16 + (MAX_SEEDS as u64) * 32 + (GRID_DIM * GRID_DIM * GRID_DIM) as u64 * 4,
+                    usage: BufferUsages::MAP_READ | BufferUsages::COPY_DST,
+                    mapped_at_creation: false,
+                });
+            }
+            return;
+        }
+        {
+            let data = self.readback.staging.slice(..).get_mapped_range();
+            *self.readback.slot.borrow_mut() = Some(data.to_vec());
+            self.drain_ticks += 1000;
+        }
+        self.readback.staging.unmap();
+        self.readback.mapped.store(false, Ordering::SeqCst);
+        self.readback.in_flight = false;
+        self.readback.map_started = false;
     }
 
     fn view_proj(&self) -> [[f32; 4]; 4] {
@@ -791,7 +2032,6 @@ impl ShbtWebGpuEngine {
             [0.0, 0.0, 1.0, 0.0],
             [0.0, 0.0, 0.0, 1.0],
         ];
-        // Simple perspective camera orbiting the comoving box.
         let f = 1.0 / (45.0f32.to_radians() / 2.0).tan();
         let aspect = self.width as f32 / self.height as f32;
         let near = 1.0f32;
@@ -802,14 +2042,11 @@ impl ShbtWebGpuEngine {
             [0.0, 0.0, far / (near - far), -1.0],
             [0.0, 0.0, near * far / (near - far), 0.0],
         ];
-        // Camera at distance 1.4 * box behind -z, looking at origin.
         let dist = BOX_SIZE * 1.4;
         let (sy, cy) = (self.frame_index as f32 * 0.0004).sin_cos();
         let eye = [sy * dist, 0.25 * BOX_SIZE, -cy * dist];
         let view = look_at(eye, [0.0, 0.0, 0.0], [0.0, 1.0, 0.0]);
         let persp = mat_mul(proj, view);
-        // Continuous torus unwrapping: blend bulk perspective with the
-        // flat boundary-CFT orthographic view by unwrap_transition.
         let t = self.unwrap_transition.clamp(0.0, 1.0);
         let mut out = persp;
         for r in 0..4 {
@@ -820,8 +2057,52 @@ impl ShbtWebGpuEngine {
         out
     }
 
-    fn compute_bind_group(&self) -> BindGroup {
-        self.device.create_bind_group(&BindGroupDescriptor {
+    fn emergence_bind_groups(&self) -> (BindGroup, BindGroup) {
+        let g0 = self.device.create_bind_group(&BindGroupDescriptor {
+            label: Some("emergence g0"),
+            layout: &self.emergence_g0_bgl,
+            entries: &[
+                BindGroupEntry {
+                    binding: 0,
+                    resource: self.emergence_params_buffer.as_entire_binding(),
+                },
+                BindGroupEntry {
+                    binding: 1,
+                    resource: self.particle_buffers[self.buffer_index].as_entire_binding(),
+                },
+                BindGroupEntry {
+                    binding: 2,
+                    resource: self.grid_density_buffer.as_entire_binding(),
+                },
+            ],
+        });
+        let g1 = self.device.create_bind_group(&BindGroupDescriptor {
+            label: Some("emergence g1"),
+            layout: &self.emergence_g1_bgl,
+            entries: &[
+                BindGroupEntry {
+                    binding: 0,
+                    resource: self.tracking_state_buffer.as_entire_binding(),
+                },
+                BindGroupEntry {
+                    binding: 1,
+                    resource: self.seed_candidates_buffer.as_entire_binding(),
+                },
+                BindGroupEntry {
+                    binding: 2,
+                    resource: self.prev_seeds_buffer.as_entire_binding(),
+                },
+                BindGroupEntry {
+                    binding: 3,
+                    resource: self.active_seeds_buffer.as_entire_binding(),
+                },
+            ],
+        });
+        (g0, g1)
+    }
+
+    fn compute_bind_group(&self) -> (BindGroup, BindGroup) {
+        let g0 = self.device.create_bind_group(&BindGroupDescriptor {
             label: Some("compute bind group"),
             layout: &self.compute_bgl,
             entries: &[
@@ -849,12 +2130,35 @@ impl ShbtWebGpuEngine {
                     binding: 4,
                     resource: BindingResource::Sampler(&self.sampler),
                 },
+                BindGroupEntry {
+                    binding: 5,
+                    resource: self.active_seeds_buffer.as_entire_binding(),
+                },
+                BindGroupEntry {
+                    binding: 6,
+                    resource: self.tracking_state_buffer.as_entire_binding(),
+                },
             ],
-        })
+        });
+        let g1 = self.device.create_bind_group(&BindGroupDescriptor {
+            label: Some("compute tether group"),
+            layout: &self.compute_g1_bgl,
+            entries: &[
+                BindGroupEntry {
+                    binding: 0,
+                    resource: self.tether_vertex_buffer.as_entire_binding(),
+                },
+                BindGroupEntry {
+                    binding: 1,
+                    resource: self.tether_indirect_buffer.as_entire_binding(),
+                },
+            ],
+        });
+        (g0, g1)
     }
 
-    fn render_bind_group(&self) -> BindGroup {
-        self.device.create_bind_group(&BindGroupDescriptor {
+    fn render_bind_groups(&self) -> (BindGroup, BindGroup) {
+        let g0 = self.device.create_bind_group(&BindGroupDescriptor {
             label: Some("render bind group"),
             layout: &self.render_bgl,
             entries: &[
@@ -867,7 +2171,30 @@ impl ShbtWebGpuEngine {
                     resource: self.camera_buffer.as_entire_binding(),
                 },
             ],
-        })
+        });
+        let g1 = self.device.create_bind_group(&BindGroupDescriptor {
+            label: Some("render emergent group"),
+            layout: &self.render_g1_bgl,
+            entries: &[
+                BindGroupEntry {
+                    binding: 0,
+                    resource: self.events_buffer.as_entire_binding(),
+                },
+                BindGroupEntry {
+                    binding: 1,
+                    resource: self.event_count_buffer.as_entire_binding(),
+                },
+                BindGroupEntry {
+                    binding: 2,
+                    resource: self.active_seeds_buffer.as_entire_binding(),
+                },
+                BindGroupEntry {
+                    binding: 3,
+                    resource: self.tracking_state_buffer.as_entire_binding(),
+                },
+            ],
+        });
+        (g0, g1)
     }
 
     fn post_bind_group(&self) -> BindGroup {
@@ -901,6 +2228,20 @@ impl ShbtWebGpuEngine {
                     binding: 4,
                     resource: self.seed_buffer.as_entire_binding(),
                 },
+                BindGroupEntry {
+                    binding: 5,
+                    resource: BindingResource::TextureView(
+                        &self.boundary_tex.create_view(&TextureViewDescriptor::default()),
+                    ),
+                },
+                BindGroupEntry {
+                    binding: 6,
+                    resource: self.condensing_buffer.as_entire_binding(),
+                },
+                BindGroupEntry {
+                    binding: 7,
+                    resource: self.glitch_buffer.as_entire_binding(),
+                },
             ],
         })
     }
@@ -922,16 +2263,97 @@ impl ShbtWebGpuEngine {
         })
     }
 
+    fn tether_bind_group(&self) -> BindGroup {
+        self.device.create_bind_group(&BindGroupDescriptor {
+            label: Some("tether bind group"),
+            layout: &self.tether_bgl,
+            entries: &[
+                BindGroupEntry {
+                    binding: 0,
+                    resource: self.camera_buffer.as_entire_binding(),
+                },
+                BindGroupEntry {
+                    binding: 1,
+                    resource: self.tether_vertex_buffer.as_entire_binding(),
+                },
+            ],
+        })
+    }
+
+    fn observer_bind_group(&self) -> BindGroup {
+        self.device.create_bind_group(&BindGroupDescriptor {
+            label: Some("observer bind group"),
+            layout: &self.observer_bgl,
+            entries: &[
+                BindGroupEntry {
+                    binding: 0,
+                    resource: self.observer_buffer.as_entire_binding(),
+                },
+                BindGroupEntry {
+                    binding: 1,
+                    resource: self.causal_observer_uniform_buffer.as_entire_binding(),
+                },
+            ],
+        })
+    }
+
+    fn tracer_compute_bind_group(&self) -> BindGroup {
+        self.device.create_bind_group(&BindGroupDescriptor {
+            label: Some("tracer compute bind group"),
+            layout: &self.tracer_compute_bgl,
+            entries: &[
+                BindGroupEntry {
+                    binding: 0,
+                    resource: self.tracer_buffer.as_entire_binding(),
+                },
+                BindGroupEntry {
+                    binding: 1,
+                    resource: BindingResource::TextureView(
+                        &self.entropy_tex.create_view(&TextureViewDescriptor::default()),
+                    ),
+                },
+                BindGroupEntry {
+                    binding: 2,
+                    resource: BindingResource::Sampler(&self.sampler),
+                },
+                BindGroupEntry {
+                    binding: 3,
+                    resource: self.tracer_params_buffer.as_entire_binding(),
+                },
+            ],
+        })
+    }
+
+    fn tracer_render_bind_group(&self) -> BindGroup {
+        self.device.create_bind_group(&BindGroupDescriptor {
+            label: Some("tracer render bind group"),
+            layout: &self.tracer_render_bgl,
+            entries: &[BindGroupEntry {
+                binding: 0,
+                resource: self.tracer_buffer.as_entire_binding(),
+            }],
+        })
+    }
+
+    fn tracer_cam_bind_group(&self) -> BindGroup {
+        self.device.create_bind_group(&BindGroupDescriptor {
+            label: Some("tracer camera bind group"),
+            layout: &self.tracer_cam_bgl,
+            entries: &[BindGroupEntry {
+                binding: 0,
+                resource: self.tracer_camera_buffer.as_entire_binding(),
+            }],
+        })
+    }
+
     /// Advance the simulation timeline by `dt_seconds` and run one
-    /// compute+render+composite frame, writing to `target` (or the canvas
-    /// surface when attached).
+    /// emergence -> nbody -> dual-channel -> composite frame.
     pub fn step(&mut self, dt_seconds: f64, target: Option<&TextureView>) {
-        // Timeline: scrub z downward; ghost seeds condense across z ~ 30..7.
+        // Timeline: scrub z downward; seeds condense organically across the
+        // cosmic-dawn window (z ~ 30 -> 7) wherever rho_E overflows N_limit.
         self.redshift = self.timeline.advance(dt_seconds);
-        if (7.0..30.0).contains(&self.redshift) {
-            self.seed_count = 4;
-            self.delta_n_bits = 6.0e59;
-        }
+        self.drain_seed_readback();
+
         let frame = encode_mmio_frame(
             self.frame_index,
             self.redshift,
@@ -942,7 +2364,11 @@ impl ShbtWebGpuEngine {
         self.queue
             .write_buffer(&self.telemetry_buffer, 0, &frame);
 
-        let f_load = telemetry::loading_fraction(self.redshift);
+        let (f_load, growth_amp) =
+            self.update_redshift_and_loading(self.redshift);
+        let mean_density = (self.mean_raw_total
+            / (GRID_DIM * GRID_DIM * GRID_DIM) as f64) as f32;
+
         let cosmo = CosmoParams {
             a: (1.0 / (1.0 + self.redshift)) as f32,
             hubble: telemetry::hubble(self.redshift) as f32,
@@ -957,6 +2383,27 @@ impl ShbtWebGpuEngine {
         };
         self.queue
             .write_buffer(&self.cosmo_buffer, 0, bytemuck::bytes_of(&cosmo));
+
+        let eparams = EmergenceParams {
+            grid_dim: GRID_DIM,
+            particle_count: self.num_particles,
+            box_size: BOX_SIZE,
+            delta_t: dt_seconds.max(1e-4) as f32,
+            redshift: self.redshift as f32,
+            f_load: f_load as f32,
+            gamma_geom: GAMMA_GEOM as f32,
+            delta_n_thresh: DELTA_N_THRESH_NORM,
+            alpha_mass: SEED_MASS_NORM,
+            landauer_rate: LANDAUER_RATE as f32,
+            track_radius: TRACK_RADIUS_MPC,
+            fixed_point_scale: FIXED_POINT_SCALE as f32,
+            k_bit: 0.0,
+            growth_amp: growth_amp as f32,
+            mean_density,
+            _pad: 0.0,
+        };
+        self.queue
+            .write_buffer(&self.emergence_params_buffer, 0, bytemuck::bytes_of(&eparams));
 
         let vp = self.view_proj();
         let eye = self.camera_eye();
@@ -978,11 +2425,25 @@ impl ShbtWebGpuEngine {
         self.queue
             .write_buffer(&self.camera_buffer, 0, bytemuck::bytes_of(&camera));
 
-        // Stage the softened point-mass seed table (micro-lensing loop).
-        let active_seeds = self.update_seed_table(&vp);
+        // Per-frame zero-fill of the condensation registers.
+        let zeros = vec![0u8; (GRID_DIM * GRID_DIM * GRID_DIM * 4) as usize];
+        self.queue.write_buffer(&self.grid_density_buffer, 0, &zeros);
+        self.queue
+            .write_buffer(&self.tracking_state_buffer, 0, &[0u8; 16]);
+        self.queue.write_buffer(
+            &self.tether_indirect_buffer,
+            0,
+            bytemuck::cast_slice(&[0u32, 1u32, 0u32, 0u32]),
+        );
 
-        // Flatten view_proj into the WGSL column-major uniform layout and
-        // fill the 224-byte LensingUniforms contract.
+        // Stage the emergent micro-lensing + observer tables (from the
+        // latest completed GPU readback).
+        let active_seeds = self.update_seed_table(&vp);
+        self.update_observer_table(&vp);
+        if self.frame_index % 4 == 0 {
+            self.upload_boundary_tex();
+        }
+
         let mut vp_flat = [0.0f32; 16];
         let mut inv_flat = [0.0f32; 16];
         let inv = mat_inv(vp);
@@ -1012,6 +2473,23 @@ impl ShbtWebGpuEngine {
         self.queue
             .write_buffer(&self.post_buffer, 0, bytemuck::bytes_of(&lensing));
 
+        let tracer_params = TracerParams {
+            dt: dt_seconds.max(1e-4) as f32,
+            max_lifetime: 240.0,
+            grid_dim: GRID_DIM,
+            step_scale: 0.6,
+        };
+        self.queue
+            .write_buffer(&self.tracer_params_buffer, 0, bytemuck::bytes_of(&tracer_params));
+        self.queue.write_buffer(
+            &self.tracer_camera_buffer,
+            0,
+            bytemuck::bytes_of(&TracerCamera {
+                view_proj: vp,
+                params: [0.004, BOX_SIZE, self.frame_index as f32 / 60.0, 1.0],
+            }),
+        );
+
         // Caustic telemetry for the HUD ledger (analytic estimates — the
         // post pass itself never read-backs G-buffer data).
         let strength = self.lensing_strength * self.channel_b;
@@ -1019,10 +2497,8 @@ impl ShbtWebGpuEngine {
         let peak_kappa = 1.185 * strength * (0.5 + 0.5 * f_load as f32)
             + 0.08 * strength * (self.frame_index as f32 * 0.1).cos();
         let mut max_te = 0.0f32;
-        if active_seeds > 0 {
-            for w in &SEED_WELLS {
-                max_te = max_te.max(w.1);
-            }
+        for s in &self.emergent_seeds {
+            max_te = max_te.max((0.0042 * (s.mass_msun).sqrt() * 1.0e-4).clamp(0.004, 0.09));
         }
         let mut caustics = active_seeds;
         if peak_kappa >= 1.0 || (peak_gamma * peak_gamma + peak_kappa * peak_kappa) > 0.8 {
@@ -1035,8 +2511,6 @@ impl ShbtWebGpuEngine {
             active_caustics: caustics,
         };
 
-        // Causal-observer Fresnel shells: active while GET clustering
-        // (0 < z <= 7); entropy scale drops to zero inside the freeze.
         let entropy_scale = if self.redshift <= 7.0 && self.redshift > 0.0 {
             1.0
         } else {
@@ -1058,24 +2532,71 @@ impl ShbtWebGpuEngine {
             bytemuck::bytes_of(&causal_uniforms),
         );
 
+        // ---- Encoder A: emergent condensation tri-pass + seed readback ----
+        let mut encoder_a = self
+            .device
+            .create_command_encoder(&CommandEncoderDescriptor {
+                label: Some("emergence encoder"),
+            });
+        // Ping-pong the tracking table: last frame's active seeds become
+        // this frame's prev_seeds for persistent-id matching.
+        encoder_a.copy_buffer_to_buffer(
+            &self.active_seeds_buffer,
+            0,
+            &self.prev_seeds_buffer,
+            0,
+            (MAX_SEEDS * 32) as u64,
+        );
+        {
+            let (g0, g1) = self.emergence_bind_groups();
+            let mut cpass = encoder_a.begin_compute_pass(&ComputePassDescriptor {
+                label: Some("emergent condensation passes"),
+                timestamp_writes: None,
+            });
+            cpass.set_pipeline(&self.emergence_cic_pipeline);
+            cpass.set_bind_group(0, &g0, &[]);
+            cpass.set_bind_group(1, &g1, &[]);
+            cpass.dispatch_workgroups((self.num_particles + 255) / 256, 1, 1);
+            cpass.set_pipeline(&self.emergence_detect_pipeline);
+            cpass.dispatch_workgroups((GRID_DIM + 3) / 4, (GRID_DIM + 3) / 4, (GRID_DIM + 3) / 4);
+            cpass.set_pipeline(&self.emergence_track_pipeline);
+            cpass.dispatch_workgroups(1, 1, 1);
+        }
+        // Entropy streamline advection (Enhancement 3).
+        {
+            let tbg = self.tracer_compute_bind_group();
+            let mut cpass = encoder_a.begin_compute_pass(&ComputePassDescriptor {
+                label: Some("entropy tracer pass"),
+                timestamp_writes: None,
+            });
+            cpass.set_pipeline(&self.tracer_compute_pipeline);
+            cpass.set_bind_group(0, &tbg, &[]);
+            cpass.dispatch_workgroups((TRACER_COUNT + 63) / 64, 1, 1);
+        }
+        self.issue_seed_readback(&mut encoder_a);
+        self.queue.submit([encoder_a.finish()]);
+        self.map_seed_readback();
+
+        // ---- Encoder B: Fast-PM + dual-channel render + composite ----
         let mut encoder = self
             .device
             .create_command_encoder(&CommandEncoderDescriptor {
                 label: Some("frame encoder"),
             });
         {
-            let bg = self.compute_bind_group();
+            let (g0, g1) = self.compute_bind_group();
             let mut cpass = encoder.begin_compute_pass(&ComputePassDescriptor {
                 label: Some("nbody_pm compute pass"),
                 timestamp_writes: None,
             });
             cpass.set_pipeline(&self.compute_pipeline);
-            cpass.set_bind_group(0, &bg, &[]);
+            cpass.set_bind_group(0, &g0, &[]);
+            cpass.set_bind_group(1, &g1, &[]);
             cpass.dispatch_workgroups((self.num_particles + 255) / 256, 1, 1);
         }
         // Double-buffered snapshot: copy the updated buffer to the shadow.
         let next = 1 - self.buffer_index;
-        let byte_len = (self.num_particles as u64) * 32;
+        let byte_len = (self.num_particles as u64) * std::mem::size_of::<Particle>() as u64;
         encoder.copy_buffer_to_buffer(
             &self.particle_buffers[self.buffer_index],
             0,
@@ -1090,7 +2611,11 @@ impl ShbtWebGpuEngine {
             let distortion_view = self
                 .distortion_tex
                 .create_view(&TextureViewDescriptor::default());
-            let bg = self.render_bind_group();
+            let (bg, bg1) = self.render_bind_groups();
+            let tbg = self.tether_bind_group();
+            let obg = self.observer_bind_group();
+            let trbg = self.tracer_render_bind_group();
+            let tcbg = self.tracer_cam_bind_group();
             let cbg = self.causal_bind_group();
             let mut rpass = encoder.begin_render_pass(&RenderPassDescriptor {
                 label: Some("dual channel render pass"),
@@ -1118,10 +2643,33 @@ impl ShbtWebGpuEngine {
             });
             rpass.set_pipeline(&self.render_pipeline);
             rpass.set_bind_group(0, &bg, &[]);
+            rpass.set_bind_group(1, &bg1, &[]);
             rpass.draw(0..6, 0..self.num_particles);
+
+            // Entropy streamline sprites (Enhancement 3).
+            rpass.set_pipeline(&self.tracer_render_pipeline);
+            rpass.set_bind_group(0, &trbg, &[]);
+            rpass.set_bind_group(1, &tcbg, &[]);
+            rpass.draw(0..6, 0..TRACER_COUNT);
+
+            // Past light cone wireframes (Enhancement 7).
+            rpass.set_pipeline(&self.cone_pipeline);
+            rpass.set_bind_group(0, &obg, &[]);
+            rpass.draw(0..32, 0..MAX_SEEDS as u32);
+
+            // Entropy budget spheres (Enhancement 8).
+            rpass.set_pipeline(&self.sphere_pipeline);
+            rpass.draw(0..6, 0..MAX_SEEDS as u32);
+
+            // Stinespring transition tethers (Enhancement 4).
+            rpass.set_pipeline(&self.tether_pipeline);
+            rpass.set_bind_group(0, &tbg, &[]);
+            rpass.draw_indirect(&self.tether_indirect_buffer, 0);
+
             // Causal-observer Fresnel ripple shells -> Channel B only.
             if entropy_scale > 0.0 {
                 rpass.set_pipeline(&self.causal_pipeline);
+                rpass.set_bind_group(0, &self.empty_bg, &[]);
                 rpass.set_bind_group(1, &cbg, &[]);
                 rpass.draw(0..6, 0..CAUSAL_NODE_COUNT as u32);
             }
@@ -1169,6 +2717,22 @@ impl ShbtWebGpuEngine {
 
     pub fn apply_dark_glow(&mut self, intensity: f32) {
         self.dark_glow_intensity = intensity.clamp(0.0, 2.0);
+    }
+
+    /// Total condensed defect mass of the emergent seed population (M_sun).
+    pub fn emergent_total_mass_msun(&self) -> f64 {
+        self.emergent_seeds
+            .iter()
+            .map(|s| s.mass_msun as f64)
+            .sum()
+    }
+
+    /// Total Landauer dissipation of the emergent seed population (GW).
+    pub fn emergent_landauer_debt_gw(&self) -> f64 {
+        self.emergent_seeds
+            .iter()
+            .map(|s| s.p_debt_gw as f64)
+            .sum()
     }
 
     /// Latest HUD metrics decoded from the telemetry frame.
@@ -1222,7 +2786,6 @@ fn look_at(eye: [f32; 3], center: [f32; 3], up: [f32; 3]) -> [[f32; 4]; 4] {
 /// General 4x4 inverse (Gauss-Jordan with partial pivoting). Matrices are
 /// stored column-major as `m[c][r]` throughout the engine.
 fn mat_inv(m: [[f32; 4]; 4]) -> [[f32; 4]; 4] {
-    // Convert to row-major working copy.
     let mut a = [[0f32; 4]; 4];
     for c in 0..4 {
         for r in 0..4 {
@@ -1234,7 +2797,6 @@ fn mat_inv(m: [[f32; 4]; 4]) -> [[f32; 4]; 4] {
         row[i] = 1.0;
     }
     for col in 0..4 {
-        // Partial pivot.
         let mut pivot = col;
         for r in col + 1..4 {
             if a[r][col].abs() > a[pivot][col].abs() {
@@ -1264,7 +2826,6 @@ fn mat_inv(m: [[f32; 4]; 4]) -> [[f32; 4]; 4] {
             }
         }
     }
-    // Store back column-major.
     let mut out = [[0f32; 4]; 4];
     for c in 0..4 {
         for r in 0..4 {
@@ -1379,8 +2940,8 @@ impl ShbtWebGpuEngine {
         engine.width = width;
         engine.height = height;
         // The post pass renders to the canvas surface format, not TARGET_FORMAT.
-        let (_c, _r, post, _cb, _rb, post_bgl) = Self::build_pipelines(&engine.device, format);
-        engine.post_pipeline = post;
+        let post_bgl = Self::build_post_layout(&engine.device);
+        engine.post_pipeline = Self::build_post_pipeline(&engine.device, &post_bgl, format);
         engine.post_bgl = post_bgl;
         Ok(engine)
     }
@@ -1424,8 +2985,12 @@ impl ShbtWebGpuEngine {
 
     #[wasm_bindgen]
     pub fn set_redshift(&mut self, z: f64) {
+        // Scrubbing pins the epoch: pause the free-running timeline so the
+        // reported redshift stays at the requested value until playback is
+        // explicitly resumed (epoch buttons re-enable it).
         self.timeline.seek(z);
         self.redshift = z;
+        self.timeline.playing = false;
     }
 
     #[wasm_bindgen]
@@ -1488,9 +3053,38 @@ impl ShbtWebGpuEngine {
         self.apply_dark_glow(intensity);
     }
 
-    /// JSON-encoded HUD metrics of the latest telemetry frame.
+    /// JSON-encoded HUD metrics of the latest telemetry frame, including
+    /// the emergent-seed telemetry channel (seedCount, totalMass,
+    /// landauerDebt) read back from the condensation kernels.
     #[wasm_bindgen]
     pub fn hud_json(&self) -> String {
+        self.hud_json_impl()
+    }
+
+    /// Debug export: emergence uniform inputs + readback state as seen by
+    /// the wasm host (diagnoses host-vs-GPU discrepancies in Dawn runs).
+    #[wasm_bindgen]
+    pub fn debug_eparams(&self) -> String {
+        let (f_load, growth_amp) = self.update_redshift_and_loading(self.redshift);
+        let mean_density = (self.mean_raw_total
+            / (GRID_DIM * GRID_DIM * GRID_DIM) as f64) as f32;
+        format!(
+            "{{\"growth_amp\":{:.6e},\"mean_density\":{:.6e},\"f_load\":{:.6e},\"particles\":{},\"in_flight\":{},\"map_started\":{},\"map_calls\":{},\"map_errors\":{},\"map_err\":\"{}\",\"seed_count\":{},\"cpu_fallback\":{},\"grid\":\"{}\",\"drains\":{},\"redshift\":{:.4}}}",
+            growth_amp, mean_density, f_load, self.num_particles,
+            self.readback.in_flight, self.readback.map_started,
+            self.readback.map_calls.load(Ordering::SeqCst), self.readback.map_errors.load(Ordering::SeqCst),
+            self.readback.map_err_text.lock().map(|t| t.clone()).unwrap_or_default(),
+            self.seed_count, self.cpu_fallback, self.debug_grid_stats, self.drain_ticks, self.redshift,
+        )
+    }
+}
+
+fn clean_zero(v: f64) -> f64 {
+    if v == 0.0 { 0.0 } else { v }
+}
+
+impl ShbtWebGpuEngine {
+    fn hud_json_impl(&self) -> String {
         let m = self.hud_metrics();
         format!(
             "{{\"z\":{:.6e},\"a\":{:.6e},\"t_gyr\":{:.6e},\"hubble\":{:.4},\
@@ -1500,7 +3094,9 @@ impl ShbtWebGpuEngine {
              \"delta_isw\":{:.6e},\"particles\":{},\"frame\":{},\
              \"delta_fr_zero\":{},\"e_munu_zero\":{},\"horizon_frozen\":{},\
              \"peak_shear\":{:.6},\"peak_convergence\":{:.6},\
-             \"max_einstein_radius\":{:.6},\"active_caustics\":{}}}",
+             \"max_einstein_radius\":{:.6},\"active_caustics\":{},\
+             \"seedCount\":{},\"totalMass\":{:.6e},\"landauerDebt\":{:.6e},\
+             \"redshift\":{:.6e}}}",
             m.redshift,
             m.scale_factor,
             m.bulk_time_gyr,
@@ -1521,10 +3117,18 @@ impl ShbtWebGpuEngine {
             self.telemetry.peak_shear,
             self.telemetry.peak_convergence,
             self.telemetry.max_einstein_radius,
-            self.telemetry.active_caustics
+            self.telemetry.active_caustics,
+            self.seed_count,
+            clean_zero(self.emergent_total_mass_msun()),
+            clean_zero(self.emergent_landauer_debt_gw()),
+            m.redshift,
         )
     }
+}
 
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen]
+impl ShbtWebGpuEngine {
     #[wasm_bindgen]
     pub fn particle_count(&self) -> u32 {
         self.num_particles
@@ -1558,8 +3162,8 @@ impl ShbtWebGpuEngine {
                 usage: BufferUsages::MAP_READ | BufferUsages::COPY_DST,
                 mapped_at_creation: false,
             });
-            let (_c, _r, post, _cb, _rb, post_bgl) =
-                Self::build_pipelines(&self.device, TextureFormat::Rgba8Unorm);
+            let post_bgl = Self::build_post_layout(&self.device);
+            let post = Self::build_post_pipeline(&self.device, &post_bgl, TextureFormat::Rgba8Unorm);
             self.capture_target = Some(tex);
             self.capture_staging = Some(staging);
             self.capture_post_pipeline = Some(post);
@@ -1637,6 +3241,54 @@ impl ShbtWebGpuEngine {
 
 #[cfg(not(target_arch = "wasm32"))]
 impl ShbtWebGpuEngine {
+    /// Debug: read back the CIC density grid and tracking state.
+    pub fn debug_emergence_stats(&self) -> String {
+        let n = (GRID_DIM * GRID_DIM * GRID_DIM) as u64;
+        let staging = self.device.create_buffer(&BufferDescriptor {
+            label: Some("dbg grid staging"),
+            size: n * 4 + 16 + (MAX_SEEDS as u64) * 64,
+            usage: BufferUsages::MAP_READ | BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+        let mut enc = self.device.create_command_encoder(&CommandEncoderDescriptor {
+            label: Some("dbg"),
+        });
+        enc.copy_buffer_to_buffer(&self.grid_density_buffer, 0, &staging, 0, n * 4);
+        enc.copy_buffer_to_buffer(&self.tracking_state_buffer, 0, &staging, n * 4, 16);
+        enc.copy_buffer_to_buffer(&self.active_seeds_buffer, 0, &staging, n * 4 + 16, (MAX_SEEDS * 32) as u64);
+        self.queue.submit([enc.finish()]);
+        let slice = staging.slice(..);
+        slice.map_async(MapMode::Read, |_| {});
+        let _ = self.device.poll(Maintain::Wait);
+        let bytes = slice.get_mapped_range().to_vec();
+        staging.unmap();
+        let data = &bytes[..];
+        let cells: Vec<u32> = data[..(n * 4) as usize]
+            .chunks_exact(4)
+            .map(|c| u32::from_le_bytes([c[0], c[1], c[2], c[3]]))
+            .collect();
+        let max_v = *cells.iter().max().unwrap_or(&0) as f64 / 1024.0;
+        let mean_v = cells.iter().map(|&v| v as f64).sum::<f64>() / cells.len() as f64 / 1024.0;
+        let ts = &data[(n * 4) as usize..(n * 4) as usize + 16];
+        let cand = u32::from_le_bytes([ts[0], ts[1], ts[2], ts[3]]);
+        let act = u32::from_le_bytes([ts[4], ts[5], ts[6], ts[7]]);
+        let mut seeds = String::new();
+        for i in 0..(act.min(5) as usize) {
+            let b = (n * 4 + 16 + i as u64 * 32) as usize;
+            let f = |o: usize| f32::from_le_bytes([data[b + o], data[b + o + 1], data[b + o + 2], data[b + o + 3]]);
+            seeds += &format!(" seed{i}: pos=({:.1},{:.1},{:.1}) m={:.3e} p={:.3e} id={:.0}", f(0), f(4), f(8), f(16), f(24), f(28));
+        }
+        format!(
+            "grid: mean={:.3} max={:.3} nonzero={} | candidates={} active={} |{}",
+            mean_v,
+            max_v,
+            cells.iter().filter(|&&v| v > 0).count(),
+            cand,
+            act,
+            seeds
+        )
+    }
+
     /// Headless engine for CI benchmarking and native runners (no surface).
     pub async fn headless(num_particles: u32) -> Result<Self, String> {
         let instance = Instance::new(InstanceDescriptor::default());
@@ -1680,9 +3332,8 @@ impl ShbtWebGpuEngine {
             view_formats: &[],
         });
         // Rebuild the post pipeline against Rgba8Unorm once.
-        let (_c, _r, post, _cb, _rb, post_bgl) =
-            Self::build_pipelines(&self.device, TextureFormat::Rgba8Unorm);
-        self.post_pipeline = post;
+        let post_bgl = Self::build_post_layout(&self.device);
+        self.post_pipeline = Self::build_post_pipeline(&self.device, &post_bgl, TextureFormat::Rgba8Unorm);
         self.post_bgl = post_bgl;
         let view = target.create_view(&TextureViewDescriptor::default());
         self.step(dt_seconds, Some(&view));
@@ -1731,5 +3382,20 @@ impl ShbtWebGpuEngine {
             out.extend_from_slice(&data[start..start + (self.width * 4) as usize]);
         }
         out
+    }
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+impl ShbtWebGpuEngine {
+    /// Native mirror of the wasm `set_redshift`/`hud_json` bindings for the
+    /// headless calibration sweep.
+    pub fn set_redshift(&mut self, z: f64) {
+        self.timeline.seek(z);
+        self.redshift = z;
+        self.timeline.playing = false;
+    }
+
+    pub fn hud_json(&self) -> String {
+        self.hud_json_impl()
     }
 }

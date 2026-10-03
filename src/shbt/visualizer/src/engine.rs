@@ -76,9 +76,13 @@ impl WasmShbtEngine {
                     (fi * 2.7182818284) % 1.0,
                     (fi * 3.1415926535) % 1.0,
                 ],
-                vis_weight: 1.0,
+                channel: 0,
                 velocity: [0.0; 3],
+                charge_flags: 0,
+                shear: [0.0; 4],
+                landauer_debt: 0.0,
                 grav_mass: 1.0 + (fi % 8.0) * 0.25,
+                _pad: [0.0; 2],
             };
             particles.push(p);
         }
@@ -170,8 +174,15 @@ impl WasmShbtEngine {
         self.ledger.update(z);
         let stinespring_active = self.ledger.stinespring_blend;
 
-        for p in self.particles.iter_mut() {
-            p.vis_weight = (1.0 - (stinespring_active * (23.0 / 33.0)) as f32).max(0.0);
+        // Stinespring de-rendering: the first 23/33 * blend of particles
+        // quench into Channel B (dark ghost); the remainder stay baryonic.
+        for (i, p) in self.particles.iter_mut().enumerate() {
+            let frac = i as f32 / self.particle_count.max(1) as f32;
+            p.channel = if frac < stinespring_active as f32 * (23.0 / 33.0) as f32 {
+                1
+            } else {
+                0
+            };
         }
 
         let is_admissible = self.ledger.is_observer_admissible();
@@ -209,22 +220,27 @@ mod tests {
 
     #[test]
     fn record_layouts_match_std430() {
-        assert_eq!(std::mem::size_of::<ParticleRecord>(), 32);
+        assert_eq!(std::mem::size_of::<ParticleRecord>(), 64);
         assert_eq!(std::mem::size_of::<CausalPointRecord>(), 64);
         assert_eq!(std::mem::size_of::<SeedDefectRecord>(), 128);
         assert_eq!(std::mem::align_of::<SeedDefectRecord>(), 16);
     }
 
     #[test]
-    fn engine_epoch_update_quenches_vis_weight() {
+    fn engine_epoch_update_quenches_channel() {
         let mut engine = WasmShbtEngine::new(64, 8, 2);
         engine.update_epoch(0.0);
-        // Full Stinespring blend at z = 0: vis_weight -> 10/33.
-        let expected = (10.0_f32 / 33.0).min(1.0);
-        for p in 0..8 {
-            let w = unsafe { &*engine.get_particle_buffer_ptr().add(p) }.vis_weight;
-            assert!((w - expected).abs() < 1e-6, "vis_weight {w} != {expected}");
+        // Full Stinespring blend at z = 0: ~23/33 of particles flip to
+        // Channel B (dark ghost), ~10/33 remain baryonic.
+        let mut dark = 0usize;
+        for p in 0..64 {
+            let c = unsafe { &*engine.get_particle_buffer_ptr().add(p) }.channel;
+            if c == 1 {
+                dark += 1;
+            }
         }
+        let expected = ((23.0_f64 / 33.0) * 64.0).round() as usize;
+        assert!((dark as i64 - expected as i64).abs() <= 1, "dark {dark} != {expected}");
         assert!(engine.get_hud_telemetry_json().contains("redshift"));
     }
 }
