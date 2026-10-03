@@ -51,6 +51,10 @@ struct LensingUniforms {
     //   coefficient, z: bloom lift gain (Enhancement 12),
     //   w: exponential depth-fog density (Enhancement 13).
     post2: vec4<f32>,
+    // shbt9 multi-plane optics: D_ms / D_s distance ratios for the
+    // 4-slice lens stack centered at z_m in {0.5, 1.2, 2.2, 3.5} with
+    // source plane z_s = 4.0 (Tier-1 angular-diameter distances).
+    post3: vec4<f32>,
 };
 
 struct SeedDefect {
@@ -84,6 +88,10 @@ struct GlitchUniforms {
 @group(0) @binding(6) var<storage, read> condensing_seeds: array<CondensationSeed>;
 @group(0) @binding(7) var<uniform> glitch: GlitchUniforms;
 @group(0) @binding(8) var bloom_tex: texture_2d<f32>;
+// shbt9 diagnostics: (x, v_x) phase-space raster for the split viewport.
+@group(0) @binding(9) var phase_space_tex: texture_2d<f32>;
+
+
 
 // Conformal boundary unwrapping: roll the 3D comoving bulk onto the
 // 2D CFT torus [0, 2pi)^2 as unwrap_transition goes 0 -> 1.
@@ -255,43 +263,37 @@ fn sample_bilateral_convergence(uv: vec2<f32>, texel: vec2<f32>, center_depth: f
     return accum_conv / max(total_weight, 0.00001);
 }
 
-@fragment
-fn fs_post(in: VertexOutput) -> @location(0) vec4<f32> {
-    let uv = in.uv;
-    let texel = vec2<f32>(1.0 / params.screen_size.x, 1.0 / params.screen_size.y);
-    let warped_uv = unwrap_torus_projection(uv);
-
-    let b_center = textureSampleLevel(channel_b_tex, tex_sampler, warped_uv, 0.0);
-    let center_depth = textureSampleLevel(channel_a_tex, tex_sampler, warped_uv, 0.0).a;
-
-    // Screen-space macro-deflection: central-difference gradient of the
-    // convergence field, corrected by the shear tensor Gamma.
-    let b_right = textureSampleLevel(channel_b_tex, tex_sampler, warped_uv + vec2<f32>(texel.x, 0.0), 0.0);
-    let b_left  = textureSampleLevel(channel_b_tex, tex_sampler, warped_uv - vec2<f32>(texel.x, 0.0), 0.0);
-    let b_up    = textureSampleLevel(channel_b_tex, tex_sampler, warped_uv + vec2<f32>(0.0, texel.y), 0.0);
-    let b_down  = textureSampleLevel(channel_b_tex, tex_sampler, warped_uv - vec2<f32>(0.0, texel.y), 0.0);
+// Macro lensing field at a screen position: central-difference gradient
+// of the Channel-B convergence field corrected by the shear tensor.
+fn macro_deflection(uv: vec2<f32>, texel: vec2<f32>) -> vec2<f32> {
+    let b_c = textureSampleLevel(channel_b_tex, tex_sampler, uv, 0.0);
+    let b_right = textureSampleLevel(channel_b_tex, tex_sampler, uv + vec2<f32>(texel.x, 0.0), 0.0);
+    let b_left  = textureSampleLevel(channel_b_tex, tex_sampler, uv - vec2<f32>(texel.x, 0.0), 0.0);
+    let b_up    = textureSampleLevel(channel_b_tex, tex_sampler, uv + vec2<f32>(0.0, texel.y), 0.0);
+    let b_down  = textureSampleLevel(channel_b_tex, tex_sampler, uv - vec2<f32>(0.0, texel.y), 0.0);
 
     let d_kappa_dx = (b_right.z - b_left.z) / (2.0 * texel.x);
     let d_kappa_dy = (b_up.z - b_down.z) / (2.0 * texel.y);
     let grad_kappa = vec2<f32>(d_kappa_dx, d_kappa_dy);
 
-    let gamma_1 = b_center.x;
-    let gamma_2 = b_center.y;
-    // Gamma . grad kappa with Gamma = [[gamma_1, gamma_2], [gamma_2, -gamma_1]]
+    let gamma_1 = b_c.x;
+    let gamma_2 = b_c.y;
     let sheared_grad = vec2<f32>(
         gamma_1 * grad_kappa.x + gamma_2 * grad_kappa.y,
         gamma_2 * grad_kappa.x - gamma_1 * grad_kappa.y
     );
+    return (grad_kappa + sheared_grad) * (params.lensing_strength * 0.0005);
+}
 
-    var alpha_macro = (grad_kappa + sheared_grad) * (params.lensing_strength * 0.0005);
-
-    // Analytical softened point-mass micro-deflection over emergent seeds:
-    // theta_E,k expands dynamically as each defect accretes boundary bits.
+// Per-slice seed micro-deflection + Shapiro delay accumulation (shbt9):
+// each emergent defect contributes theta_E^2/(r^2+eps^2) to the ray bend
+// and a (1+z_m) weighted potential-depth term to Delta t_Shapiro.
+fn seed_deflection_shapiro(uv: vec2<f32>, z_m: f32, shapiro: ptr<function, f32>) -> vec2<f32> {
     var alpha_seeds = vec2<f32>(0.0, 0.0);
     let num_seeds = min(params.seed_count, 256u);
     for (var i = 0u; i < num_seeds; i = i + 1u) {
         let s = seeds[i];
-        let diff = warped_uv - s.screen_pos;
+        let diff = uv - s.screen_pos;
         let r2 = dot(diff, diff);
         let core2 = s.core_radius * s.core_radius;
         // Clamp the near-core singularity: 64 emergent defects at
@@ -299,9 +301,48 @@ fn fs_post(in: VertexOutput) -> @location(0) vec4<f32> {
         // smear the frame into a white wash.
         let defl_mag = min((s.theta_e * s.theta_e) / (r2 + core2), 0.05);
         alpha_seeds = alpha_seeds + diff * (defl_mag * params.lensing_strength);
+        // Shapiro slab integral: Delta t_m ~ (1+z_m) * 4G/c^3 * Psi,
+        // approximated by the normalized deflection potential per seed.
+        *shapiro = *shapiro + (1.0 + z_m) * defl_mag * s.theta_e;
     }
+    return alpha_seeds;
+}
 
-    var alpha_total = alpha_macro + alpha_seeds;
+@fragment
+fn fs_post(in: VertexOutput) -> @location(0) vec4<f32> {
+    let uv = in.uv;
+
+    let texel = vec2<f32>(1.0 / params.screen_size.x, 1.0 / params.screen_size.y);
+    let warped_uv = unwrap_torus_projection(uv);
+
+    let b_center = textureSampleLevel(channel_b_tex, tex_sampler, warped_uv, 0.0);
+    let center_depth = textureSampleLevel(channel_a_tex, tex_sampler, warped_uv, 0.0).a;
+
+    // 4-slice depth-stratified multi-plane deflection (shbt9 Phase 1):
+    // the optical ray is marched through lens planes at
+    // z_m in {0.5, 1.2, 2.2, 3.5}; each slab contributes a deflection
+    // scaled by its Tier-1 distance ratio D_ms/D_s (post3[m]), and the
+    // accumulated Shapiro delay modulates the chromatic phase below.
+    var ray_uv = warped_uv;
+    var alpha_total = vec2<f32>(0.0, 0.0);
+    var shapiro_delay = 0.0;
+    // Lens slab centers z_m (dynamic indexing requires a function-scope
+    // array, not a module-scope const).
+    var lens_slices = array<f32, 4>(0.5, 1.2, 2.2, 3.5);
+    var ratio_sum = 0.0;
+    for (var m = 0u; m < 4u; m = m + 1u) {
+        ratio_sum = ratio_sum + params.post3[m];
+    }
+    ratio_sum = max(ratio_sum, 1.0e-3);
+    for (var m = 0u; m < 4u; m = m + 1u) {
+        let slice_weight = params.post3[m] / ratio_sum;
+        let d_alpha = macro_deflection(ray_uv, texel)
+            + seed_deflection_shapiro(ray_uv, lens_slices[m], &shapiro_delay);
+        // Multi-plane lens equation: the ray position on the next screen
+        // is displaced by this slab's scaled deflection.
+        ray_uv = ray_uv - d_alpha * slice_weight;
+        alpha_total = alpha_total + d_alpha * slice_weight;
+    }
     // Bound the summed warp to 20% of the frame so overlapping defects
     // produce ring structure rather than a global smear.
     let alpha_len = length(alpha_total);
@@ -342,6 +383,18 @@ fn fs_post(in: VertexOutput) -> @location(0) vec4<f32> {
     // register overflow tears the UV field around saturating cells.
     lensed_color = apply_condensation_glitch(warped_uv, lensed_color, params.time);
 
+    // Relativistic Shapiro time delay (shbt9 multi-slice optics): the
+    // accumulated Delta t_Shapiro(theta) from the 4-slab march modulates
+    // a false-color chromatic phase — deep-field delayed rays shift
+    // red while direct rays stay neutral.
+    let delay_intensity = clamp(shapiro_delay * 6.0, 0.0, 1.0);
+    let shap_rgb = vec3<f32>(
+        delay_intensity,
+        0.5 * sin(delay_intensity * 6.2831853) + 0.5,
+        1.0 - delay_intensity,
+    );
+    lensed_color = mix(lensed_color, lensed_color * (0.5 + 0.9 * shap_rgb), delay_intensity * 0.5);
+
     // Depth-aware bilateral convergence -> volumetric dark-matter halo glow.
     var dark_glow_emission = vec3<f32>(0.0);
     if (params.post0.y > 0.5) {
@@ -354,6 +407,7 @@ fn fs_post(in: VertexOutput) -> @location(0) vec4<f32> {
 
     // Sharp caustic rings around dominant Einstein radii.
     let aspect = params.screen_size.x / params.screen_size.y;
+    let num_seeds = min(params.seed_count, 256u);
     var caustic_ring_accent = 0.0;
     for (var i = 0u; i < num_seeds; i = i + 1u) {
         let s = seeds[i];
@@ -411,6 +465,16 @@ fn fs_post(in: VertexOutput) -> @location(0) vec4<f32> {
     let final_composite = aces;
 
     // Conformal boundary unwrap HUD inset (Enhancement 1).
-    let composed = render_boundary_overlay(uv, vec4<f32>(final_composite, 1.0));
+    var composed = render_boundary_overlay(uv, vec4<f32>(final_composite, 1.0));
+
+    // Split viewport (shbt9): the right half shows the (x, v_x)
+    // phase-space raster written by diagnostics.wgsl when
+    // split_viewport_mode is on. This MUST be a post-composite select,
+    // not an early return — render_boundary_overlay uses fwidth(), which
+    // requires uniform control flow in WGSL.
+    if (params.post1.y > 0.5 && uv.x > 0.5) {
+        let diag_uv = vec2<f32>((uv.x - 0.5) * 2.0, uv.y);
+        composed = textureSampleLevel(phase_space_tex, tex_sampler, diag_uv, 0.0);
+    }
     return composed;
 }

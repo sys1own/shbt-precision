@@ -37,9 +37,17 @@
 //     the cosmic mass overflow distribution)
 //
 // Pass 1 (cs_accumulate_cic): fixed-point atomic Cloud-In-Cell scatter.
+// Pass 1.5 (cs_convolve_overflow, shbt9 Thm 9.14): compact Wendland C4
+//   convolution of the overflow field over the horizon-derived
+//   correlation radius R_filter(z) = c / (k_l a H(z)) = d_H(z)/k_l,
+//   making condensation resolution-invariant (discretization error
+//   O(dx^2 / R_filter^2)). The physical R_filter is clamped to the
+//   basin support (<=4 cells) and the kernel renormalized over the
+//   truncated support so the integral stays conservative.
 // Pass 2 (cs_detect_condensation): instanton-gated nucleation attempt,
-//   26-neighborhood non-maximum suppression, centroid + overflow-mass
-//   integration over the 3x3x3 support basin, atomic append to the pool.
+//   26-neighborhood non-maximum suppression on the Wendland-smoothed
+//   overflow field, centroid + smoothed overflow-mass integration over
+//   the 3x3x3 support basin, atomic append to the pool.
 // Pass 3 (cs_temporal_tracking): minimum-image distance matching against
 //   prev_seeds for persistent IDs, accretion rates dM/dt, Landauer debt
 //   P_debt = M_seed * 906 GW/M_sun.
@@ -71,12 +79,14 @@ struct SimulationParameters {
     alpha_mass: f32,           // Seed mass per unit normalized overflow (M_sun)
     landauer_rate: f32,        // Thermodynamic dissipation rate (906 GW / M_sun)
     track_radius: f32,         // Persistence tracking radius (Mpc)
-    fixed_point_scale: f32,    // Fixed-point scaling factor (1024.0)
+    fixed_point_scale: f32,    // Fixed-point scaling factor (2^16 = 65536)
     // Repurposed slots (16-byte aligned layout preserved, 80B):
     attempt_freq: f32,         // A_0: instanton nucleation attempt rate
     frame_seed: f32,           // Per-frame decorrelation seed for pcg_hash
     mean_density: f32,         // Mean CIC cell mass (grav units)
-    _pad: f32,
+    r_filter_cells: f32,       // R_filter/dx, clamped to [1,4] (shbt9)
+    percolation_scale: f32,    // Sandbox percolation-threshold scale (0.5-2)
+    _pad2: vec2<f32>,
 };
 
 struct Particle {
@@ -118,6 +128,7 @@ const SEED_POOL_CAP: u32 = 256u;
 @group(1) @binding(1) var<storage, read_write> seed_candidates: array<SeedDefectRecord, 256>;
 @group(1) @binding(2) var<storage, read> prev_seeds: array<SeedDefectRecord, 256>;
 @group(1) @binding(3) var<storage, read_write> active_seeds: array<SeedDefectRecord, 256>;
+@group(1) @binding(4) var<storage, read_write> smoothed_overflow: array<f32>;
 
 fn get_linear_index(x: u32, y: u32, z: u32) -> u32 {
     let dim = params.grid_dim;
@@ -209,6 +220,65 @@ fn instanton_action(r_ratio: f32) -> f32 {
 }
 
 // ----------------------------------------------------------------------------
+// PASS 1.5: Wendland C4 Percolation Convolution (shbt9 Phase 1)
+// ----------------------------------------------------------------------------
+// Delta N_smooth(x_i) = sum_j [N_j - N_limit]^+ W_percolation(|x_i-x_j|; R)
+// with W(r;R) = 21/(2 pi R^3) (1-q)^4 (1+4q), q = r/R — a compact,
+// normalized C^4 spline. The kernel support is truncated to
+// r_search = min(ceil(r_filter_cells), 4) cells and renormalized over the
+// truncated support, preserving the resolution-invariance theorem's
+// O(dx^2/R^2) error bound without an unbounded stencil at high z.
+@compute @workgroup_size(4, 4, 4)
+fn cs_convolve_overflow(@builtin(global_invocation_id) id: vec3<u32>) {
+    let dim = params.grid_dim;
+    if (id.x >= dim || id.y >= dim || id.z >= dim) {
+        return;
+    }
+
+    let out_idx = get_linear_index(id.x, id.y, id.z);
+    let n_limit = cardy_limit_norm(params.redshift) * params.percolation_scale;
+    let r_filt = max(params.r_filter_cells, 1.0);
+    let r_search = i32(min(ceil(r_filt), 4.0));
+    // Kernel normalization constant 21/(2 pi R^3); cell volume in
+    // normalized (dimensionless) units is absorbed into the renormalized
+    // weight sum below.
+    let kernel_norm = 21.0 / (6.283185307 * r_filt * r_filt * r_filt);
+
+    var convolved: f32 = 0.0;
+    var w_sum: f32 = 0.0;
+    let i_dim = i32(dim);
+
+    for (var dz = -r_search; dz <= r_search; dz = dz + 1) {
+        for (var dy = -r_search; dy <= r_search; dy = dy + 1) {
+            for (var dx = -r_search; dx <= r_search; dx = dx + 1) {
+                let dist = sqrt(f32(dx * dx + dy * dy + dz * dz));
+                if (dist > r_filt) {
+                    continue;
+                }
+                let nx = u32((i32(id.x) + dx + i_dim) % i_dim);
+                let ny = u32((i32(id.y) + dy + i_dim) % i_dim);
+                let nz = u32((i32(id.z) + dz + i_dim) % i_dim);
+                let n_idx = get_linear_index(nx, ny, nz);
+                let raw = f32(atomicLoad(&grid_density[n_idx]))
+                    / params.fixed_point_scale;
+                let n_local_j = raw / max(params.mean_density, 1e-5);
+                let overflow_j = max(n_local_j - n_limit, 0.0);
+                let q = dist / r_filt;
+                let omq = 1.0 - q;
+                let w = kernel_norm * omq * omq * omq * omq * (1.0 + 4.0 * q);
+                convolved = convolved + overflow_j * w;
+                w_sum = w_sum + w;
+            }
+        }
+    }
+
+    // Renormalize over the truncated support so the convolved overflow
+    // equals the per-cell overflow density (dimensionless normalized
+    // bits): integral of W over its support is 1 by construction.
+    smoothed_overflow[out_idx] = convolved / max(w_sum, 1e-8);
+}
+
+// ----------------------------------------------------------------------------
 // PASS 2: Instanton-Gated Nucleation + 3D Non-Maximum Suppression
 // ----------------------------------------------------------------------------
 @compute @workgroup_size(4, 4, 4)
@@ -222,8 +292,11 @@ fn cs_detect_condensation(@builtin(global_invocation_id) id: vec3<u32>) {
     let raw_val = f32(atomicLoad(&grid_density[cell_idx])) / params.fixed_point_scale;
     let mean_raw = params.mean_density;
     let n_local = raw_val / max(mean_raw, 1e-5);
-    let n_limit = cardy_limit_norm(params.redshift);
-    let r_ratio = n_local / n_limit;
+    let n_limit = cardy_limit_norm(params.redshift) * params.percolation_scale;
+    // The instanton barrier is evaluated on the Wendland-smoothed field:
+    // raw cell overflow plus the convolved neighborhood contribution.
+    let n_smooth = n_local + smoothed_overflow[cell_idx];
+    let r_ratio = n_smooth / n_limit;
 
     // Barrierless condensation on overflow; suppressed tunneling draw below.
     var tunneled = false;
@@ -257,7 +330,9 @@ fn cs_detect_condensation(@builtin(global_invocation_id) id: vec3<u32>) {
                 let nx = u32((i32(id.x) + dx + i_dim) % i_dim);
                 let neighbor_idx = get_linear_index(nx, ny, nz);
                 let neighbor_val = f32(atomicLoad(&grid_density[neighbor_idx])) / params.fixed_point_scale;
-                let r_neigh = (neighbor_val / max(mean_raw, 1e-5)) / n_limit;
+                // NMS runs on the smoothed overflow field (scale-invariant
+                // condensation centers).
+                let r_neigh = (neighbor_val / max(mean_raw, 1e-5) + smoothed_overflow[neighbor_idx]) / n_limit;
 
                 if (r_neigh > r_ratio || (r_neigh == r_ratio && neighbor_idx < cell_idx)) {
                     is_local_max = false;
@@ -296,7 +371,7 @@ fn cs_detect_condensation(@builtin(global_invocation_id) id: vec3<u32>) {
 
                 let n_idx = get_linear_index(nx, ny, nz);
                 let v = f32(atomicLoad(&grid_density[n_idx])) / params.fixed_point_scale;
-                let n_local_v = v / max(mean_raw, 1e-5);
+                let n_local_v = v / max(mean_raw, 1e-5) + smoothed_overflow[n_idx];
                 let contrib = select(max(0.0, n_local_v - n_limit), n_local_v, tunneled);
 
                 sum_overflow = sum_overflow + contrib;

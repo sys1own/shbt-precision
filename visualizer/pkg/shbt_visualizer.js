@@ -263,7 +263,7 @@ function handleError(f, args) {
         wasm.__wbindgen_exn_store(addHeapObject(e));
     }
 }
-function __wbg_adapter_404(arg0, arg1, arg2, arg3) {
+function __wbg_adapter_408(arg0, arg1, arg2, arg3) {
     wasm.wasm_bindgen_c04f4cf843a15bdf___convert__closures__invoke2_mut___wasm_bindgen_c04f4cf843a15bdf___JsValue__wasm_bindgen_c04f4cf843a15bdf___JsValue_____(arg0, arg1, addHeapObject(arg2), addHeapObject(arg3));
 }
 
@@ -404,6 +404,13 @@ export class ShbtWebGpuEngine {
         wasm.shbtwebgpuengine_set_lensing_scale(this.__wbg_ptr, scale);
     }
     /**
+    * Viewport projection toggle: 0 = 3D bulk, 1 = split bulk | phase-space.
+    * @param {number} mode
+    */
+    set_viewport_mode(mode) {
+        wasm.shbtwebgpuengine_set_viewport_mode(this.__wbg_ptr, mode);
+    }
+    /**
     * Toggle the emergent seed-glitch post effect (Enhancement 11).
     * @param {boolean} enabled
     */
@@ -458,6 +465,44 @@ export class ShbtWebGpuEngine {
         } finally {
             wasm.__wbindgen_add_to_stack_pointer(16);
         }
+    }
+    /**
+    * shbt9 Phase 2: stream the six sandbox controls from the DOM
+    * (sound speed, percolation threshold, lensing strength, chromatic
+    * dispersion, target redshift, viewport split mode).
+    * @param {number} sound_speed_scale
+    * @param {number} percolation_threshold_scale
+    * @param {number} lensing_strength
+    * @param {number} chromatic_dispersion
+    * @param {number} target_redshift
+    * @param {number} viewport_split_mode
+    */
+    set_simulation_controls(sound_speed_scale, percolation_threshold_scale, lensing_strength, chromatic_dispersion, target_redshift, viewport_split_mode) {
+        wasm.shbtwebgpuengine_set_simulation_controls(this.__wbg_ptr, sound_speed_scale, percolation_threshold_scale, lensing_strength, chromatic_dispersion, target_redshift, viewport_split_mode);
+    }
+    /**
+    * Count of active sandbox observers (click-dispatched records whose
+    * entropy budget has not depleted).
+    * @returns {number}
+    */
+    get_active_observers_count() {
+        const ret = wasm.shbtwebgpuengine_get_active_observers_count(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+    * shbt9 Phase 2 click-to-measure: unproject the canvas NDC point and
+    * dispatch a causal-point observer with entropy budget
+    * R_entropy = n_limit - c_get. Returns true when the ray-volume
+    * intersection landed inside the bulk box.
+    * @param {number} ndc_x
+    * @param {number} ndc_y
+    * @param {number} c_get
+    * @param {number} n_limit
+    * @returns {boolean}
+    */
+    unproject_and_dispatch_causal_point(ndc_x, ndc_y, c_get, n_limit) {
+        const ret = wasm.shbtwebgpuengine_unproject_and_dispatch_causal_point(this.__wbg_ptr, ndc_x, ndc_y, c_get, n_limit);
+        return ret !== 0;
     }
     /**
     * JSON-encoded HUD metrics of the latest telemetry frame, including
@@ -1564,7 +1609,7 @@ function __wbg_get_imports() {
                 const a = state0.a;
                 state0.a = 0;
                 try {
-                    return __wbg_adapter_404(a, state0.b, arg0, arg1);
+                    return __wbg_adapter_408(a, state0.b, arg0, arg1);
                 } finally {
                     state0.a = a;
                 }
@@ -1635,11 +1680,11 @@ function __wbg_get_imports() {
         getInt32Memory0()[arg0 / 4 + 1] = len1;
         getInt32Memory0()[arg0 / 4 + 0] = ptr1;
     };
-    imports.wbg.__wbindgen_closure_wrapper751 = function(arg0, arg1, arg2) {
+    imports.wbg.__wbindgen_closure_wrapper758 = function(arg0, arg1, arg2) {
         const ret = makeMutClosure(arg0, arg1, 253, __wbg_adapter_26);
         return addHeapObject(ret);
     };
-    imports.wbg.__wbindgen_closure_wrapper1159 = function(arg0, arg1, arg2) {
+    imports.wbg.__wbindgen_closure_wrapper1166 = function(arg0, arg1, arg2) {
         const ret = makeMutClosure(arg0, arg1, 259, __wbg_adapter_29);
         return addHeapObject(ret);
     };

@@ -256,3 +256,117 @@ fn fs_causal(in: CausalVertexOut) -> CausalFragOut {
     out.channel_b = vec4<f32>(synthetic_shear.x, synthetic_shear.y, synthetic_conv, in.entropy_level);
     return out;
 }
+
+// ---------------------------------------------------------------------------
+// Compute Pass 3 (shbt9 Phase 1): sandbox observer measurement backaction.
+//
+// User-dispatched causal observers (CausalPointBuffer records created by
+// unproject_and_dispatch_causal_point) exert the entropic clustering pull
+// on particles intersecting their past light cone, balanced by the
+// Fluctuation-Dissipation-Theorem kinetic friction counter-term
+//   gamma_obs(x,t) = kappa_GET * <v . grad ln rho_proj> / (3 sigma_v^2)
+// which bounds the total modular Hamiltonian and preserves Liouville
+// phase-space volume. Each observer depletes its entropy budget
+//   R_entropy = N_limit - C_get
+// every step; depletion to zero terminates the measurement channel.
+//
+// The engine particle buffer (48-byte records, comoving Mpc positions) is
+// bound at binding 6 under the nbody layout; sandbox_params at binding 5.
+
+struct SandboxGetParams {
+    particle_count: u32,
+    sandbox_count: u32,
+    dt: f32,
+    kappa_get: f32,
+    gamma_scale: f32,          // FDT 1/(3 sigma_v^2) prefactor
+    box_size: f32,             // comoving Mpc/h
+    pad0: f32,
+    pad1: f32,
+};
+
+// Mirrors the 48-byte CausalObserver record shared with
+// causal_cone_render.wgsl / causal_sphere_render.wgsl.
+struct SandboxObserver {
+    position: vec3<f32>,       // comoving Mpc
+    cone_radius: f32,          // light-cone radius (Mpc)
+    entropy_budget: f32,       // R_entropy remaining (bits)
+    active_flag: u32,
+    direction: vec3<f32>,      // cone axis
+    cone_angle: f32,
+    decay_rate: f32,           // C_get per step (bits/s-equiv)
+    pad: f32,
+};
+
+struct EngineParticle {
+    position: vec3<f32>,       // comoving Mpc
+    channel: u32,
+    velocity: vec3<f32>,       // supercomoving momentum p_tilde
+    charge_flags: u32,
+    shear: vec4<f32>,
+    landauer_debt: f32,
+    grav_mass: f32,
+    pad: vec2<f32>,
+};
+
+@group(0) @binding(4) var<storage, read_write> sandbox_observers: array<SandboxObserver>;
+@group(0) @binding(5) var<uniform> sandbox_params: SandboxGetParams;
+@group(0) @binding(6) var<storage, read_write> sandbox_particles: array<EngineParticle>;
+
+const SANDBOX_SHELL_T: f32 = 4.0;   // Mpc shell thickness on the cone surface
+
+@compute @workgroup_size(256, 1, 1)
+fn cs_sandbox_get(@builtin(global_invocation_id) global_id: vec3<u32>) {
+    let p_idx = global_id.x;
+    if (p_idx >= sandbox_params.particle_count) {
+        return;
+    }
+
+    var p = sandbox_particles[p_idx];
+    let count = min(sandbox_params.sandbox_count, 1024u);
+    var a_get = vec3<f32>(0.0);
+
+    for (var i = 0u; i < count; i = i + 1u) {
+        let obs = sandbox_observers[i];
+        if (obs.active_flag == 0u || obs.entropy_budget <= 0.0) {
+            continue;
+        }
+        // Minimum-image displacement on the periodic box.
+        var r_vec = p.position - obs.position;
+        r_vec = r_vec - sandbox_params.box_size *
+            floor(r_vec / sandbox_params.box_size + vec3<f32>(0.5));
+        let dist = max(length(r_vec), 1.0e-4);
+        let delta_shell = abs(dist - obs.cone_radius);
+
+        if (delta_shell < SANDBOX_SHELL_T) {
+            let kw = 1.0 - delta_shell / SANDBOX_SHELL_T;
+            let dir = r_vec / dist;
+            // Entropic clustering pull toward the measurement cone.
+            let entropic_pull = sandbox_params.kappa_get * dir *
+                (kw / dist) * 0.01;
+            // FDT counter-term: -gamma_obs * (v . dir) dir.
+            let v_proj = dot(p.velocity, dir);
+            let gamma_obs = min(
+                sandbox_params.kappa_get * abs(v_proj) * sandbox_params.gamma_scale,
+                8.0,
+            );
+            let stabilization = -gamma_obs * v_proj * dir;
+            a_get = a_get + entropic_pull + stabilization;
+        }
+    }
+
+    p.velocity = p.velocity + a_get * sandbox_params.dt;
+    sandbox_particles[p_idx] = p;
+
+    // Observer entropy depletion: thread 0 amortizes the per-step C_get
+    // cost so the pass stays single-dispatch.
+    if (p_idx == 0u) {
+        for (var i = 0u; i < count; i = i + 1u) {
+            var obs = sandbox_observers[i];
+            obs.entropy_budget = obs.entropy_budget - obs.decay_rate * sandbox_params.dt;
+            if (obs.entropy_budget <= 0.0) {
+                obs.active_flag = 0u;
+            }
+            sandbox_observers[i] = obs;
+        }
+    }
+}

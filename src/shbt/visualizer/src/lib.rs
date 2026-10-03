@@ -22,8 +22,9 @@ mod units;
 
 pub use engine::{CausalPointRecord, ParticleRecord, SeedDefectRecord, WasmShbtEngine};
 pub use hud::{
-    HorizonLedger, HudMetrics, LensingUniforms, SeedDefect, TimelineController,
-    VisualizerEngine, VisualizerTelemetry, GAMMA_LOCK, N_SAT,
+    CausalPointRecord as HudCausalRecord, HorizonLedger, HudMetrics, LensingUniforms,
+    SeedDefect, SimulationControls, TimelineController, VisualizerEngine,
+    VisualizerTelemetry, GAMMA_LOCK, N_SAT,
 };
 pub use particle::Particle;
 pub use telemetry::encode_mmio_frame;
@@ -82,7 +83,7 @@ const DELTA_N_THRESH_NORM: f32 = 0.02;
 /// canonical alpha_seed coupling in scaled-bit units.
 const SEED_MASS_NORM: f32 = 2.0e7;
 const LANDAUER_RATE: f64 = 906.0; // GW per M_sun of collapsed register mass
-const FIXED_POINT_SCALE: f64 = 1024.0;
+const FIXED_POINT_SCALE: f64 = 65536.0; // S = 2^16 (shbt9 CIC scale)
 const TRACK_RADIUS_MPC: f32 = 12.0;
 
 // shbt7 first-principles invariants (coset CFT SO(10)_312/SU(3)_8).
@@ -139,7 +140,74 @@ struct EmergenceParams {
     attempt_freq: f32,
     frame_seed: f32,
     mean_density: f32,
-    _pad: f32,
+    // shbt9 slots: Wendland filter radius in grid cells and the sandbox
+    // percolation-threshold scale (0.5 - 2.0).
+    r_filter_cells: f32,
+    percolation_scale: f32,
+    // WGSL vec2 pad -> 80-byte uniform block (20 x f32).
+    _pad2: [f32; 3],
+}
+
+/// Mirrors `SandboxGetParams` in causal_point_get.wgsl (32 bytes).
+#[repr(C)]
+#[derive(Copy, Clone, Pod, Zeroable)]
+struct SandboxGetParams {
+    particle_count: u32,
+    sandbox_count: u32,
+    dt: f32,
+    kappa_get: f32,
+    /// FDT 1/(3 sigma_v^2) prefactor.
+    gamma_scale: f32,
+    /// Comoving box size (Mpc/h).
+    box_size: f32,
+    pad: [f32; 2],
+}
+
+/// GPU-side sandbox observer record (48 bytes, causal_point_get.wgsl
+/// `SandboxObserver`). Upload-converted from the spec's 32-byte
+/// `hud::CausalPointRecord` pool.
+#[repr(C)]
+#[derive(Copy, Clone, Pod, Zeroable)]
+struct SandboxObserverGpu {
+    position: [f32; 3],
+    cone_radius: f32,
+    entropy_budget: f32,
+    active_flag: u32,
+    direction: [f32; 3],
+    cone_angle: f32,
+    decay_rate: f32,
+    pad: f32,
+}
+
+impl From<HudCausalRecord> for SandboxObserverGpu {
+    fn from(r: HudCausalRecord) -> Self {
+        let [x, y, z, cone_radius] = r.position_world;
+        let [r_entropy, _n_limit, c_get, active] = r.entropy_budget;
+        // Cone axis: radially inward toward the box center.
+        let center = [BOX_SIZE * 0.5; 3];
+        let d = [center[0] - x, center[1] - y, center[2] - z];
+        let len = (d[0] * d[0] + d[1] * d[1] + d[2] * d[2]).sqrt().max(1.0e-4);
+        Self {
+            position: [x, y, z],
+            cone_radius,
+            entropy_budget: r_entropy,
+            active_flag: active as u32,
+            direction: [d[0] / len, d[1] / len, d[2] / len],
+            cone_angle: 0.5,
+            decay_rate: c_get.max(1.0e-3),
+            pad: 0.0,
+        }
+    }
+}
+
+/// Mirrors `DiagUniforms` in diagnostics.wgsl (16 bytes).
+#[repr(C)]
+#[derive(Copy, Clone, Pod, Zeroable)]
+struct DiagParams {
+    particle_count: u32,
+    k_min: f32,
+    k_max: f32,
+    v_max: f32,
 }
 
 #[repr(C)]
@@ -292,6 +360,14 @@ pub struct ShbtWebGpuEngine {
     emergence_cic_pipeline: ComputePipeline,
     emergence_detect_pipeline: ComputePipeline,
     emergence_track_pipeline: ComputePipeline,
+    /// shbt9 Pass 1.5: Wendland C4 percolation convolution.
+    emergence_convo_pipeline: ComputePipeline,
+    /// shbt9 sandbox observer GET + FDT backaction pass.
+    sandbox_get_pipeline: ComputePipeline,
+    /// shbt9 diagnostics: clear / P(k) reduce / phase-space raster.
+    diag_clear_pipeline: ComputePipeline,
+    diag_power_pipeline: ComputePipeline,
+    diag_phase_pipeline: ComputePipeline,
     compute_pipeline: ComputePipeline,
     render_pipeline: RenderPipeline,
     post_pipeline: RenderPipeline,
@@ -311,6 +387,8 @@ pub struct ShbtWebGpuEngine {
     // Bind group layouts.
     emergence_g0_bgl: BindGroupLayout,
     emergence_g1_bgl: BindGroupLayout,
+    sandbox_bgl: BindGroupLayout,
+    diag_bgl: BindGroupLayout,
     compute_bgl: BindGroupLayout,
     compute_g1_bgl: BindGroupLayout,
     render_bgl: BindGroupLayout,
@@ -333,10 +411,19 @@ pub struct ShbtWebGpuEngine {
     // Emergent condensation buffers.
     emergence_params_buffer: Buffer,
     grid_density_buffer: Buffer,
+    /// Wendland-smoothed overflow field (shbt9 resolution invariance).
+    smoothed_buffer: Buffer,
     tracking_state_buffer: Buffer,
     seed_candidates_buffer: Buffer,
     active_seeds_buffer: Buffer,
     prev_seeds_buffer: Buffer,
+
+    // Sandbox observer + diagnostics buffers (shbt9 Phase 1-2).
+    sandbox_params_buffer: Buffer,
+    sandbox_observers_buffer: Buffer,
+    diag_params_buffer: Buffer,
+    power_spectrum_buffer: Buffer,
+    phase_space_tex: Texture,
 
     // Stinespring tether buffers.
     tether_vertex_buffer: Buffer,
@@ -420,6 +507,16 @@ pub struct ShbtWebGpuEngine {
     glitch_enabled: bool,
     bloom_intensity: f32,
     fog_density: f32,
+    /// shbt9 sandbox control block (DOM sliders -> engine state).
+    controls: hud::SimulationControls,
+    /// User-dispatched causal-point observer pool (click-to-measure):
+    /// fixed-capacity, zero heap allocation inside the frame loop.
+    sandbox_observers: [HudCausalRecord; 1024],
+    sandbox_count: usize,
+    /// Cached inverse view-projection for click unprojection.
+    inv_view_proj: [[f32; 4]; 4],
+    /// D_ms/D_s ratios for the 4-slice lens stack (z_s = 4.0).
+    lens_slice_ratios: [f32; 4],
     telemetry: VisualizerTelemetry,
     buffer_index: usize,
     width: u32,
@@ -536,6 +633,8 @@ impl ShbtWebGpuEngine {
                 Self::storage_entry(1, ShaderStages::COMPUTE, false),
                 Self::storage_entry(2, ShaderStages::COMPUTE, true),
                 Self::storage_entry(3, ShaderStages::COMPUTE, false),
+                // shbt9: Wendland-smoothed overflow field.
+                Self::storage_entry(4, ShaderStages::COMPUTE, false),
             ],
         });
         (g0, g1)
@@ -545,7 +644,7 @@ impl ShbtWebGpuEngine {
         device: &Device,
         g0: &BindGroupLayout,
         g1: &BindGroupLayout,
-    ) -> (ComputePipeline, ComputePipeline, ComputePipeline) {
+    ) -> (ComputePipeline, ComputePipeline, ComputePipeline, ComputePipeline) {
         let shader = device.create_shader_module(ShaderModuleDescriptor {
             label: Some("seed_emergence.wgsl"),
             source: ShaderSource::Wgsl(include_str!("shaders/seed_emergence.wgsl").into()),
@@ -567,6 +666,85 @@ impl ShbtWebGpuEngine {
             mk("cic accumulate", "cs_accumulate_cic"),
             mk("condensation detect", "cs_detect_condensation"),
             mk("temporal tracking", "cs_temporal_tracking"),
+            mk("wendland convolve", "cs_convolve_overflow"),
+        )
+    }
+
+    /// cs_sandbox_get (causal_point_get.wgsl): group 0 bindings 4-6 —
+    /// sandbox observer records, the sandbox params uniform, and the
+    /// engine particle buffer under its 48-byte layout.
+    fn build_sandbox_pipeline(device: &Device) -> (BindGroupLayout, ComputePipeline) {
+        let bgl = device.create_bind_group_layout(&BindGroupLayoutDescriptor {
+            label: Some("sandbox GET layout"),
+            entries: &[
+                Self::storage_entry(4, ShaderStages::COMPUTE, false),
+                Self::uniform_entry(5, ShaderStages::COMPUTE),
+                Self::storage_entry(6, ShaderStages::COMPUTE, false),
+            ],
+        });
+        let shader = device.create_shader_module(ShaderModuleDescriptor {
+            label: Some("causal_point_get.wgsl (sandbox pass)"),
+            source: ShaderSource::Wgsl(include_str!("shaders/causal_point_get.wgsl").into()),
+        });
+        let layout = device.create_pipeline_layout(&PipelineLayoutDescriptor {
+            label: Some("sandbox GET pipeline layout"),
+            bind_group_layouts: &[&bgl],
+            push_constant_ranges: &[],
+        });
+        let pipeline = device.create_compute_pipeline(&ComputePipelineDescriptor {
+            label: Some("cs_sandbox_get pipeline"),
+            layout: Some(&layout),
+            module: &shader,
+            entry_point: "cs_sandbox_get",
+        });
+        (bgl, pipeline)
+    }
+
+    /// diagnostics.wgsl (shbt9): P(k) reduction + (x, v_x) phase-space
+    /// rasterization into a 256x256 RGBA8 storage texture.
+    fn build_diag_pipelines(
+        device: &Device,
+    ) -> (BindGroupLayout, ComputePipeline, ComputePipeline, ComputePipeline) {
+        let bgl = device.create_bind_group_layout(&BindGroupLayoutDescriptor {
+            label: Some("diagnostics layout"),
+            entries: &[
+                Self::uniform_entry(0, ShaderStages::COMPUTE),
+                Self::storage_entry(1, ShaderStages::COMPUTE, true),
+                Self::storage_entry(2, ShaderStages::COMPUTE, false),
+                BindGroupLayoutEntry {
+                    binding: 3,
+                    visibility: ShaderStages::COMPUTE,
+                    ty: BindingType::StorageTexture {
+                        access: StorageTextureAccess::WriteOnly,
+                        format: TextureFormat::Rgba8Unorm,
+                        view_dimension: TextureViewDimension::D2,
+                    },
+                    count: None,
+                },
+            ],
+        });
+        let shader = device.create_shader_module(ShaderModuleDescriptor {
+            label: Some("diagnostics.wgsl"),
+            source: ShaderSource::Wgsl(include_str!("shaders/diagnostics.wgsl").into()),
+        });
+        let layout = device.create_pipeline_layout(&PipelineLayoutDescriptor {
+            label: Some("diagnostics pipeline layout"),
+            bind_group_layouts: &[&bgl],
+            push_constant_ranges: &[],
+        });
+        let mk = |label: &str, entry: &str| {
+            device.create_compute_pipeline(&ComputePipelineDescriptor {
+                label: Some(label),
+                layout: Some(&layout),
+                module: &shader,
+                entry_point: entry,
+            })
+        };
+        (
+            bgl,
+            mk("diag clear", "clear_diagnostics"),
+            mk("diag P(k)", "reduce_power_spectrum"),
+            mk("diag phase-space", "project_phase_space"),
         )
     }
 
@@ -639,6 +817,8 @@ impl ShbtWebGpuEngine {
                 Self::storage_entry(6, ShaderStages::FRAGMENT, true),
                 Self::uniform_entry(7, ShaderStages::FRAGMENT),
                 Self::tex2d_entry(8, ShaderStages::FRAGMENT),
+                // shbt9: phase-space diagnostic texture (split viewport).
+                Self::tex2d_entry(9, ShaderStages::FRAGMENT),
             ],
         })
     }
@@ -1344,6 +1524,53 @@ impl ShbtWebGpuEngine {
             usage: BufferUsages::STORAGE | BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
+        // shbt9 Pass 1.5: Wendland C4-smoothed overflow field.
+        let smoothed_buffer = device.create_buffer(&BufferDescriptor {
+            label: Some("emergence smoothed_overflow"),
+            size: n_cells * 4,
+            usage: BufferUsages::STORAGE | BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+
+        // shbt9 sandbox observers + real-time diagnostics.
+        let sandbox_params_buffer = device.create_buffer(&BufferDescriptor {
+            label: Some("sandbox GET params (32B)"),
+            size: 32,
+            usage: BufferUsages::UNIFORM | BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+        let sandbox_observers_buffer = device.create_buffer(&BufferDescriptor {
+            label: Some("sandbox CausalPointRecord pool (1024 x 48B)"),
+            size: 1024 * 48,
+            usage: BufferUsages::STORAGE | BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+        let diag_params_buffer = device.create_buffer(&BufferDescriptor {
+            label: Some("DiagUniforms (16B)"),
+            size: 16,
+            usage: BufferUsages::UNIFORM | BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+        let power_spectrum_buffer = device.create_buffer(&BufferDescriptor {
+            label: Some("diagnostics P(k) 64-bin accumulator"),
+            size: 64 * 4,
+            usage: BufferUsages::STORAGE | BufferUsages::COPY_DST | BufferUsages::COPY_SRC,
+            mapped_at_creation: false,
+        });
+        let phase_space_tex = device.create_texture(&TextureDescriptor {
+            label: Some("phase-space (x, v_x) diagnostic texture"),
+            size: Extent3d {
+                width: 256,
+                height: 256,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: TextureDimension::D2,
+            format: TextureFormat::Rgba8Unorm,
+            usage: TextureUsages::STORAGE_BINDING | TextureUsages::TEXTURE_BINDING,
+            view_formats: &[],
+        });
 
         // Stinespring tether vertex buffer + indirect draw args.
         let tether_vertex_buffer = device.create_buffer(&BufferDescriptor {
@@ -1476,8 +1703,15 @@ impl ShbtWebGpuEngine {
         });
 
         let (emergence_g0_bgl, emergence_g1_bgl) = Self::build_emergence_layouts(&device);
-        let (emergence_cic_pipeline, emergence_detect_pipeline, emergence_track_pipeline) =
-            Self::build_emergence_pipelines(&device, &emergence_g0_bgl, &emergence_g1_bgl);
+        let (
+            emergence_cic_pipeline,
+            emergence_detect_pipeline,
+            emergence_track_pipeline,
+            emergence_convo_pipeline,
+        ) = Self::build_emergence_pipelines(&device, &emergence_g0_bgl, &emergence_g1_bgl);
+        let (sandbox_bgl, sandbox_get_pipeline) = Self::build_sandbox_pipeline(&device);
+        let (diag_bgl, diag_clear_pipeline, diag_power_pipeline, diag_phase_pipeline) =
+            Self::build_diag_pipelines(&device);
 
         let (compute_bgl, compute_g1_bgl) = Self::build_compute_layouts(&device);
         let compute_shader = device.create_shader_module(ShaderModuleDescriptor {
@@ -1589,6 +1823,11 @@ impl ShbtWebGpuEngine {
             emergence_cic_pipeline,
             emergence_detect_pipeline,
             emergence_track_pipeline,
+            emergence_convo_pipeline,
+            sandbox_get_pipeline,
+            diag_clear_pipeline,
+            diag_power_pipeline,
+            diag_phase_pipeline,
             compute_pipeline,
             render_pipeline,
             post_pipeline,
@@ -1606,6 +1845,8 @@ impl ShbtWebGpuEngine {
             tracer_render_pipeline,
             emergence_g0_bgl,
             emergence_g1_bgl,
+            sandbox_bgl,
+            diag_bgl,
             compute_bgl,
             compute_g1_bgl,
             render_bgl,
@@ -1622,10 +1863,16 @@ impl ShbtWebGpuEngine {
             particle_buffers,
             emergence_params_buffer,
             grid_density_buffer,
+            smoothed_buffer,
             tracking_state_buffer,
             seed_candidates_buffer,
             active_seeds_buffer,
             prev_seeds_buffer,
+            sandbox_params_buffer,
+            sandbox_observers_buffer,
+            diag_params_buffer,
+            power_spectrum_buffer,
+            phase_space_tex,
             tether_vertex_buffer,
             tether_indirect_buffer,
             events_buffer,
@@ -1696,6 +1943,28 @@ impl ShbtWebGpuEngine {
             glitch_enabled: true,
             bloom_intensity: 0.08,
             fog_density: 0.6,
+            controls: hud::SimulationControls {
+                sound_speed_scale: 1.0,
+                percolation_threshold_scale: 1.0,
+                lensing_strength: 1.0,
+                chromatic_dispersion: 0.25,
+                target_redshift: 30.0,
+                viewport_split_mode: 0,
+            },
+            sandbox_observers: [HudCausalRecord::default(); 1024],
+            sandbox_count: 0,
+            inv_view_proj: [[0.0; 4]; 4],
+            // D_ms/D_s for the 4-slice stack z_m in {0.5, 1.2, 2.2, 3.5},
+            // source plane z_s = 4.0 (Tier-1 angular-diameter distances).
+            lens_slice_ratios: {
+                let ds = units::CosmologicalContext::angular_diameter_distance_mpc(4.0);
+                [
+                    (units::CosmologicalContext::lens_source_distance_mpc(0.5, 4.0) / ds) as f32,
+                    (units::CosmologicalContext::lens_source_distance_mpc(1.2, 4.0) / ds) as f32,
+                    (units::CosmologicalContext::lens_source_distance_mpc(2.2, 4.0) / ds) as f32,
+                    (units::CosmologicalContext::lens_source_distance_mpc(3.5, 4.0) / ds) as f32,
+                ]
+            },
             telemetry: VisualizerTelemetry::default(),
             buffer_index: 0,
             width: 1280,
@@ -2374,6 +2643,10 @@ impl ShbtWebGpuEngine {
                     binding: 3,
                     resource: self.active_seeds_buffer.as_entire_binding(),
                 },
+                BindGroupEntry {
+                    binding: 4,
+                    resource: self.smoothed_buffer.as_entire_binding(),
+                },
             ],
         });
         (g0, g1)
@@ -2524,6 +2797,64 @@ impl ShbtWebGpuEngine {
                     binding: 8,
                     resource: BindingResource::TextureView(
                         &self.bloom_b_tex.create_view(&TextureViewDescriptor::default()),
+                    ),
+                },
+                BindGroupEntry {
+                    binding: 9,
+                    resource: BindingResource::TextureView(
+                        &self.phase_space_tex.create_view(&TextureViewDescriptor::default()),
+                    ),
+                },
+            ],
+        })
+    }
+
+    /// cs_sandbox_get bind group: observer records @4, params @5,
+    /// engine particle buffer @6.
+    fn sandbox_bind_group(&self) -> BindGroup {
+        self.device.create_bind_group(&BindGroupDescriptor {
+            label: Some("sandbox GET bind group"),
+            layout: &self.sandbox_bgl,
+            entries: &[
+                BindGroupEntry {
+                    binding: 4,
+                    resource: self.sandbox_observers_buffer.as_entire_binding(),
+                },
+                BindGroupEntry {
+                    binding: 5,
+                    resource: self.sandbox_params_buffer.as_entire_binding(),
+                },
+                BindGroupEntry {
+                    binding: 6,
+                    resource: self.particle_buffers[self.buffer_index].as_entire_binding(),
+                },
+            ],
+        })
+    }
+
+    /// diagnostics.wgsl bind group: DiagUniforms @0, particles @1,
+    /// P(k) accumulator @2, phase-space storage tex @3.
+    fn diag_bind_group(&self) -> BindGroup {
+        self.device.create_bind_group(&BindGroupDescriptor {
+            label: Some("diagnostics bind group"),
+            layout: &self.diag_bgl,
+            entries: &[
+                BindGroupEntry {
+                    binding: 0,
+                    resource: self.diag_params_buffer.as_entire_binding(),
+                },
+                BindGroupEntry {
+                    binding: 1,
+                    resource: self.particle_buffers[self.buffer_index].as_entire_binding(),
+                },
+                BindGroupEntry {
+                    binding: 2,
+                    resource: self.power_spectrum_buffer.as_entire_binding(),
+                },
+                BindGroupEntry {
+                    binding: 3,
+                    resource: BindingResource::TextureView(
+                        &self.phase_space_tex.create_view(&TextureViewDescriptor::default()),
                     ),
                 },
             ],
@@ -2682,6 +3013,12 @@ impl ShbtWebGpuEngine {
         // Wall-clock step feeds the Stinespring tether fade clock
         // (alpha *= exp(-wall_dt / 0.5 s)) independent of sim time.
         cosmo.wall_dt = dt_seconds as f32;
+        // shbt9 P-PM hydro channel: c_s^2(a) in code units times the
+        // sandbox sound-speed slider (clamped to [0, 3]).
+        cosmo.cs_sq_scaled = self.metrology.ctx.cs_sq_code(
+            self.redshift,
+            self.controls.sound_speed_scale.clamp(0.0, 3.0),
+        );
         self.queue
             .write_buffer(&self.cosmo_buffer, 0, bytemuck::bytes_of(&cosmo));
 
@@ -2701,10 +3038,68 @@ impl ShbtWebGpuEngine {
             attempt_freq: attempt_freq as f32,
             frame_seed: self.frame_index as f32,
             mean_density,
-            _pad: 0.0,
+            // shbt9 resolution invariance: R_filter(z) in grid cells,
+            // clamped to the compiled stencil radius.
+            r_filter_cells: (units::CosmologicalContext::r_filter_mpc(self.redshift)
+                / (BOX_SIZE as f64 / GRID_DIM as f64))
+            .clamp(1.0, 4.0) as f32,
+            percolation_scale: self
+                .controls
+                .percolation_threshold_scale
+                .clamp(0.5, 2.0),
+            _pad2: [0.0; 3],
         };
         self.queue
             .write_buffer(&self.emergence_params_buffer, 0, bytemuck::bytes_of(&eparams));
+
+        // shbt9 sandbox observers: stream the GET params and the active
+        // record pool (only the populated prefix is uploaded).
+        let active_sandbox = self
+            .sandbox_observers
+            .iter()
+            .filter(|r| r.entropy_budget[3] > 0.5)
+            .count() as u32;
+        let sandbox_params = SandboxGetParams {
+            particle_count: self.num_particles,
+            sandbox_count: active_sandbox,
+            dt: dt_seconds.max(1e-4) as f32,
+            kappa_get: units::kappa_get(f_load as f32),
+            gamma_scale: 1.0,
+            box_size: BOX_SIZE,
+            pad: [0.0; 2],
+        };
+        self.queue.write_buffer(
+            &self.sandbox_params_buffer,
+            0,
+            bytemuck::bytes_of(&sandbox_params),
+        );
+        if self.sandbox_count > 0 {
+            let gpu_records: Vec<SandboxObserverGpu> = self
+                .sandbox_observers
+                .iter()
+                .take(self.sandbox_count)
+                .map(|r| SandboxObserverGpu::from(*r))
+                .collect();
+            self.queue.write_buffer(
+                &self.sandbox_observers_buffer,
+                0,
+                bytemuck::cast_slice(&gpu_records),
+            );
+        }
+
+        // shbt9 diagnostics uniforms: 64 log-spaced k bins across the
+        // box's resolvable range, v_x phase-space extent at +/-4 sigma_v.
+        let diag_params = DiagParams {
+            particle_count: self.num_particles,
+            k_min: 0.5,
+            k_max: 64.0,
+            v_max: 4.0,
+        };
+        self.queue.write_buffer(
+            &self.diag_params_buffer,
+            0,
+            bytemuck::bytes_of(&diag_params),
+        );
 
         let vp = self.view_proj();
         let eye = self.camera_eye();
@@ -2751,6 +3146,7 @@ impl ShbtWebGpuEngine {
         let mut vp_flat = [0.0f32; 16];
         let mut inv_flat = [0.0f32; 16];
         let inv = mat_inv(vp);
+        self.inv_view_proj = inv;
         for r in 0..4 {
             for c in 0..4 {
                 vp_flat[c * 4 + r] = vp[c][r];
@@ -2772,13 +3168,19 @@ impl ShbtWebGpuEngine {
             _pad0: 0.0,
             _pad1: [0.0; 2],
             post0: [self.channel_a, self.channel_b, f_load as f32, 0.8],
-            post1: [self.unwrap_transition, 0.0, 0.0, 0.0],
+            post1: [
+                self.unwrap_transition,
+                self.controls.viewport_split_mode as f32,
+                0.0,
+                0.0,
+            ],
             post2: [
                 45.0f32.to_radians(), // Theta_FoV (rad)
                 self.dispersion_coeff * 0.04, // zeta_disp boundary dispersion
                 self.bloom_intensity,         // bloom lift gain (Enhancement 12)
                 self.fog_density,             // exponential depth fog (Enhancement 13)
             ],
+            post3: self.lens_slice_ratios,
         };
         self.queue
             .write_buffer(&self.post_buffer, 0, bytemuck::bytes_of(&lensing));
@@ -2876,6 +3278,9 @@ impl ShbtWebGpuEngine {
             cpass.set_bind_group(0, &g0, &[]);
             cpass.set_bind_group(1, &g1, &[]);
             cpass.dispatch_workgroups((self.num_particles + 255) / 256, 1, 1);
+            // shbt9 Pass 1.5: Wendland C4 percolation convolution.
+            cpass.set_pipeline(&self.emergence_convo_pipeline);
+            cpass.dispatch_workgroups((GRID_DIM + 3) / 4, (GRID_DIM + 3) / 4, (GRID_DIM + 3) / 4);
             cpass.set_pipeline(&self.emergence_detect_pipeline);
             cpass.dispatch_workgroups((GRID_DIM + 3) / 4, (GRID_DIM + 3) / 4, (GRID_DIM + 3) / 4);
             cpass.set_pipeline(&self.emergence_track_pipeline);
@@ -2911,6 +3316,33 @@ impl ShbtWebGpuEngine {
             cpass.set_pipeline(&self.compute_pipeline);
             cpass.set_bind_group(0, &g0, &[]);
             cpass.set_bind_group(1, &g1, &[]);
+            cpass.dispatch_workgroups((self.num_particles + 255) / 256, 1, 1);
+        }
+        // shbt9 sandbox GET backaction (causal_point_get.wgsl Pass 3):
+        // user-dispatched observers pull + FDT-stabilize nearby particles.
+        if self.sandbox_count > 0 {
+            let sbg = self.sandbox_bind_group();
+            let mut cpass = encoder.begin_compute_pass(&ComputePassDescriptor {
+                label: Some("sandbox GET pass"),
+                timestamp_writes: None,
+            });
+            cpass.set_pipeline(&self.sandbox_get_pipeline);
+            cpass.set_bind_group(0, &sbg, &[]);
+            cpass.dispatch_workgroups((self.num_particles + 255) / 256, 1, 1);
+        }
+        // shbt9 diagnostics: clear + P(k) reduce + phase-space raster.
+        {
+            let dbg = self.diag_bind_group();
+            let mut cpass = encoder.begin_compute_pass(&ComputePassDescriptor {
+                label: Some("diagnostics pass"),
+                timestamp_writes: None,
+            });
+            cpass.set_pipeline(&self.diag_clear_pipeline);
+            cpass.set_bind_group(0, &dbg, &[]);
+            cpass.dispatch_workgroups(1, 1, 1);
+            cpass.set_pipeline(&self.diag_power_pipeline);
+            cpass.dispatch_workgroups((self.num_particles + 255) / 256, 1, 1);
+            cpass.set_pipeline(&self.diag_phase_pipeline);
             cpass.dispatch_workgroups((self.num_particles + 255) / 256, 1, 1);
         }
         // Double-buffered snapshot: copy the updated buffer to the shadow.
@@ -3094,6 +3526,98 @@ impl ShbtWebGpuEngine {
 
     pub fn apply_glitch_intensity(&mut self, intensity: f32) {
         self.glitch_intensity = intensity.clamp(0.0, 1.0);
+    }
+
+    /// shbt9 sandbox control block: stream the DOM slider state into the
+    /// engine (P-PM sound-speed scale, percolation threshold, lensing,
+    /// chromatic dispersion, target redshift, viewport mode).
+    pub fn apply_simulation_controls(&mut self, controls: hud::SimulationControls) {
+        let c = controls.clamped();
+        self.controls = c;
+        // The lensing/dispersion sliders drive the same post uniforms as
+        // the legacy setters so both interfaces stay consistent.
+        self.lensing_strength = c.lensing_strength;
+        self.dispersion_coeff = c.chromatic_dispersion;
+        if c.target_redshift > 0.0 {
+            // Same pin-the-epoch semantics as the wasm set_redshift.
+            self.timeline.seek(c.target_redshift as f64);
+            self.redshift = c.target_redshift as f64;
+            self.timeline.playing = false;
+        }
+    }
+
+    /// Unproject a canvas NDC point through the cached inverse
+    /// view-projection and dispatch a sandbox causal-point observer when
+    /// the ray-volume intersection lands inside the bulk box.
+    pub fn dispatch_causal_point(
+        &mut self,
+        ndc_x: f32,
+        ndc_y: f32,
+        c_get: f32,
+        n_limit: f32,
+    ) -> bool {
+        let m = self.inv_view_proj;
+        let unproject = |ndc_z: f32| -> Option<[f32; 3]> {
+            let mut w = [0.0f32; 4];
+            for r in 0..4 {
+                w[r] = m[0][r] * ndc_x + m[1][r] * ndc_y + m[2][r] * ndc_z + m[3][r];
+            }
+            if w[3].abs() < 1.0e-6 {
+                return None;
+            }
+            Some([w[0] / w[3], w[1] / w[3], w[2] / w[3]])
+        };
+        // The click forms a world-space ray from the near to the far
+        // clip plane; the observer is placed at the midpoint of the
+        // ray's chord through the bulk box (box-centered coords,
+        // side BOX_SIZE).
+        let (Some(near), Some(far)) = (unproject(0.0), unproject(1.0)) else {
+            return false;
+        };
+        let dir = [far[0] - near[0], far[1] - near[1], far[2] - near[2]];
+        let half = BOX_SIZE * 0.5;
+        let mut t_min = 0.0f32;
+        let mut t_max = 1.0f32;
+        for i in 0..3 {
+            let d = dir[i];
+            if d.abs() < 1.0e-9 {
+                if near[i].abs() > half {
+                    return false;
+                }
+            } else {
+                let inv = 1.0 / d;
+                let mut a = (-half - near[i]) * inv;
+                let mut b = (half - near[i]) * inv;
+                if a > b {
+                    std::mem::swap(&mut a, &mut b);
+                }
+                t_min = t_min.max(a);
+                t_max = t_max.min(b);
+            }
+        }
+        if t_min > t_max {
+            return false;
+        }
+        let t = (t_min.max(0.0) + t_max.min(1.0)) * 0.5;
+        // Camera space is box-centered; comoving records live in
+        // [0, BOX_SIZE].
+        let pos = [
+            near[0] + dir[0] * t + BOX_SIZE * 0.5,
+            near[1] + dir[1] * t + BOX_SIZE * 0.5,
+            near[2] + dir[2] * t + BOX_SIZE * 0.5,
+        ];
+        let inside = pos.iter().all(|&c| (0.0..=BOX_SIZE).contains(&c));
+        let r_entropy = n_limit - c_get;
+        if !inside || r_entropy <= 0.0 {
+            return false;
+        }
+        let slot = self.sandbox_count.min(1023);
+        self.sandbox_observers[slot] = HudCausalRecord {
+            position_world: [pos[0], pos[1], pos[2], 8.0],
+            entropy_budget: [r_entropy, n_limit, c_get, 1.0],
+        };
+        self.sandbox_count = (self.sandbox_count + 1).min(1024);
+        true
     }
 
     /// Total condensed defect mass of the emergent seed population (M_sun).
@@ -3306,7 +3830,12 @@ impl ShbtWebGpuEngine {
                 &DeviceDescriptor {
                     label: Some("SHBT-Precision WebGPU Device"),
                     required_features: Features::empty(),
-                    required_limits: Limits::downlevel_defaults(),
+                    // 5 storage buffers in the emergence group (shbt9
+                    // adds the smoothed-overflow field).
+                    required_limits: Limits {
+                        max_storage_buffers_per_shader_stage: 8,
+                        ..Limits::downlevel_defaults()
+                    },
                 },
                 None,
             )
@@ -3465,6 +3994,61 @@ impl ShbtWebGpuEngine {
         self.apply_glitch_intensity(intensity);
     }
 
+    /// shbt9 Phase 2: stream the six sandbox controls from the DOM
+    /// (sound speed, percolation threshold, lensing strength, chromatic
+    /// dispersion, target redshift, viewport split mode).
+    #[wasm_bindgen]
+    pub fn set_simulation_controls(
+        &mut self,
+        sound_speed_scale: f32,
+        percolation_threshold_scale: f32,
+        lensing_strength: f32,
+        chromatic_dispersion: f32,
+        target_redshift: f32,
+        viewport_split_mode: u32,
+    ) {
+        self.apply_simulation_controls(SimulationControls {
+            sound_speed_scale,
+            percolation_threshold_scale,
+            lensing_strength,
+            chromatic_dispersion,
+            target_redshift,
+            viewport_split_mode,
+        });
+    }
+
+    /// Viewport projection toggle: 0 = 3D bulk, 1 = split bulk | phase-space.
+    #[wasm_bindgen]
+    pub fn set_viewport_mode(&mut self, mode: u32) {
+        self.controls.viewport_split_mode = mode;
+    }
+
+    /// shbt9 Phase 2 click-to-measure: unproject the canvas NDC point and
+    /// dispatch a causal-point observer with entropy budget
+    /// R_entropy = n_limit - c_get. Returns true when the ray-volume
+    /// intersection landed inside the bulk box.
+    #[wasm_bindgen]
+    pub fn unproject_and_dispatch_causal_point(
+        &mut self,
+        ndc_x: f32,
+        ndc_y: f32,
+        c_get: f32,
+        n_limit: f32,
+    ) -> bool {
+        self.dispatch_causal_point(ndc_x, ndc_y, c_get, n_limit)
+    }
+
+    /// Count of active sandbox observers (click-dispatched records whose
+    /// entropy budget has not depleted).
+    #[wasm_bindgen]
+    pub fn get_active_observers_count(&self) -> u32 {
+        self.sandbox_observers
+            .iter()
+            .take(self.sandbox_count)
+            .filter(|r| r.entropy_budget[3] > 0.5)
+            .count() as u32
+    }
+
     /// JSON-encoded HUD metrics of the latest telemetry frame, including
     /// the emergent-seed telemetry channel (seedCount, totalMass,
     /// landauerDebt) read back from the condensation kernels.
@@ -3521,6 +4105,8 @@ impl ShbtWebGpuEngine {
              \"max_einstein_radius\":{:.6},\"active_caustics\":{},\
              \"seedCount\":{},\"totalMass\":{:.6e},\"landauerDebt\":{:.6e},\
              \"glitchEnabled\":{},\"glitchIntensity\":{:.3},\
+             \"sandboxObservers\":{},\"viewportSplit\":{},\
+             \"soundSpeedScale\":{:.3},\"percolationScale\":{:.3},\
              \"redshift\":{:.6e}}}",
             jnum(m.redshift),
             jnum(m.scale_factor),
@@ -3548,6 +4134,10 @@ impl ShbtWebGpuEngine {
             jnum(clean_zero(self.emergent_landauer_debt_gw())),
             self.glitch_enabled,
             jnum(self.glitch_intensity as f64),
+            self.sandbox_count.min(1024),
+            self.controls.viewport_split_mode,
+            jnum(self.controls.sound_speed_scale as f64),
+            jnum(self.controls.percolation_threshold_scale as f64),
             jnum(m.redshift),
         )
     }
@@ -3732,7 +4322,10 @@ impl ShbtWebGpuEngine {
                 &DeviceDescriptor {
                     label: Some("SHBT headless device"),
                     required_features: Features::empty(),
-                    required_limits: Limits::downlevel_defaults(),
+                    required_limits: Limits {
+                        max_storage_buffers_per_shader_stage: 8,
+                        ..Limits::downlevel_defaults()
+                    },
                 },
                 None,
             )

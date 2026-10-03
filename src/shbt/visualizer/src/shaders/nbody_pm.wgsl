@@ -17,6 +17,12 @@
 //   F_seed = -(3 Omega_m0/2)^2 * a * (1 - (10/33) f_load)
 //            * sum_k M_tilde,k * dr / (|dr|^2 + eps_tilde^2)^(3/2)
 //   F_GET  = -kappa_GET * grad ln rho_proj(x_tilde)   (PM texture alpha)
+//   F_hydro = -cs_sq * a * grad ln rho_b(x_tilde)     (P-PM, visible only)
+// The P-PM baryon pressure term (shbt9 Eq. a_hydro = -c_s^2 grad ln rho_b,
+// Thm 9.13) applies strictly to Channel-A particles (the visible gauge
+// sector, h_i >= 23/33 analog); dark ghosts stay collisionless with an
+// infinite Jeans wavenumber. The host streams cs_sq = (c_s(z)/V_0)^2
+// folded with the sandbox sound-speed scale into cs_sq_scaled.
 // Emergent seed masses arrive as M_sun and convert via inv_m_box.
 //
 // Velocity convention: particle.velocity stores p_tilde (dimensionless
@@ -62,7 +68,7 @@ struct CosmologicalParams {
     dt_legacy: f32,          // code-time tick for de-render accruals
     inv_m_box: f32,          // 1 / M_box in M_sun^-1
     wall_dt: f32,            // wall-clock step (s) for tether fade
-    _pad: f32,
+    cs_sq_scaled: f32,       // (c_s/V_0)^2 x sound-speed scale (P-PM hydro)
 };
 
 // Emergent seed defect record (mirrors seed_emergence.wgsl output).
@@ -170,11 +176,9 @@ fn compute_seed_force(x_tilde: vec3<f32>, a_coupling: f32) -> vec3<f32> {
     return -a_coupling * cosmo.g_code * acc;
 }
 
-// GET entropic transport (shbt7 Thm 9.8 / shbt8 Eq. 7):
-//   F_GET = -kappa_GET(f_load) * grad ln rho_proj(x_tilde)
-// evaluated by central differences on the projected density carried in
-// the PM texture alpha channel.
-fn compute_get_force(x_tilde: vec3<f32>, kappa_get: f32) -> vec3<f32> {
+// Projected-density log gradient on the PM alpha channel, shared by the
+// GET entropic pull and the P-PM baryon pressure force.
+fn grad_ln_rho(x_tilde: vec3<f32>) -> vec3<f32> {
     let eps = 1.0 / cosmo.grid_size;
     let rho_c = pm_rho(x_tilde);
     let gx = pm_rho(x_tilde + vec3<f32>(eps, 0.0, 0.0))
@@ -183,17 +187,37 @@ fn compute_get_force(x_tilde: vec3<f32>, kappa_get: f32) -> vec3<f32> {
         - pm_rho(x_tilde - vec3<f32>(0.0, eps, 0.0));
     let gz = pm_rho(x_tilde + vec3<f32>(0.0, 0.0, eps))
         - pm_rho(x_tilde - vec3<f32>(0.0, 0.0, eps));
-    let grad_ln_rho = vec3<f32>(gx, gy, gz) / (2.0 * eps * max(rho_c, 1.0e-3));
-    return -kappa_get * grad_ln_rho * 0.01;
+    return vec3<f32>(gx, gy, gz) / (2.0 * eps * max(rho_c, 1.0e-3));
 }
 
-// Total supercomoving force at (x_tilde, a): PM + seed + GET.
-fn compute_total_force(x_tilde: vec3<f32>, a_eval: f32) -> vec3<f32> {
+// GET entropic transport (shbt7 Thm 9.8 / shbt8 Eq. 7):
+//   F_GET = -kappa_GET(f_load) * grad ln rho_proj(x_tilde)
+fn compute_get_force(x_tilde: vec3<f32>, kappa_get: f32) -> vec3<f32> {
+    return -kappa_get * grad_ln_rho(x_tilde) * 0.01;
+}
+
+// Conservative P-PM baryon pressure force (shbt9 Thm 9.13):
+//   a_hydro = -(c_s^2 / rho_b) grad P_b = -c_s^2 grad ln rho_b
+// Restricted to the visible sector (channel == 0, the h_i >= eta_D gauge
+// sector); ghosts collapse collisionlessly. In code units the pressure
+// acceleration carries the same conformal a-factor as gravity, so the
+// force is -cs_sq * a * grad_ln_rho with cs_sq = (c_s/V_0)^2 x scale.
+fn compute_hydro_force(x_tilde: vec3<f32>, a_eval: f32) -> vec3<f32> {
+    return -cosmo.cs_sq_scaled * a_eval * grad_ln_rho(x_tilde);
+}
+
+// Total supercomoving force at (x_tilde, a): PM + seed + GET (+ hydro
+// when the particle belongs to the visible gauge sector).
+fn compute_total_force(x_tilde: vec3<f32>, a_eval: f32, is_visible: bool) -> vec3<f32> {
     let drag = 1.0 - (10.0 / 33.0) * cosmo.f_load;
     let a_c = cosmo.g_code * a_eval * drag;
-    return compute_pm_force(x_tilde, a_c)
+    var total = compute_pm_force(x_tilde, a_c)
         + compute_seed_force(x_tilde, a_c)
         + compute_get_force(x_tilde, cosmo.kappa_get);
+    if (is_visible) {
+        total = total + compute_hydro_force(x_tilde, a_eval);
+    }
+    return total;
 }
 
 @compute @workgroup_size(256, 1, 1)
@@ -245,11 +269,12 @@ fn cs_advance_particles(@builtin(global_invocation_id) global_id: vec3<u32>) {
     var p_tilde = p.velocity;
 
     // Kick 1 (x_n, a_n)
-    p_tilde = p_tilde + cosmo.half_dtau * compute_total_force(x_tilde, cosmo.a);
+    let is_visible = p.channel == 0u;
+    p_tilde = p_tilde + cosmo.half_dtau * compute_total_force(x_tilde, cosmo.a, is_visible);
     // Drift
     x_tilde = fract(x_tilde + vec3<f32>(1.0) + cosmo.dtau * p_tilde);
     // Kick 2 (x_{n+1}, a_{n+1})
-    p_tilde = p_tilde + cosmo.half_dtau * compute_total_force(x_tilde, cosmo.a_next);
+    p_tilde = p_tilde + cosmo.half_dtau * compute_total_force(x_tilde, cosmo.a_next, is_visible);
 
     // Numerical bound: cap the supercomoving momentum so a single
     // soft-kernel fluctuation cannot send the particle to NaN (register

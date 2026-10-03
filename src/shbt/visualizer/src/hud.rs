@@ -289,12 +289,62 @@ pub struct LensingUniforms {
     /// Engine extras: x = Channel A enable, y = Channel B enable,
     /// z = f_load horizon fill, w = exposure.
     pub post0: [f32; 4],
-    /// x = unwrap_transition (0 = comoving bulk, 1 = boundary CFT torus).
+    /// x = unwrap_transition (0 = comoving bulk, 1 = boundary CFT torus),
+    /// y = split_viewport_mode (0 = 3D bulk, 1 = bulk | phase-space).
     pub post1: [f32; 4],
     /// shbt8 thin-screen metrology extras: x = Theta_FoV (radians),
     /// y = zeta_disp boundary dispersion coefficient, z = bloom lift gain
     /// (Enhancement 12), w = exponential depth-fog density (Enhancement 13).
     pub post2: [f32; 4],
+    /// shbt9 multi-plane optics: D_ms / D_s distance ratios for the
+    /// 4-slice lens stack centered at z_m in {0.5, 1.2, 2.2, 3.5}
+    /// against the source plane z_s = 4.0.
+    pub post3: [f32; 4],
+}
+
+/// Sandbox control block streamed from the DOM sliders (shbt9 Phase 2).
+/// 24 bytes: five thermodynamic/visual scalars plus the viewport mode.
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, bytemuck::Pod, bytemuck::Zeroable)]
+pub struct SimulationControls {
+    /// Baryon sound-speed scale, [0.0, 3.0] (P-PM hydro gain).
+    pub sound_speed_scale: f32,
+    /// Percolation threshold scale, [0.5, 2.0] (Cardy ceiling gate).
+    pub percolation_threshold_scale: f32,
+    /// Lensing deflection constant, [0.0, 5.0].
+    pub lensing_strength: f32,
+    /// Caustic dispersion, [0.0, 0.5].
+    pub chromatic_dispersion: f32,
+    /// Target redshift, [-0.999, 1e14].
+    pub target_redshift: f32,
+    /// Viewport projection: 0 = 3D bulk, 1 = split bulk|phase-space.
+    pub viewport_split_mode: u32,
+}
+
+impl SimulationControls {
+    /// Clamp every field into its thermodynamic control bounds.
+    pub fn clamped(mut self) -> Self {
+        self.sound_speed_scale = self.sound_speed_scale.clamp(0.0, 3.0);
+        self.percolation_threshold_scale =
+            self.percolation_threshold_scale.clamp(0.5, 2.0);
+        self.lensing_strength = self.lensing_strength.clamp(0.0, 5.0);
+        self.chromatic_dispersion = self.chromatic_dispersion.clamp(0.0, 0.5);
+        self.target_redshift = self.target_redshift.clamp(-0.999, 1.0e14);
+        self
+    }
+}
+
+/// User-dispatched causal-point observer record (shbt9 Phase 2): a
+/// ray-volume intersection landing in the bulk box instantiates an
+/// active measurement light cone with entropy budget
+/// R_entropy = N_limit - C_get. 32 bytes, zero-alloc fixed pool.
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, bytemuck::Pod, bytemuck::Zeroable)]
+pub struct CausalPointRecord {
+    /// xyz: unprojected comoving position (box units), w: cone radius.
+    pub position_world: [f32; 4],
+    /// x: R_entropy remaining, y: N_limit, z: C_get cost, w: active flag.
+    pub entropy_budget: [f32; 4],
 }
 
 /// Softened point-mass seed defect: 16 bytes, screen-space lensing record.
@@ -348,6 +398,7 @@ impl VisualizerEngine {
             post0: [1.0, 1.0, 0.0, 1.6],
             post1: [0.0; 4],
             post2: [0.7853982, 0.032, 0.08, 0.6], // Theta_FoV, zeta_disp, bloom, fog
+            post3: [0.0; 4],
         };
         uniforms.view_proj[0] = 1.0;
         uniforms.view_proj[5] = 1.0;
@@ -469,7 +520,7 @@ mod lensing_tests {
 
     #[test]
     fn lensing_uniform_layout_is_wgsl_contract() {
-        assert_eq!(std::mem::size_of::<LensingUniforms>(), 240);
+        assert_eq!(std::mem::size_of::<LensingUniforms>(), 256);
         assert_eq!(std::mem::align_of::<LensingUniforms>(), 4);
         assert_eq!(std::mem::size_of::<SeedDefect>(), 16);
         assert_eq!(std::mem::align_of::<SeedDefect>(), 4);
