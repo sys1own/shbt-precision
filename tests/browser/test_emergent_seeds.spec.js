@@ -132,4 +132,99 @@ test.describe('sys1own/shbt-precision: Emergent Seed Condensation Pipeline', () 
         const heapSizeMB = heapSizeBytes / (1024 * 1024);
         expect(heapSizeMB).toBeLessThan(256.0);
     });
+
+    // Seed-glitch refinement (shbt8): the UI toggle must reach the
+    // GlitchUniforms block, and disabling the effect must remove its
+    // coarse-pixelation signature from the post pass.
+    test('Seed Glitch Toggle: checkbox drives glitch_enabled uniform and removes pixelation', async () => {
+        test.setTimeout(300_000);
+        await page.goto('http://localhost:8080/visualizer/?capture=1');
+        await page.waitForFunction(() => window.__SHBT_ENGINE__ !== undefined);
+
+        // Scrub into the condensation era so glitch emitters exist.
+        await page.evaluate(() => window.__SHBT_ENGINE__.setRedshift(14.0));
+        await page.waitForFunction(
+            () => {
+                const t = window.__SHBT_ENGINE__.getTelemetry();
+                return t && t.z <= 14.5 && t.seedCount > 0;
+            },
+            undefined,
+            { timeout: 180_000 },
+        );
+
+        // Luminance patch of the capture canvas centre; glitch emitters
+        // are distributed over the frame so a central patch reliably
+        // intersects at least one.
+        const patch = async () =>
+            page.evaluate(() => {
+                const c = document.getElementById('capture-canvas');
+                const ctx = c.getContext('2d');
+                const W = 96;
+                const x0 = Math.floor(c.width / 2 - W / 2);
+                const y0 = Math.floor(c.height / 2 - W / 2);
+                const d = ctx.getImageData(x0, y0, W, W).data;
+                const out = new Array(W * W);
+                for (let i = 0; i < W * W; i++) {
+                    out[i] =
+                        0.2126 * d[4 * i] +
+                        0.7152 * d[4 * i + 1] +
+                        0.0722 * d[4 * i + 2];
+                }
+                return out;
+            });
+        const meanAbsDiff = (a, b) =>
+            a.reduce((s, v, i) => s + Math.abs(v - b[i]), 0) / a.length;
+
+        // Freeze the epoch so the only frame-to-frame difference is
+        // the post-pass glitch effect (the sim evolves between capture
+        // frames, which would swamp the subtle effect with scene noise).
+        await page.evaluate(async () => {
+            await window.__SHBT_ENGINE__.setPlaying(false);
+        });
+        await page.waitForTimeout(15000);
+
+        // Baseline: glitch ON at maximum intensity. Mutating calls are
+        // queued behind capture_frame_rgba (&mut borrow), so await the
+        // queued promise and then poll the telemetry frame.
+        await page.evaluate(async () => {
+            await window.__SHBT_ENGINE__.setGlitchEnabled(true);
+            await window.__SHBT_ENGINE__.setGlitchIntensity(1.0);
+        });
+        await page.waitForFunction(
+            () => {
+                const t = window.__SHBT_ENGINE__.getTelemetry();
+                return t && t.glitchEnabled === true && t.glitchIntensity > 0.9;
+            },
+            undefined,
+            { timeout: 60_000 },
+        );
+        const onPatch = await patch();
+
+        // Toggle OFF via the UI checkbox; the engine flag must drop to 0.
+        await page.evaluate(() => {
+            const el = document.getElementById('glitch-toggle');
+            el.checked = false;
+            el.dispatchEvent(new Event('change'));
+        });
+        await page.waitForFunction(
+            () => {
+                const t = window.__SHBT_ENGINE__.getTelemetry();
+                return t && t.glitchEnabled === false;
+            },
+            undefined,
+            { timeout: 60_000 },
+        );
+        const offPatch1 = await patch();
+        const offPatch2 = await patch();
+
+        // Noise floor: two consecutive glitch-OFF captures on the frozen
+        // scene. The ON frame must differ from OFF by well above that
+        // floor (the toggle changes rendered pixels), while consecutive
+        // OFF frames stay within noise of each other — i.e. the
+        // pixelated effect is absent once disabled.
+        const noiseFloor = meanAbsDiff(offPatch1, offPatch2);
+        const glitchSignal = meanAbsDiff(onPatch, offPatch1);
+        expect(glitchSignal).toBeGreaterThan(noiseFloor * 2 + 0.2);
+        expect(noiseFloor).toBeLessThan(glitchSignal);
+    });
 });

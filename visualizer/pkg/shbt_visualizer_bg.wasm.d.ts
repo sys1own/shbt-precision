@@ -11,6 +11,8 @@ export function shbtwebgpuengine_set_channels(a: number, b: number, c: number): 
 export function shbtwebgpuengine_set_dark_glow(a: number, b: number): void;
 export function shbtwebgpuengine_set_dispersion(a: number, b: number): void;
 export function shbtwebgpuengine_set_doppler_enabled(a: number, b: number): void;
+export function shbtwebgpuengine_set_glitch_enabled(a: number, b: number): void;
+export function shbtwebgpuengine_set_glitch_intensity(a: number, b: number): void;
 export function shbtwebgpuengine_set_lensing_enabled(a: number, b: number): void;
 export function shbtwebgpuengine_set_lensing_scale(a: number, b: number): void;
 export function shbtwebgpuengine_set_playing(a: number, b: number): void;

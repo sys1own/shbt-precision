@@ -263,7 +263,7 @@ function handleError(f, args) {
         wasm.__wbindgen_exn_store(addHeapObject(e));
     }
 }
-function __wbg_adapter_402(arg0, arg1, arg2, arg3) {
+function __wbg_adapter_404(arg0, arg1, arg2, arg3) {
     wasm.wasm_bindgen_c04f4cf843a15bdf___convert__closures__invoke2_mut___wasm_bindgen_c04f4cf843a15bdf___JsValue__wasm_bindgen_c04f4cf843a15bdf___JsValue_____(arg0, arg1, addHeapObject(arg2), addHeapObject(arg3));
 }
 
@@ -404,6 +404,13 @@ export class ShbtWebGpuEngine {
         wasm.shbtwebgpuengine_set_lensing_scale(this.__wbg_ptr, scale);
     }
     /**
+    * Toggle the emergent seed-glitch post effect (Enhancement 11).
+    * @param {boolean} enabled
+    */
+    set_glitch_enabled(enabled) {
+        wasm.shbtwebgpuengine_set_glitch_enabled(this.__wbg_ptr, enabled);
+    }
+    /**
     * Toggle relativistic Doppler beaming + thermal color shift.
     * @param {boolean} enabled
     */
@@ -416,6 +423,13 @@ export class ShbtWebGpuEngine {
     */
     set_lensing_enabled(enabled) {
         wasm.shbtwebgpuengine_set_lensing_enabled(this.__wbg_ptr, enabled);
+    }
+    /**
+    * Seed-glitch master intensity, clamped to [0.0, 1.0].
+    * @param {number} intensity
+    */
+    set_glitch_intensity(intensity) {
+        wasm.shbtwebgpuengine_set_glitch_intensity(this.__wbg_ptr, intensity);
     }
     /**
     * Continuous torus-unwrap transition, 0.0 = comoving bulk,
@@ -1550,7 +1564,7 @@ function __wbg_get_imports() {
                 const a = state0.a;
                 state0.a = 0;
                 try {
-                    return __wbg_adapter_402(a, state0.b, arg0, arg1);
+                    return __wbg_adapter_404(a, state0.b, arg0, arg1);
                 } finally {
                     state0.a = a;
                 }
@@ -1621,11 +1635,11 @@ function __wbg_get_imports() {
         getInt32Memory0()[arg0 / 4 + 1] = len1;
         getInt32Memory0()[arg0 / 4 + 0] = ptr1;
     };
-    imports.wbg.__wbindgen_closure_wrapper740 = function(arg0, arg1, arg2) {
+    imports.wbg.__wbindgen_closure_wrapper742 = function(arg0, arg1, arg2) {
         const ret = makeMutClosure(arg0, arg1, 253, __wbg_adapter_26);
         return addHeapObject(ret);
     };
-    imports.wbg.__wbindgen_closure_wrapper1148 = function(arg0, arg1, arg2) {
+    imports.wbg.__wbindgen_closure_wrapper1150 = function(arg0, arg1, arg2) {
         const ret = makeMutClosure(arg0, arg1, 259, __wbg_adapter_29);
         return addHeapObject(ret);
     };

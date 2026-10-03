@@ -66,6 +66,11 @@ export class ShbtWebGpuEngine {
 */
   set_lensing_scale(scale: number): void;
 /**
+* Toggle the emergent seed-glitch post effect (Enhancement 11).
+* @param {boolean} enabled
+*/
+  set_glitch_enabled(enabled: boolean): void;
+/**
 * Toggle relativistic Doppler beaming + thermal color shift.
 * @param {boolean} enabled
 */
@@ -75,6 +80,11 @@ export class ShbtWebGpuEngine {
 * @param {boolean} enabled
 */
   set_lensing_enabled(enabled: boolean): void;
+/**
+* Seed-glitch master intensity, clamped to [0.0, 1.0].
+* @param {number} intensity
+*/
+  set_glitch_intensity(intensity: number): void;
 /**
 * Continuous torus-unwrap transition, 0.0 = comoving bulk,
 * 1.0 = flat boundary CFT torus [0, 2pi)^2.
@@ -267,6 +277,8 @@ export interface InitOutput {
   readonly shbtwebgpuengine_set_dark_glow: (a: number, b: number) => void;
   readonly shbtwebgpuengine_set_dispersion: (a: number, b: number) => void;
   readonly shbtwebgpuengine_set_doppler_enabled: (a: number, b: number) => void;
+  readonly shbtwebgpuengine_set_glitch_enabled: (a: number, b: number) => void;
+  readonly shbtwebgpuengine_set_glitch_intensity: (a: number, b: number) => void;
   readonly shbtwebgpuengine_set_lensing_enabled: (a: number, b: number) => void;
   readonly shbtwebgpuengine_set_lensing_scale: (a: number, b: number) => void;
   readonly shbtwebgpuengine_set_playing: (a: number, b: number) => void;

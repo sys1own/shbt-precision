@@ -68,7 +68,10 @@ struct CondensationSeed {
 
 struct GlitchUniforms {
     count: u32,
+    u_glitch_intensity: f32,      // master gain on the glitch blend [0,1]
+    u_glitch_enabled: u32,        // 0 disables the effect entirely
     _pad: vec4<f32>,
+    _pad2: vec4<f32>,
 };
 
 @group(0) @binding(0) var channel_a_tex: texture_2d<f32>;
@@ -170,27 +173,31 @@ fn hash_noise(p: vec2<f32>) -> f32 {
     return fract((p3.x + p3.y) * dot_val);
 }
 
-// Enhancement 11: localized UV quantization / tearing around condensing
-// register cells (pre-nucleation overflow glitch).
+// Enhancement 11: subtle, localized UV quantization around condensing
+// register cells (pre-nucleation overflow glitch). Refined (shbt8): the
+// effect is a faint nuance — tight radius, fine pixelation, low blend
+// opacity — and fully toggleable via u_glitch_enabled.
 fn apply_condensation_glitch(uv: vec2<f32>, base_color: vec3<f32>, time: f32) -> vec3<f32> {
+    if (glitch.u_glitch_enabled == 0u) { return base_color; }
     var out_col = base_color;
     let count = min(glitch.count, 256u);
 
     for (var i = 0u; i < count; i = i + 1u) {
         let seed = condensing_seeds[i];
         let d = distance(uv, seed.screen_pos);
-        let glitch_radius = 0.075 * clamp(seed.saturation, 0.0, 1.2);
+        let glitch_radius = 0.025 * clamp(seed.saturation, 0.0, 1.2);
 
         if (d < glitch_radius) {
             let falloff = 1.0 - (d / glitch_radius);
-            let coarse_uv = floor(uv * 48.0) / 48.0;
+            let coarse_uv = floor(uv * 256.0) / 256.0;
             let noise = hash_noise(floor(uv * 128.0) + floor(time * 60.0));
 
             var glitch_sample = textureSampleLevel(channel_a_tex, tex_sampler, coarse_uv, 0.0).rgb;
             if (noise > 0.6) {
-                glitch_sample = mix(glitch_sample, vec3<f32>(0.2, 0.9, 1.0) * noise, 0.85);
+                glitch_sample = mix(glitch_sample, vec3<f32>(0.2, 0.9, 1.0) * 0.5 * noise, 0.4);
             }
-            out_col = mix(out_col, glitch_sample, falloff * clamp(seed.saturation, 0.1, 0.95));
+            out_col = mix(out_col, glitch_sample,
+                          falloff * clamp(seed.saturation * glitch.u_glitch_intensity, 0.0, 0.25));
         }
     }
     return out_col;

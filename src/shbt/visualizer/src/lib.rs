@@ -205,11 +205,16 @@ struct CondensingSeedGpu {
     pad: [f32; 4],
 }
 
+/// Mirrors `GlitchUniforms` in holographic_post.wgsl (48B): the
+/// condensation-glitch emitters' count plus the toggle/intensity
+/// controls (shbt8 refinement — subtle, localized nuance).
 #[repr(C)]
 #[derive(Copy, Clone, Pod, Zeroable)]
 struct GlitchUniforms {
     count: u32,
-    _pad: [u32; 7],
+    intensity: f32,
+    enabled: u32,
+    _pad: [u32; 9],
 }
 
 /// Mirrors `Tracer` in entropy_tracer.wgsl (32B stride).
@@ -399,6 +404,8 @@ pub struct ShbtWebGpuEngine {
     dark_glow_intensity: f32,
     dark_glow_radius: f32,
     doppler_enabled: bool,
+    glitch_intensity: f32,
+    glitch_enabled: bool,
     telemetry: VisualizerTelemetry,
     buffer_index: usize,
     width: u32,
@@ -1549,6 +1556,8 @@ impl ShbtWebGpuEngine {
             dark_glow_intensity: 0.8,
             dark_glow_radius: 4.0,
             doppler_enabled: true,
+            glitch_intensity: 0.1,
+            glitch_enabled: true,
             telemetry: VisualizerTelemetry::default(),
             buffer_index: 0,
             width: 1280,
@@ -1686,7 +1695,9 @@ impl ShbtWebGpuEngine {
             0,
             bytemuck::bytes_of(&GlitchUniforms {
                 count: active,
-                _pad: [0; 7],
+                intensity: self.glitch_intensity,
+                enabled: self.glitch_enabled as u32,
+                _pad: [0; 9],
             }),
         );
         active
@@ -2871,6 +2882,17 @@ impl ShbtWebGpuEngine {
         self.dark_glow_intensity = intensity.clamp(0.0, 2.0);
     }
 
+    /// Emergent seed-glitch toggle and master intensity (shbt8
+    /// refinement): the effect is disabled wholesale when the flag is
+    /// off; otherwise `intensity` in [0, 1] scales the blend opacity.
+    pub fn apply_glitch_enabled(&mut self, enabled: bool) {
+        self.glitch_enabled = enabled;
+    }
+
+    pub fn apply_glitch_intensity(&mut self, intensity: f32) {
+        self.glitch_intensity = intensity.clamp(0.0, 1.0);
+    }
+
     /// Total condensed defect mass of the emergent seed population (M_sun).
     pub fn emergent_total_mass_msun(&self) -> f64 {
         self.emergent_seeds
@@ -3228,6 +3250,18 @@ impl ShbtWebGpuEngine {
         self.apply_dark_glow(intensity);
     }
 
+    /// Toggle the emergent seed-glitch post effect (Enhancement 11).
+    #[wasm_bindgen]
+    pub fn set_glitch_enabled(&mut self, enabled: bool) {
+        self.apply_glitch_enabled(enabled);
+    }
+
+    /// Seed-glitch master intensity, clamped to [0.0, 1.0].
+    #[wasm_bindgen]
+    pub fn set_glitch_intensity(&mut self, intensity: f32) {
+        self.apply_glitch_intensity(intensity);
+    }
+
     /// JSON-encoded HUD metrics of the latest telemetry frame, including
     /// the emergent-seed telemetry channel (seedCount, totalMass,
     /// landauerDebt) read back from the condensation kernels.
@@ -3283,6 +3317,7 @@ impl ShbtWebGpuEngine {
              \"peak_shear\":{:.6},\"peak_convergence\":{:.6},\
              \"max_einstein_radius\":{:.6},\"active_caustics\":{},\
              \"seedCount\":{},\"totalMass\":{:.6e},\"landauerDebt\":{:.6e},\
+             \"glitchEnabled\":{},\"glitchIntensity\":{:.3},\
              \"redshift\":{:.6e}}}",
             jnum(m.redshift),
             jnum(m.scale_factor),
@@ -3308,6 +3343,8 @@ impl ShbtWebGpuEngine {
             self.seed_count,
             jnum(clean_zero(self.emergent_total_mass_msun())),
             jnum(clean_zero(self.emergent_landauer_debt_gw())),
+            self.glitch_enabled,
+            jnum(self.glitch_intensity as f64),
             jnum(m.redshift),
         )
     }

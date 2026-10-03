@@ -207,6 +207,13 @@ async def record() -> tuple[list[dict], Path | None]:
             timeout=60_000,
         )
 
+        # Canonical suite records clean physics: the seed-glitch post
+        # effect stays enabled for the interactive page but is switched
+        # off here so the milestone frames carry no rendering nuance.
+        await page.evaluate(
+            "() => window.__SHBT_ENGINE__.setGlitchEnabled(false)"
+        )
+
         # Smooth descent from the primordial loading scale through the
         # baryogenesis window so the run is continuous, not a jump cut.
         await page.evaluate(
