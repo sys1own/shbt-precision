@@ -6,8 +6,13 @@
 //   2. Micro-deflection from emergent topological seed defects; the
 //      Einstein radius is evaluated dynamically from each condensed mass:
 //        theta_E,k = sqrt(4 G M_seed,k / c^2 * D_ds / (D_d D_s))
-//      (see evaluate_holographic_lensing; the host projects the emergent
-//      centroids and fills theta_e per seed each frame).
+//      with D_d, D_s, D_ds evaluated on the Tier-1 H_SHBT background
+//      (units::CosmologicalContext; Thm 9.12) and the screen-space radius
+//      theta_E^screen = theta_E / Theta_FoV. The host projects the
+//      emergent centroids and fills theta_e per seed each frame.
+//      Boundary chromatic dispersion (shbt8 Eq. Thm 9.12):
+//        delta_disp(lambda) = zeta_disp * [(550 nm / lambda)^2 - 1]
+//      evaluated at the canonical optical bands B=436, G=546, R=700 nm.
 //
 // shbt6 visual enhancements composited here:
 //   - Conformal Boundary Unwrap Overlay (Enhancement 1): lower-right inset
@@ -41,6 +46,10 @@ struct LensingUniforms {
     post0: vec4<f32>,             // x: channel A on, y: channel B on,
                                   // z: f_load (horizon fill), w: exposure
     post1: vec4<f32>,             // x: unwrap_transition (0 bulk, 1 torus)
+    // shbt8 thin-screen metrology extras:
+    //   x: Theta_FoV (radians), y: zeta_disp boundary dispersion
+    //   coefficient, z/w reserved.
+    post2: vec4<f32>,
 };
 
 struct SeedDefect {
@@ -291,12 +300,21 @@ fn fs_post(in: VertexOutput) -> @location(0) vec4<f32> {
         alpha_total = alpha_total * (0.2 / alpha_len);
     }
 
-    // Wave-optics 3-tap chromatic dispersion: R/G/B sample coordinates
-    // scaled by delta_disp so critical curves fringe into spectra.
-    let disp = params.dispersion_coeff * 0.08;
-    let uv_r = clamp(warped_uv - alpha_total * (1.0 - disp), vec2<f32>(0.0), vec2<f32>(1.0));
-    let uv_g = clamp(warped_uv - alpha_total, vec2<f32>(0.0), vec2<f32>(1.0));
-    let uv_b = clamp(warped_uv - alpha_total * (1.0 + disp), vec2<f32>(0.0), vec2<f32>(1.0));
+    // Boundary chromatic dispersion (shbt8 Thm 9.12): the screen
+    // deflection for each optical band follows
+    //   delta_disp(lambda) = zeta_disp * [(lambda_0 / lambda)^2 - 1]
+    // with lambda_0 = 550 nm reference and canonical bands
+    // B = 436 nm, G = 546 nm, R = 700 nm ->
+    //   delta_B = +0.5917 zeta, delta_G = +0.0147 zeta, delta_R = -0.3820 zeta
+    // (zeta_disp ~ 0.04 at full slider -> delta_B ~ +0.0237, matching
+    // the boundary-dispersion table).
+    let zeta = params.post2.y;
+    let disp_b = zeta * 0.5917;   // (550/436)^2 - 1
+    let disp_g = zeta * 0.0147;   // (550/546)^2 - 1
+    let disp_r = zeta * -0.3820;  // (550/700)^2 - 1
+    let uv_r = clamp(warped_uv - alpha_total * (1.0 + disp_r), vec2<f32>(0.0), vec2<f32>(1.0));
+    let uv_g = clamp(warped_uv - alpha_total * (1.0 + disp_g), vec2<f32>(0.0), vec2<f32>(1.0));
+    let uv_b = clamp(warped_uv - alpha_total * (1.0 + disp_b), vec2<f32>(0.0), vec2<f32>(1.0));
 
     var rad_r = textureSampleLevel(channel_a_tex, tex_sampler, uv_r, 0.0).r;
     var rad_g = textureSampleLevel(channel_a_tex, tex_sampler, uv_g, 0.0).g;
@@ -361,10 +379,13 @@ fn fs_post(in: VertexOutput) -> @location(0) vec4<f32> {
     let raw_composite = (lensed_color + dark_glow_emission + caustic_rgb + causal_rgb + horizon_rgb + grid_rgb)
         * params.post0.w;
 
-    // Filmic tone map: the uniform pre-onset foam additively stacks many
-    // quads per pixel; compress highlights so dense regions expose detail
-    // instead of clipping to white. 1 - exp(-x) keeps dark lanes dark.
-    let final_composite = vec3<f32>(1.0) - exp(-raw_composite);
+    // Reinhard HDR tonemap (shbt8 Phase 2): x -> x/(1+x) compresses the
+    // multi-billboard accumulation without clipping, followed by a
+    // gentle contrast S-curve c^2(3-2c) so dense structure stays
+    // legible instead of saturating.
+    var reinhard = raw_composite / (vec3<f32>(1.0) + raw_composite);
+    reinhard = reinhard * reinhard * (vec3<f32>(3.0) - 2.0 * reinhard);
+    let final_composite = reinhard;
 
     // Conformal boundary unwrap HUD inset (Enhancement 1).
     let composed = render_boundary_overlay(uv, vec4<f32>(final_composite, 1.0));

@@ -5,7 +5,8 @@
 //! Layout contract (shbt6 spec, `ParticleGpu`):
 //!   position[3]      comoving coordinates in Mpc/h
 //!   channel          0 = Channel A (baryon), 1 = Channel B (dark ghost)
-//!   velocity[3]      peculiar velocity in km/s
+//!   velocity[3]      supercomoving momentum p_tilde (shbt8; physical
+//!                    peculiar velocity v = p_tilde * V_0 / a)
 //!   charge_flags     bit 0: active gauge charge; bits 1-31: phase age
 //!   shear[4]         gamma_1, gamma_2, convergence kappa, unused
 //!   landauer_debt    accumulated thermodynamic cost Delta N (scaled bits)

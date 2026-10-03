@@ -44,9 +44,12 @@ struct CrystallizationEvent {
     _pad: f32,
 };
 
-// Characteristic velocity scale used to normalize particle velocities
-// into relativistic beta factors for the Doppler beaming model.
-const C_SPEED: f32 = 60.0;
+// Velocity conventions (shbt8): particle.velocity stores the
+// supercomoving momentum p_tilde; the physical peculiar velocity is
+// v = p_tilde * V_0 / a with V_0 = H_0 * L_box ~ 2.0e4 km/s for the
+// canonical 200 Mpc/h patch. Doppler beaming uses the physical beta.
+const V0_KMS: f32 = 20000.0;
+const C_SPEED: f32 = 299792.458;
 
 // Thermal Stinespring channel overlap (shbt7 Section 4 / Thm 9.10):
 // Channel-A visibility follows the anti-baryon scaling dimension
@@ -57,12 +60,18 @@ const ETA_D: f32 = 0.6969696970;   // 23/33
 const Z_N: f32 = 7.356e10;         // modular crossover redshift
 const DELTA_BBAR: f32 = 8.6666667; // 26/3 anti-baryon scaling dimension
 
-fn evaluate_stinespring_channel(z: f32) -> f32 {
+// Returns (w_vis(z), d w_vis / d z) — the thermal isometric overlap and
+// its cooling rate across the modular crossover (shbt8 spec signature).
+fn evaluate_stinespring_channel(z: f32) -> vec2<f32> {
     if (z <= 0.0) {
-        return 1.0 - ETA_D;
+        return vec2<f32>(1.0 - ETA_D, 0.0);
     }
-    let power = pow(Z_N / max(z, 1.0e-3), DELTA_BBAR);
-    return (1.0 - ETA_D) + ETA_D / (1.0 + power);
+    let zz = max(z, 1.0e-3);
+    let power = pow(Z_N / zz, DELTA_BBAR);
+    let denom = 1.0 + power;
+    let w_vis = (1.0 - ETA_D) + ETA_D / denom;
+    let dw_dz = ETA_D * power * DELTA_BBAR / (zz * denom * denom);
+    return vec2<f32>(w_vis, dw_dz);
 }
 
 // Blackbody thermal color mapping (Tanner Helland approximation):
@@ -106,22 +115,33 @@ fn compute_landauer_emission(debt: f32) -> vec3<f32> {
     return heat * (norm * 3.8);
 }
 
-// Anti-baryon charge visualization (Enhancement 5): unquenched Channel-A
-// anti-baryons fringe at ~410 nm violet; quenched Channel-B ghosts fall
-// back to the dark-sector tint.
-fn resolve_charge_color(p: Particle, time: f32) -> vec4<f32> {
+// Baryogenesis color map (shbt8 Phase 2): Channel-A baryons (10/33
+// sector) render solar-gold (1.0, 0.85, 0.5); unquenched anti-baryons
+// (23/33 sector) burn electric-violet (0.8, 0.2, 1.0) at z > 1e12 and
+// pass through a thermal cooling gradient over z in [1e12, 1e9] as the
+// Stinespring visibility weight w_vis -> 0. Below z = 1e9 anti-baryon
+// Channel-A emission is extinguished — they persist only as Channel-B
+// gravitational ghosts.
+fn resolve_charge_color(p: Particle, time: f32, z: f32) -> vec4<f32> {
     let has_unquenched_charge = (p.charge_flags & 1u) != 0u;
 
     if (p.channel == 0u) {
         if (has_unquenched_charge) {
             let osc = sin(time * 28.0 + dot(p.position, vec3<f32>(12.0)));
-            let deep_violet = vec3<f32>(0.62, 0.12, 0.94);
-            let charge_fringe = vec3<f32>(0.85, 0.45, 1.0) * (0.8 + 0.2 * osc);
-            return vec4<f32>(mix(deep_violet, charge_fringe, 0.6), 0.95);
+            let electric_violet = vec3<f32>(0.8, 0.2, 1.0);
+            // Thermal cooling gradient: effective temperature slides
+            // 40000 K -> 2500 K as z sweeps 1e12 -> 1e9.
+            let cool = clamp((1.0e12 - z) / (1.0e12 - 1.0e9), 0.0, 1.0);
+            let t_eff = 2500.0 + (40000.0 - 2500.0) * (1.0 - cool);
+            let cooling = kelvin_to_rgb(t_eff);
+            let tint = mix(electric_violet, cooling, cool * 0.8);
+            // Anti-baryon visibility floor: w_vis -> 0 below z = 1e9.
+            let vis_gate = smoothstep(1.0e9, 3.0e9, z);
+            return vec4<f32>(tint * (0.8 + 0.2 * osc), 0.95 * vis_gate);
         }
-        return vec4<f32>(0.92, 0.88, 0.82, 0.85); // Standard Channel A baryon
+        return vec4<f32>(1.0, 0.85, 0.5, 0.9);  // Solar-gold baryon (10/33)
     }
-    return vec4<f32>(0.12, 0.14, 0.22, 0.25);     // Quenched Channel B dark ghost
+    return vec4<f32>(0.12, 0.14, 0.22, 0.25);   // Quenched Channel B ghost
 }
 
 @group(0) @binding(0) var<storage, read> particles: array<Particle>;
@@ -291,9 +311,11 @@ fn vs_particle_billboard(
     let to_cam = camera.aux.xyz - world;
     let dist_cam = length(to_cam);
     let n_los = to_cam / max(dist_cam, 1.0e-5);
-    let v_mag = length(p.velocity);
+    let a_cam = 1.0 / (1.0 + max(z_cam, -0.999));
+    let v_phys = p.velocity * (V0_KMS / a_cam); // p_tilde -> km/s
+    let v_mag = length(v_phys);
     let beta = clamp(v_mag / C_SPEED, 0.0, 0.999);
-    let beta_los = clamp(dot(p.velocity, n_los) / C_SPEED, -0.999, 0.999);
+    let beta_los = clamp(dot(v_phys, n_los) / C_SPEED, -0.999, 0.999);
     var doppler_factor = 1.0;
     if (camera.aux.w > 0.5) {
         doppler_factor = sqrt(1.0 - beta * beta) / (1.0 - beta_los);
@@ -309,9 +331,14 @@ fn vs_particle_billboard(
 fn fs_render_dual_channel(in: VertexOutput) -> GBufferOutput {
     var output: GBufferOutput;
 
-    let dist_from_center = length(in.point_coord - vec2<f32>(0.5));
+    // Gaussian splat profile (shbt8 Phase 2): soft radial falloff
+    // exp(-d^2 * 3.5) in quad-radius units replaces the hard-edged
+    // point sprite.
+    let quad_r = in.point_coord * 2.0 - vec2<f32>(1.0);
+    let dist_sq = dot(quad_r, quad_r);
+    let dist_from_center = sqrt(dist_sq);
 
-    let core_intensity = exp(-dist_from_center * 8.0);
+    let core_intensity = exp(-dist_sq * 3.5);
     let z = camera.params.w;
 
     // Channel A: Visible Gauge Emission via the charge-state color map.
@@ -319,7 +346,8 @@ fn fs_render_dual_channel(in: VertexOutput) -> GBufferOutput {
     var charge_col = resolve_charge_color(
         Particle(vec3<f32>(0.0), in.channel, vec3<f32>(0.0), in.charge_flags,
                  vec4<f32>(0.0), 0.0, in.mass, vec2<f32>(0.0)),
-        in.linear_depth * 0.001
+        in.linear_depth * 0.001,
+        z
     );
     var emit = vec3<f32>(1.0, 0.85, 0.45) * 1.8;
     let dark_ghost_weight = (1.0 - in.vis_factor) * in.mass;
@@ -327,14 +355,15 @@ fn fs_render_dual_channel(in: VertexOutput) -> GBufferOutput {
     if (is_dark_branch) {
         emit = vec3<f32>(0.12, 0.04, 0.28) * max(dark_ghost_weight, 0.35);
     } else if ((in.charge_flags & 1u) != 0u) {
-        emit = charge_col.rgb * 2.2;
+        // charge_col.a carries the w_vis->0 cooling gate below z=1e9.
+        emit = charge_col.rgb * 2.2 * (charge_col.a / 0.95);
     }
     let pulse = 0.75 + 0.25 * sin(in.branch_hash * 40.0 + z * 0.7);
 
     // Channel-A emission scales strictly by the thermal Stinespring
     // overlap w_vis(z); Channel B is the independent dark sector and
     // keeps its quadratic ghost dimming (shbt7 5.3).
-    let w_vis = evaluate_stinespring_channel(z);
+    let w_vis = evaluate_stinespring_channel(z).x;
     var emit_w = in.vis_factor * w_vis;
     if (is_dark_branch) {
         emit_w = in.vis_factor * in.vis_factor;

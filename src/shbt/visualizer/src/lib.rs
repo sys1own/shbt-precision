@@ -18,6 +18,7 @@ mod engine;
 mod hud;
 mod particle;
 mod telemetry;
+mod units;
 
 pub use engine::{CausalPointRecord, ParticleRecord, SeedDefectRecord, WasmShbtEngine};
 pub use hud::{
@@ -51,17 +52,21 @@ const BOUNDARY_RES: u32 = 256;
 
 // Canonical WZW triple (k_l, k_q, K) = (26, 8, 312) and the geometric
 // saturation constants from shbt6 Section 2.
+#[allow(dead_code)]
 const WZW_K_L: f64 = 26.0;
 #[allow(dead_code)]
 const WZW_K_Q: f64 = 8.0;
+#[allow(dead_code)]
 const WZW_K: f64 = 312.0;
 const GAMMA_GEOM: f64 = std::f64::consts::PI * std::f64::consts::PI / 4.0; // ~2.467401
 /// N_sat expressed in scaled bits (1 scaled bit = 1e30 physical bits) so
 /// all GPU register arithmetic stays inside f32 dynamic range.
+#[allow(dead_code)]
 const N_SAT_SCALED: f64 = 3.3119977e122 / 1.0e30; // 3.3119977e92
 /// alpha_seed scaled: 1.3258316e-51 M_sun/bit * 1e30 = M_sun per scaled bit.
 const ALPHA_SEED_SCALED: f64 = 1.3258316e-21;
 /// Delta N condensation threshold: 1e57 bits = 1e27 scaled bits.
+#[allow(dead_code)]
 const DELTA_N_THRESH_SCALED: f64 = 1.0e27;
 /// Normalized condensation threshold (fraction of the N_limit ceiling the
 /// 3x3x3 basin must exceed before a candidate seed is registered).
@@ -75,6 +80,7 @@ const FIXED_POINT_SCALE: f64 = 1024.0;
 const TRACK_RADIUS_MPC: f32 = 12.0;
 
 // shbt7 first-principles invariants (coset CFT SO(10)_312/SU(3)_8).
+#[allow(dead_code)]
 const C_EFF: f64 = 1325.0 / 154.0;            // coset central charge
 const GAMMA_CFT: f64 = 1325.0 / 924.0;        // c_eff/6 Cardy ceiling
 const Z_REF: f64 = 17.0;                       // modular onset reference
@@ -101,20 +107,10 @@ fn stinespring_quench_fraction(z: f64) -> f64 {
     ((1.0 - stinespring_w_vis(z)) / ETA_D).clamp(0.0, 1.0)
 }
 
-#[repr(C)]
-#[derive(Copy, Clone, Pod, Zeroable)]
-struct CosmoParams {
-    a: f32,
-    hubble: f32,
-    dt: f32,
-    d1_growth: f32,
-    d2_growth: f32,
-    f_load: f32,
-    box_size: f32,
-    grid_dim: u32,
-    num_particles: u32,
-    _pad: [u32; 3],
-}
+// shbt8 Phase 1: the n-body uniform block is the byte-exact
+// `GpuSimulationUniforms` defined in `units.rs` (Martel-Shapiro
+// supercomoving KDK contract).
+type CosmoParams = units::GpuSimulationUniforms;
 
 /// Mirrors `SimulationParameters` in seed_emergence.wgsl (16 x 4B = 64B).
 #[repr(C)]
@@ -347,6 +343,9 @@ pub struct ShbtWebGpuEngine {
     tracer_camera_buffer: Buffer,
 
     cosmo_buffer: Buffer,
+    /// Physical metrology context: code-unit conversions, Tier-1
+    /// background distances, and per-step KDK uniform assembly.
+    metrology: units::MetrologyPipeline,
     camera_buffer: Buffer,
     post_buffer: Buffer,
     seed_buffer: Buffer,
@@ -384,8 +383,10 @@ pub struct ShbtWebGpuEngine {
     /// condensation kernel (headless-Chromium mapAsync limitation).
     cpu_fallback_errors: u32,
     cpu_fallback: bool,
+    #[allow(dead_code)] // read only under the wasm32 CPU fallback
     cpu_particles: Option<Vec<particle::Particle>>,
     /// (seed_id, comoving position, banked mass) for CPU tracking.
+    #[allow(dead_code)] // read only under the wasm32 CPU fallback
     cpu_prev_seeds: Vec<(f32, [f32; 3], f32)>,
     emergent_seeds: Vec<EmergentSeed>,
     known_seed_ids: Vec<f32>,
@@ -916,7 +917,15 @@ impl ShbtWebGpuEngine {
                         (p[0] * 6.2831).sin() * (p[1] * 12.566).cos() * 0.02,
                         (p[1] * 6.2831).sin() * (p[2] * 12.566).cos() * 0.02,
                         (p[2] * 6.2831).sin() * (p[0] * 12.566).cos() * 0.02,
-                        0.0,
+                        // Alpha channel: projected mass density rho_proj
+                        // for the GET entropic force
+                        // F_GET = -kappa_GET * grad ln rho_proj (shbt8
+                        // Phase 1). Smooth positive proxy consistent
+                        // with the static PM potential; dynamic
+                        // condensation density lives in grid_density.
+                        1.0 + 0.25 * ((p[0] * 6.2831).cos() * (p[1] * 6.2831).cos()
+                            + (p[1] * 6.2831).cos() * (p[2] * 6.2831).cos()
+                            + (p[2] * 6.2831).cos() * (p[0] * 6.2831).cos()) / 3.0,
                     ];
                 }
             }
@@ -1488,6 +1497,9 @@ impl ShbtWebGpuEngine {
             tracer_params_buffer,
             tracer_camera_buffer,
             cosmo_buffer,
+            metrology: units::MetrologyPipeline::new(
+                units::CosmologicalContext::canonical(BOX_SIZE as f64),
+            ),
             camera_buffer,
             post_buffer,
             seed_buffer,
@@ -1631,10 +1643,26 @@ impl ShbtWebGpuEngine {
                 (clip[0] / w) * 0.5 + 0.5,
                 0.5 - (clip[1] / w) * 0.5,
             ];
-            // theta_E scaled into normalized screen radii: the mass curve
-            // follows sqrt(M_seed); the lensing geometry factor folds into
-            // the visual calibration constant.
-            let theta_e = (0.0042 * (s.mass_msun as f64).sqrt() * 1.0e-4).clamp(0.004, 0.09) as f32;
+            // Distance-duality thin-screen metrology (shbt8 / Thm 9.12):
+            //   theta_E,k = sqrt(4 G M_k / c^2 * D_ds / (D_d D_s))
+            // with D_d, D_s, D_ds evaluated on the Tier-1 H_SHBT
+            // background (units::CosmologicalContext). The source plane
+            // sits at z_s = z_d + max(1.0, 0.5*z_d) — the conformal
+            // boundary proxy for the lensed screen population — and the
+            // screen-space radius is theta_E^screen = theta_E / Theta_FoV.
+            let z_d = self.redshift.max(0.05);
+            let z_s = z_d + (1.0_f64).max(0.5 * z_d);
+            let ctx = &self.metrology.ctx;
+            let d_d = units::CosmologicalContext::angular_diameter_distance_mpc(z_d);
+            let d_s = units::CosmologicalContext::angular_diameter_distance_mpc(z_s);
+            let d_ds = units::CosmologicalContext::lens_source_distance_mpc(z_d, z_s);
+            let theta_fov = 45.0f64.to_radians();
+            let theta_e_rad = ctx
+                .compute_einstein_radius_rad(s.mass_msun as f64, d_d, d_s, d_ds);
+            // Screen radius in normalized UV; floor at a sub-pixel step
+            // so the kernel never divides by a vanishing core.
+            let theta_e = ((theta_e_rad as f64 / theta_fov) as f32)
+                .clamp(0.001, 0.09);
             seeds[i] = SeedDefect {
                 screen_pos: screen,
                 theta_e,
@@ -2461,18 +2489,32 @@ impl ShbtWebGpuEngine {
         let mean_density = (self.mean_raw_total
             / (GRID_DIM * GRID_DIM * GRID_DIM) as f64) as f32;
 
-        let cosmo = CosmoParams {
-            a: (1.0 / (1.0 + self.redshift)) as f32,
-            hubble: telemetry::hubble(self.redshift) as f32,
-            dt: (dt_seconds * self.timeline.speed * 3.0e8).min(0.05) as f32,
-            d1_growth: 1.0,
-            d2_growth: 0.0,
-            f_load: f_load as f32,
-            box_size: BOX_SIZE,
-            grid_dim: GRID_DIM,
-            num_particles: self.num_particles,
-            _pad: [0; 3],
-        };
+        // Supercomoving metrology step (shbt8 / Thm 9.11): the engine's
+        // per-frame code-time increment doubles as the canonical
+        // supercomoving tick; the effective scale-factor advance is
+        // reconstructed from dtau = da / (a_half^3 * H(a_half)) so the
+        // two stay consistent regardless of how fast the user scrubs
+        // the timeline (Delta_tau is always the integrator's tick, not
+        // the raw timeline jump).
+        let a_now = (1.0 / (1.0 + self.redshift.max(-0.9999))) as f32;
+        let h_h0 = units::CosmologicalContext::h_of_z(self.redshift) as f32;
+        let dt_code = (dt_seconds * self.timeline.speed * 3.0e8).min(0.05) as f32;
+        let dtau = dt_code;
+        let a_half_probe = a_now.max(1.0e-3);
+        let da = dtau * a_half_probe.powi(3) * h_h0;
+        let cosmo: CosmoParams = self.metrology.prepare_step_uniforms(
+            a_now,
+            da,
+            h_h0,
+            f_load as f32,
+            GRID_DIM as f32,
+            0.3333, // eta_soft: adaptive Plummer kernel eta/N_grid
+            self.num_particles,
+            self.emergent_seeds.len() as u32,
+            units::kappa_get(f_load as f32),
+            BOX_SIZE,
+            dt_code,
+        );
         self.queue
             .write_buffer(&self.cosmo_buffer, 0, bytemuck::bytes_of(&cosmo));
 
@@ -2564,6 +2606,12 @@ impl ShbtWebGpuEngine {
             _pad1: [0.0; 2],
             post0: [self.channel_a, self.channel_b, f_load as f32, 1.6],
             post1: [self.unwrap_transition, 0.0, 0.0, 0.0],
+            post2: [
+                45.0f32.to_radians(), // Theta_FoV (rad)
+                self.dispersion_coeff * 0.04, // zeta_disp boundary dispersion
+                0.0,
+                0.0,
+            ],
         };
         self.queue
             .write_buffer(&self.post_buffer, 0, bytemuck::bytes_of(&lensing));
@@ -2591,9 +2639,18 @@ impl ShbtWebGpuEngine {
         let peak_gamma = 0.428 * strength + 0.05 * strength * (self.frame_index as f32 * 0.1).sin();
         let peak_kappa = 1.185 * strength * (0.5 + 0.5 * f_load as f32)
             + 0.08 * strength * (self.frame_index as f32 * 0.1).cos();
+        // Physical Einstein radii in arcseconds for the HUD ledger
+        // (same distance-duality geometry as update_seed_table).
+        let z_d = self.redshift.max(0.05);
+        let z_s = z_d + (1.0_f64).max(0.5 * z_d);
+        let d_d = units::CosmologicalContext::angular_diameter_distance_mpc(z_d);
+        let d_s = units::CosmologicalContext::angular_diameter_distance_mpc(z_s);
+        let d_ds = units::CosmologicalContext::lens_source_distance_mpc(z_d, z_s);
+        let ctx = &self.metrology.ctx;
         let mut max_te = 0.0f32;
         for s in &self.emergent_seeds {
-            max_te = max_te.max((0.0042 * (s.mass_msun).sqrt() * 1.0e-4).clamp(0.004, 0.09));
+            let te_rad = ctx.compute_einstein_radius_rad(s.mass_msun as f64, d_d, d_s, d_ds);
+            max_te = max_te.max(te_rad * 206_265.0);
         }
         let mut caustics = active_seeds;
         if peak_kappa >= 1.0 || (peak_gamma * peak_gamma + peak_kappa * peak_kappa) > 0.8 {
