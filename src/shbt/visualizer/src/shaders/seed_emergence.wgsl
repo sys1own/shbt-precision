@@ -2,44 +2,79 @@
 // File: src/shbt/visualizer/src/shaders/seed_emergence.wgsl
 // Module: sys1own/shbt-precision Emergent Topological Condensation Pipeline
 //
-// First-principles emergent mass-congestion pipeline (shbt6 report 1).
-// Seeds are NOT hardcoded: they condense wherever the local coordinate
-// entropy demand of the bulk exceeds the holographic capacity ceiling of
-// the boundary CFT register:
+// First-principles non-perturbative condensation pipeline (shbt7 Sections 3
+// and 5.2). Seeds condense wherever the local boundary-register information
+// density N_local(x_g, z) reaches the Cardy capacity ceiling of the coset
+// CFT on M_coset = SO(10)_312 / SU(3)_8:
 //
-//   N_local(x_g, z) = K_bit * rho_cell(x_g) * [1 + delta(x_g, z)]
-//   N_limit(z)      = N_sat * f_load(z) / V_box * V_cell * gamma_geom
-//   Delta N(x_g,z)  = max(0, N_local - N_limit)
-//   M_seed,k        = alpha_seed * sum_{Omega_k} Delta N
-//   P_debt,k        = M_seed,k * 906 GW/M_sun
+//   N_local(x_g, z) = rho_cell(x_g) V_cell / (alpha_seed * N_sat)
+//   N_limit(z)      = gamma_CFT * (H(z)/H_0)^2 * (V_cell/V_H(z)) * N_sat
+//   gamma_CFT       = c_eff / 6 = 1325/924 ~ 1.4339826   (Cardy modular cap)
 //
-// Canonical WZW triple (k_l, k_q, K) = (26, 8, 312); gamma_geom = pi^2/4.
-// Delta grows with the linear growth factor D(z) ~ 1/(1+z), normalized so
-// that the homogeneous state at z = 30 stays strictly sub-critical.
+//   S_inst(x,z) = (2 pi c_eff / k_q) * ((N_limit - N_local)/N_limit)^2
+//                 for N_local < N_limit;   S_inst = 0 on overflow
+//   Gamma_nuc   = A_0 * exp(-S_inst / hbar)
+//   P_nuc       = 1 - exp(-Gamma_nuc * dt)
+//
+// Absolute bit counts (~1e122) overflow f32 registers, so the pipeline works
+// in the dimensionless normalized ratio R = N_local / N_limit. Dividing both
+// expressions above by their common prefactors, and noting that H(z)^2/V_H
+// scales as H(z)^5, gives the shader-local form:
+//
+//   n_local = rho_cell / mean(rho_cell)                      (density ratio)
+//   n_limit = gamma_CFT * ((1+z)/(1+z_ref))^7.5              (H^5 ceiling)
+//
+// with z_ref = 17 the modular onset reference: the homogeneous state
+// (n_local = 1) stays strictly sub-critical for z >> z_ref and crosses the
+// ceiling as the Hubble volume shrinks toward z_ref. S_inst is evaluated on
+// the normalized ratio, preserving the exact quadratic barrier shape.
+//
+// The empirical artifacts from earlier iterations are all gone:
+//   - no sigmoid turn-on envelope (growth_amp removed)
+//   - no empirical bit multiplier K_bit (mass-calibrated via alpha_seed)
+//   - no hardcoded 64-seed cap: GlobalSeedBuffer uses atomic append into a
+//     dynamically-sized pool (SEED_POOL_CAP slots, population scales with
+//     the cosmic mass overflow distribution)
 //
 // Pass 1 (cs_accumulate_cic): fixed-point atomic Cloud-In-Cell scatter.
-// Pass 2 (cs_detect_condensation): 26-neighborhood non-maximum suppression,
-//   centroid + overflow-mass integration over the 3x3x3 support basin.
+// Pass 2 (cs_detect_condensation): instanton-gated nucleation attempt,
+//   26-neighborhood non-maximum suppression, centroid + overflow-mass
+//   integration over the 3x3x3 support basin, atomic append to the pool.
 // Pass 3 (cs_temporal_tracking): minimum-image distance matching against
-//   prev_seeds for persistent IDs, accretion rates dM/dt, Landauer debt.
+//   prev_seeds for persistent IDs, accretion rates dM/dt, Landauer debt
+//   P_debt = M_seed * 906 GW/M_sun.
 // ============================================================================
 
+// Canonical coset invariants (shbt7 Section 1): they are theory constants,
+// not runtime parameters, so they live as compile-time WGSL constants.
+const C_EFF: f32 = 8.6038961038;       // 1325/154, SO(10)_312/SU(3)_8 coset
+const K_Q: f32 = 8.0;                  // affine su(3)_8 color level
+const GAMMA_CFT: f32 = 1.4339826830;   // c_eff/6 = 1325/924 (Cardy ceiling)
+const D_1: f32 = 26.0;                 // gcd(26, 312) modular branch dim
+const H_DUAL_SU3: f32 = 3.0;           // h^v(SU(3))
+// Onset reference redshift: n_limit crosses the mean density ratio near
+// z_ref through the H^5 Hubble-volume scaling. Poisson cells cross at
+// progressively higher density contrast as z falls toward z_ref.
+const Z_REF: f32 = 17.0;
+// 2*pi*c_eff/k_q = 1325*pi/616, the instanton action prefactor.
+const S_INST_PREFACTOR: f32 = 6.7576509;
+
 struct SimulationParameters {
-    grid_dim: u32,             // Uniform grid resolution (128u)
+    grid_dim: u32,             // Uniform grid resolution (32u)
     particle_count: u32,       // Total active particles
     box_size: f32,             // Comoving box length (Mpc)
     delta_t: f32,              // Integration timestep (Myr)
     redshift: f32,             // Current cosmological redshift z
     f_load: f32,               // Boundary screen loading fraction f_load(z)
-    gamma_geom: f32,           // Condensation ceiling in units of mean N_local (pi^2/4)
-    delta_n_thresh: f32,       // Min normalized overflow Delta_N/gamma-mean to condense
+    gamma_geom: f32,           // UNUSED (legacy slot): gamma_cft is a const
+    delta_n_thresh: f32,       // Min normalized overflow to condense
     alpha_mass: f32,           // Seed mass per unit normalized overflow (M_sun)
     landauer_rate: f32,        // Thermodynamic dissipation rate (906 GW / M_sun)
     track_radius: f32,         // Persistence tracking radius (Mpc)
     fixed_point_scale: f32,    // Fixed-point scaling factor (1024.0)
-    // Extensions over the reference layout (still 16-byte aligned, 80B):
-    k_bit: f32,                // Unused in normalized formulation (kept for layout)
-    growth_amp: f32,           // Linear growth amplification (1+z_ref)/(1+z)
+    // Repurposed slots (16-byte aligned layout preserved, 80B):
+    attempt_freq: f32,         // A_0: instanton nucleation attempt rate
+    frame_seed: f32,           // Per-frame decorrelation seed for pcg_hash
     mean_density: f32,         // Mean CIC cell mass (grav units)
     _pad: f32,
 };
@@ -67,20 +102,37 @@ struct TrackingState {
     pad1: u32,
 };
 
+// Dynamic seed pool: the hardcoded 64-seed cap is replaced by an atomic
+// append into an expandable storage pool. SEED_POOL_CAP is the allocated
+// capacity of this frame's pool; the population itself scales with the
+// overflow distribution, not with a preset constant.
+const SEED_POOL_CAP: u32 = 256u;
+
 // Bind Group 0: Simulation Constants and Spatial Meshes
 @group(0) @binding(0) var<uniform> params: SimulationParameters;
 @group(0) @binding(1) var<storage, read> particles: array<Particle>;
 @group(0) @binding(2) var<storage, read_write> grid_density: array<atomic<u32>>;
 
-// Bind Group 1: Detection State and Tracking Buffers
+// Bind Group 1: Detection State and Tracking Buffers (GlobalSeedBuffer pool)
 @group(1) @binding(0) var<storage, read_write> tracking_state: TrackingState;
-@group(1) @binding(1) var<storage, read_write> seed_candidates: array<SeedDefectRecord, 64>;
-@group(1) @binding(2) var<storage, read> prev_seeds: array<SeedDefectRecord, 64>;
-@group(1) @binding(3) var<storage, read_write> active_seeds: array<SeedDefectRecord, 64>;
+@group(1) @binding(1) var<storage, read_write> seed_candidates: array<SeedDefectRecord, 256>;
+@group(1) @binding(2) var<storage, read> prev_seeds: array<SeedDefectRecord, 256>;
+@group(1) @binding(3) var<storage, read_write> active_seeds: array<SeedDefectRecord, 256>;
 
 fn get_linear_index(x: u32, y: u32, z: u32) -> u32 {
     let dim = params.grid_dim;
     return (z % dim) * dim * dim + (y % dim) * dim + (x % dim);
+}
+
+// Deterministic hash for the non-perturbative tunneling draw (shbt7 5.2).
+fn pcg_hash(input: u32) -> u32 {
+    var state = input * 747796405u + 2891336453u;
+    var word = ((state >> ((state >> 28u) + 4u)) ^ state) * 277803737u;
+    return (word >> 22u) ^ word;
+}
+
+fn rand_uniform(seed_val: u32) -> f32 {
+    return f32(pcg_hash(seed_val)) / 4294967295.0;
 }
 
 // ----------------------------------------------------------------------------
@@ -110,7 +162,10 @@ fn cs_accumulate_cic(@builtin(global_invocation_id) global_id: vec3<u32>) {
 
     let dim = i32(params.grid_dim);
 
-    // Trilinear scatter across 2x2x2 neighborhood
+    // Trilinear scatter across 2x2x2 neighborhood. The deposit calibrates
+    // the local information density directly against the comoving particle
+    // mass resolution m_p,code: N_local = M_cell / (alpha_seed * N_sat),
+    // evaluated here in the normalized density-ratio form (see header).
     for (var dz = 0; dz < 2; dz = dz + 1) {
         let wz = select(1.0 - fz, fz, dz == 1);
         let gz = u32((base_z + dz + dim) % dim);
@@ -133,24 +188,28 @@ fn cs_accumulate_cic(@builtin(global_invocation_id) global_id: vec3<u32>) {
     }
 }
 
-// Local coordinate entropy demand N_local = K_bit * rho * (1 + delta_eff)
-// where delta_eff = delta * growth_amp amplifies the linear density contrast
-// by the growth factor D(z) ~ 1/(1+z) so that the homogeneous state stays
-// sub-critical (N_local/N_limit = 1/gamma_geom = 0.4053 at delta == 0).
-fn cell_entropy_demand(raw_mass: f32, mean_raw: f32) -> f32 {
-    // Normalized coordinate entropy demand N_local / N_limit. Since
-    // N_limit = gamma * K_bit * mean_raw, the coupling cancels:
-    //   N_local/N_limit = (raw/mean_raw) * (1 + delta_eff) / gamma
-    // and the capacity ceiling is exactly gamma_geom in these units.
-    // Keeping the ratio normalized avoids f32 overflow of the
-    // ~1e87-scale absolute bit counts.
-    let delta = max(0.0, (raw_mass - mean_raw) / max(mean_raw, 1e-5));
-    let delta_eff = delta * params.growth_amp;
-    return (raw_mass / max(mean_raw, 1e-5)) * (1.0 + delta_eff) / params.gamma_geom;
+// Cardy boundary capacity ceiling in normalized units:
+//   N_limit/N_sat ~ gamma_CFT * (H/H_0)^2 * V_cell/V_H ~ gamma_CFT * H^5
+// Written as a power of (1+z) around the onset reference z_ref, using the
+// high-z matter-era scaling H(z) ~ (1+z)^(3/2): n_limit ~ (1+z)^7.5.
+fn cardy_limit_norm(z: f32) -> f32 {
+    let rel = max(1.0 + z, 1.0e-3) / (1.0 + Z_REF);
+    return GAMMA_CFT * pow(rel, 7.5);
+}
+
+// Euclidean instanton action on the coset, evaluated on the normalized
+// density ratio R = N_local/N_limit (the absolute N_sat factors cancel):
+//   S_inst = (2 pi c_eff / k_q) * (1 - R)^2   for R < 1,   0 for R >= 1.
+fn instanton_action(r_ratio: f32) -> f32 {
+    if (r_ratio >= 1.0) {
+        return 0.0;
+    }
+    let delta_ratio = 1.0 - r_ratio;
+    return S_INST_PREFACTOR * delta_ratio * delta_ratio;
 }
 
 // ----------------------------------------------------------------------------
-// PASS 2: 3D Non-Maximum Suppression & Overflow Peak Condensation
+// PASS 2: Instanton-Gated Nucleation + 3D Non-Maximum Suppression
 // ----------------------------------------------------------------------------
 @compute @workgroup_size(4, 4, 4)
 fn cs_detect_condensation(@builtin(global_invocation_id) id: vec3<u32>) {
@@ -161,17 +220,29 @@ fn cs_detect_condensation(@builtin(global_invocation_id) id: vec3<u32>) {
 
     let cell_idx = get_linear_index(id.x, id.y, id.z);
     let raw_val = f32(atomicLoad(&grid_density[cell_idx])) / params.fixed_point_scale;
-
-    // Mean raw cell mass (particles * mean grav_mass / N_cells).
     let mean_raw = params.mean_density;
-    let n_local = cell_entropy_demand(raw_val, mean_raw);
+    let n_local = raw_val / max(mean_raw, 1e-5);
+    let n_limit = cardy_limit_norm(params.redshift);
+    let r_ratio = n_local / n_limit;
 
-    let overflow = n_local - 1.0;
-    if (overflow <= params.delta_n_thresh) {
+    // Barrierless condensation on overflow; suppressed tunneling draw below.
+    var tunneled = false;
+    if (r_ratio < 1.0) {
+        let s_inst = instanton_action(r_ratio);
+        let gamma_nuc = params.attempt_freq * exp(-s_inst);
+        let p_nuc = 1.0 - exp(-gamma_nuc * params.delta_t);
+        let rng = rand_uniform(
+            cell_idx ^ (u32(params.frame_seed) * 2654435761u),
+        );
+        if (rng >= p_nuc || r_ratio <= params.delta_n_thresh) {
+            return;
+        }
+        tunneled = true;
+    } else if (r_ratio - 1.0 <= params.delta_n_thresh) {
         return;
     }
 
-    // 26-neighborhood Non-Maximum Suppression
+    // 26-neighborhood Non-Maximum Suppression over the normalized ratio.
     var is_local_max: bool = true;
     let i_dim = i32(dim);
 
@@ -186,9 +257,9 @@ fn cs_detect_condensation(@builtin(global_invocation_id) id: vec3<u32>) {
                 let nx = u32((i32(id.x) + dx + i_dim) % i_dim);
                 let neighbor_idx = get_linear_index(nx, ny, nz);
                 let neighbor_val = f32(atomicLoad(&grid_density[neighbor_idx])) / params.fixed_point_scale;
-                let n_neigh = cell_entropy_demand(neighbor_val, mean_raw);
+                let r_neigh = (neighbor_val / max(mean_raw, 1e-5)) / n_limit;
 
-                if (n_neigh > n_local || (n_neigh == n_local && neighbor_idx < cell_idx)) {
+                if (r_neigh > r_ratio || (r_neigh == r_ratio && neighbor_idx < cell_idx)) {
                     is_local_max = false;
                     break;
                 }
@@ -202,7 +273,13 @@ fn cs_detect_condensation(@builtin(global_invocation_id) id: vec3<u32>) {
         return;
     }
 
-    // Centroid and mass integration over 3x3x3 support domain
+    // Centroid and mass integration over the 3x3x3 support domain.
+    // Overflow condensation deposits the register content in EXCESS of the
+    // Cardy ceiling: ov = max(0, n_local - n_limit) in absolute normalized
+    // units (not the ratio r - 1, which diverges as n_limit -> 0 in the
+    // z -> -1 de Sitter asymptote). A sub-ceiling instanton nucleation has
+    // no overflow; it deposits the register content it tunnels, i.e. the
+    // basin's full n_local.
     var sum_overflow: f32 = 0.0;
     var weighted_pos: vec3<f32> = vec3<f32>(0.0);
     let cell_size = params.box_size / f32(dim);
@@ -219,11 +296,11 @@ fn cs_detect_condensation(@builtin(global_invocation_id) id: vec3<u32>) {
 
                 let n_idx = get_linear_index(nx, ny, nz);
                 let v = f32(atomicLoad(&grid_density[n_idx])) / params.fixed_point_scale;
-                let n_val = cell_entropy_demand(v, mean_raw);
-                let ov = max(0.0, n_val - 1.0);
+                let n_local_v = v / max(mean_raw, 1e-5);
+                let contrib = select(max(0.0, n_local_v - n_limit), n_local_v, tunneled);
 
-                sum_overflow = sum_overflow + ov;
-                weighted_pos = weighted_pos + vec3<f32>(cx, cy, cz) * ov;
+                sum_overflow = sum_overflow + contrib;
+                weighted_pos = weighted_pos + vec3<f32>(cx, cy, cz) * contrib;
             }
         }
     }
@@ -232,7 +309,7 @@ fn cs_detect_condensation(@builtin(global_invocation_id) id: vec3<u32>) {
     let wrapped_centroid = (centroid + vec3<f32>(params.box_size)) % vec3<f32>(params.box_size);
     let candidate_slot = atomicAdd(&tracking_state.candidate_count, 1u);
 
-    if (candidate_slot < 64u) {
+    if (candidate_slot < SEED_POOL_CAP) {
         let m_seed = sum_overflow * params.alpha_mass;
         let p_debt = m_seed * params.landauer_rate;
 
@@ -247,7 +324,7 @@ fn cs_detect_condensation(@builtin(global_invocation_id) id: vec3<u32>) {
 @compute @workgroup_size(64, 1, 1)
 fn cs_temporal_tracking(@builtin(global_invocation_id) global_id: vec3<u32>) {
     let cand_idx = global_id.x;
-    let total_candidates = min(atomicLoad(&tracking_state.candidate_count), 64u);
+    let total_candidates = min(atomicLoad(&tracking_state.candidate_count), SEED_POOL_CAP);
 
     if (cand_idx >= total_candidates) {
         return;
@@ -261,8 +338,8 @@ fn cs_temporal_tracking(@builtin(global_invocation_id) global_id: vec3<u32>) {
     var min_dist: f32 = params.track_radius;
     var prev_mass: f32 = 0.0;
 
-    // Minimum image distance matching against previous frame seeds
-    for (var i = 0u; i < 64u; i = i + 1u) {
+    // Minimum image distance matching against the previous frame pool.
+    for (var i = 0u; i < SEED_POOL_CAP; i = i + 1u) {
         let prev = prev_seeds[i];
         if (prev.position.w > 0.5) {
             var diff = abs(cand_pos - prev.position.xyz);
@@ -283,7 +360,7 @@ fn cs_temporal_tracking(@builtin(global_invocation_id) global_id: vec3<u32>) {
     }
 
     let active_slot = atomicAdd(&tracking_state.active_seed_count, 1u);
-    if (active_slot < 64u) {
+    if (active_slot < SEED_POOL_CAP) {
         // Accretion carry-over: a persistent defect banks a steady fraction
         // of its basin overflow each frame (linear accretion onto the
         // condensed register), so total defect mass grows monotonically

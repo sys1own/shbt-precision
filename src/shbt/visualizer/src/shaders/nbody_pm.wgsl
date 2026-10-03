@@ -63,21 +63,34 @@ struct IndirectArgs {
 @group(0) @binding(2) var density_grid: texture_storage_3d<r32float, write>;
 @group(0) @binding(3) var force_grid: texture_3d<f32>;
 @group(0) @binding(4) var force_sampler: sampler;
-@group(0) @binding(5) var<storage, read> active_seeds: array<SeedDefectRecord, 64>;
+@group(0) @binding(5) var<storage, read> active_seeds: array<SeedDefectRecord, 256>;
 @group(0) @binding(6) var<storage, read> seed_state: array<u32, 4>;
 
 @group(1) @binding(0) var<storage, read_write> tethers: array<TetherVertex>;
 @group(1) @binding(1) var<storage, read_write> indirect_draw: IndirectArgs;
 
-// Stinespring isometric de-rendering decay envelope
-fn evaluate_stinespring_decay(z: f32) -> f32 {
-    let z_sphaleron: f32 = 1.0e12;
-    let lambda_mn: f32 = 2.302585; // ln(10) decay scale across modular restoration
-    if (z > z_sphaleron) {
-        return 1.0;
+// Thermal Stinespring channel overlap (shbt7 Section 4 / Thm 9.10):
+// the visible-sector overlap follows the anti-baryon scaling dimension
+// Delta_Bbar = 26/3 across the modular crossover z_N = 7.356e10,
+//   w_vis(z) = (1 - eta_D) + eta_D / (1 + (z_N/z)^Delta)
+// with eta_D = 23/33 = 1 - Omega_DM/Omega_B residual. Replaces the
+// empirical exponential decay envelope.
+const ETA_D: f32 = 0.6969696970;   // 23/33
+const Z_N: f32 = 7.356e10;         // modular crossover redshift
+const DELTA_BBAR: f32 = 8.6666667; // 26/3 anti-baryon scaling dimension
+
+fn evaluate_stinespring_channel(z: f32) -> f32 {
+    if (z <= 0.0) {
+        return 1.0 - ETA_D;
     }
-    let log_ratio = log2(max(z, 1.0e-3)) / log2(10.0) - 12.0;
-    return clamp(exp(lambda_mn * log_ratio * 0.1), 0.0, 1.0);
+    let power = pow(Z_N / max(z, 1.0e-3), DELTA_BBAR);
+    return (1.0 - ETA_D) + ETA_D / (1.0 + power);
+}
+
+// Quenched fraction of the register as seen by the Stinespring channel:
+// f_quench = (1 - w_vis) / eta_D saturates at 1 for z -> 0.
+fn evaluate_quench_fraction(z: f32) -> f32 {
+    return clamp((1.0 - evaluate_stinespring_channel(z)) / ETA_D, 0.0, 1.0);
 }
 
 // Emit a Stinespring transition tether from the Channel-A origin to the
@@ -96,7 +109,7 @@ fn emit_stinespring_tether(pos_a: vec3<f32>, pos_b: vec3<f32>) {
 // (epsilon = 50 kpc -> 0.05 Mpc; masses in 1e10 M_sun units for G_const).
 fn compute_seed_gravitational_acceleration(pos: vec3<f32>, box_size: f32) -> vec3<f32> {
     var total_acc = vec3<f32>(0.0);
-    let count = min(seed_state[1], 64u);
+    let count = min(seed_state[1], 256u);
     let G_const = 4.30091e-3; // (km/s)^2 * Mpc / (10^10 M_sun)
     let softening_sq = 0.0025; // (50 kpc)^2 softening length
 
@@ -126,12 +139,15 @@ fn cs_advance_particles(@builtin(global_invocation_id) global_id: vec3<u32>) {
     var p = particles[idx];
     let z_current = (1.0 / cosmo.a) - 1.0;
 
-    // Stinespring de-rendering: anti-baryonic channel (charge_flags bit 0)
-    // quenches across the modular-restoration window; the transition emits
-    // a tether to the Channel-B image and banks Landauer debt on the
-    // particle for the heat-map emission profile.
-    let decay = evaluate_stinespring_decay(z_current);
-    if ((p.charge_flags & 1u) != 0u && decay < 0.02 && p.channel == 0u) {
+    // Stinespring de-rendering (thermal isometric channel): the quenched
+    // fraction f_quench(z) = (1 - w_vis)/eta_D advances monotonically with
+    // redshift descent; each unquenched anti-baryon commits to Channel B
+    // when its deterministic hash falls inside the quenched volume. The
+    // transition emits a tether to the Channel-B image and banks Landauer
+    // debt on the particle for the heat-map emission profile.
+    let f_quench = evaluate_quench_fraction(z_current);
+    let draw = fract(sin(f32(idx) * 12.9898 + 78.233) * 43758.5453);
+    if ((p.charge_flags & 1u) != 0u && p.channel == 0u && draw < f_quench) {
         let pos_b = p.position + vec3<f32>(0.011, -0.007, 0.008) * cosmo.box_size;
         emit_stinespring_tether(p.position, pos_b);
         p.channel = 1u;
