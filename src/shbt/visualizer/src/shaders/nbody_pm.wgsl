@@ -61,7 +61,8 @@ struct CosmologicalParams {
     box_size: f32,           // L_box, comoving Mpc/h
     dt_legacy: f32,          // code-time tick for de-render accruals
     inv_m_box: f32,          // 1 / M_box in M_sun^-1
-    _pad: vec2<f32>,
+    wall_dt: f32,            // wall-clock step (s) for tether fade
+    _pad: f32,
 };
 
 // Emergent seed defect record (mirrors seed_emergence.wgsl output).
@@ -224,6 +225,16 @@ fn cs_advance_particles(@builtin(global_invocation_id) global_id: vec3<u32>) {
         // Quenched ghosts keep accruing small debt as the register erases
         // residual coordinate bits (visual heat accumulation only).
         p.landauer_debt += 906.0 * cosmo.dt_legacy * 1.0e3;
+    }
+
+    // Tether fade (Enhancement 4): each thread decays one vertex pair of
+    // the TetherVertexBuffer by exp(-wall_dt / 0.5 s), so Stinespring
+    // lines dissolve over ~0.5 s of wall time.
+    let v_base = idx * 2u;
+    if (v_base + 1u < 65536u && v_base + 1u < atomicLoad(&indirect_draw.vertex_count)) {
+        let tether_fade = exp(-cosmo.wall_dt / 0.5);
+        tethers[v_base].alpha_decay = tethers[v_base].alpha_decay * tether_fade;
+        tethers[v_base + 1u].alpha_decay = tethers[v_base + 1u].alpha_decay * tether_fade;
     }
 
     // Martel-Shapiro supercomoving KDK step (shbt8 Eq. 3-8):

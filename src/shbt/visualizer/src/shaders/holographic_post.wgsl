@@ -48,7 +48,8 @@ struct LensingUniforms {
     post1: vec4<f32>,             // x: unwrap_transition (0 bulk, 1 torus)
     // shbt8 thin-screen metrology extras:
     //   x: Theta_FoV (radians), y: zeta_disp boundary dispersion
-    //   coefficient, z/w reserved.
+    //   coefficient, z: bloom lift gain (Enhancement 12),
+    //   w: exponential depth-fog density (Enhancement 13).
     post2: vec4<f32>,
 };
 
@@ -82,6 +83,7 @@ struct GlitchUniforms {
 @group(0) @binding(5) var boundary_register_tex: texture_2d<f32>;
 @group(0) @binding(6) var<storage, read> condensing_seeds: array<CondensationSeed>;
 @group(0) @binding(7) var<uniform> glitch: GlitchUniforms;
+@group(0) @binding(8) var bloom_tex: texture_2d<f32>;
 
 // Conformal boundary unwrapping: roll the 3D comoving bulk onto the
 // 2D CFT torus [0, 2pi)^2 as unwrap_transition goes 0 -> 1.
@@ -386,13 +388,27 @@ fn fs_post(in: VertexOutput) -> @location(0) vec4<f32> {
     let raw_composite = (lensed_color + dark_glow_emission + caustic_rgb + causal_rgb + horizon_rgb + grid_rgb)
         * params.post0.w;
 
-    // Reinhard HDR tonemap (shbt8 Phase 2): x -> x/(1+x) compresses the
-    // multi-billboard accumulation without clipping, followed by a
-    // gentle contrast S-curve c^2(3-2c) so dense structure stays
-    // legible instead of saturating.
-    var reinhard = raw_composite / (vec3<f32>(1.0) + raw_composite);
-    reinhard = reinhard * reinhard * (vec3<f32>(3.0) - 2.0 * reinhard);
-    let final_composite = reinhard;
+    // Bloom lift (Enhancement 12): additive half-res Gaussian bloom over
+    // the bright-passed Channel-A texture, intensity params.post2.z.
+    let bloom_rgb = textureSampleLevel(bloom_tex, tex_sampler, warped_uv, 0.0).rgb
+        * params.post2.z;
+
+    // Depth fog (Enhancement 13): exponential attenuation along the
+    // Channel-A depth field toward the far void ambient, density
+    // params.post2.w — dim voids read as receding atmosphere rather
+    // than flat black.
+    let fog_amt = (1.0 - exp(-max(center_depth, 0.0) * params.post2.w)) * 0.6;
+    let fog_ambient = vec3<f32>(0.02, 0.01, 0.05);
+    let fogged = mix(raw_composite + bloom_rgb, fog_ambient, clamp(fog_amt, 0.0, 1.0));
+
+    // ACES filmic tonemap (Enhancement 12; Narkowicz fit): rolls off the
+    // multi-billboard accumulation with better highlight compression and
+    // mid-tone contrast than the previous Reinhard curve. ACES already
+    // supplies the contrast S-curve, so no second smoothstep is applied.
+    var aces = (fogged * (2.51 * fogged + vec3<f32>(0.03)))
+        / (fogged * (2.43 * fogged + vec3<f32>(0.59)) + vec3<f32>(0.14));
+    aces = clamp(aces, vec3<f32>(0.0), vec3<f32>(1.0));
+    let final_composite = aces;
 
     // Conformal boundary unwrap HUD inset (Enhancement 1).
     let composed = render_boundary_overlay(uv, vec4<f32>(final_composite, 1.0));
