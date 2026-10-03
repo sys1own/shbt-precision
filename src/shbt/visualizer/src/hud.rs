@@ -210,22 +210,15 @@ impl HorizonLedger {
         self.loaded_fraction = f_load;
         self.total_bits_loaded = f_load * N_SAT;
 
-        if z > 1.0e12 {
-            self.stinespring_blend = 0.0;
-            self.active_visible_bits = self.total_bits_loaded;
-            self.dark_completion_bits = 0.0;
-        } else if z < 1.0e9 {
-            self.stinespring_blend = 1.0;
-            self.active_visible_bits = self.total_bits_loaded * (10.0 / 33.0);
-            self.dark_completion_bits = self.total_bits_loaded - self.active_visible_bits;
-        } else {
-            let log_z = z.log10();
-            let blend = (12.0 - log_z) / 3.0;
-            self.stinespring_blend = blend.clamp(0.0, 1.0);
-            let eta_v = (1.0 - self.stinespring_blend) + self.stinespring_blend * (10.0 / 33.0);
-            self.active_visible_bits = self.total_bits_loaded * eta_v;
-            self.dark_completion_bits = self.total_bits_loaded - self.active_visible_bits;
-        }
+        // Thermal Stinespring channel (shbt7 Thm 9.10): the visible overlap
+        // w_vis(z) = (1-eta_D) + eta_D/(1+(z_N/z)^Delta_Bbar) with
+        // eta_D = 23/33, z_N = 7.356e10, Delta_Bbar = 26/3 sets the split
+        // first-principally; stinespring_blend carries the quenched
+        // fraction (1 - w_vis)/eta_D for the engine's channel assignment.
+        let w_vis = crate::stinespring_w_vis(z);
+        self.stinespring_blend = crate::stinespring_quench_fraction(z);
+        self.active_visible_bits = self.total_bits_loaded * w_vis;
+        self.dark_completion_bits = self.total_bits_loaded - self.active_visible_bits;
 
         if z <= 30.0 && z >= 7.0 {
             self.total_seeds_condensed = 248;

@@ -81,6 +81,16 @@ fn unwrap_torus_projection(uv: vec2<f32>) -> vec2<f32> {
     return mix(uv, torus, params.post1.x);
 }
 
+// Screen-space edge filter (shbt7 Phase 2): analytic FXAA-style
+// antialiasing for the torus lattice lines. The hard step() edges alias
+// badly at 80+ cells/screen; feathering the line half-width by fwidth
+// resolves sub-pixel lines to smooth grey instead of shimmer.
+fn aa_lattice_line(u: f32) -> f32 {
+    let d = abs(fract(u + 0.5) - 0.5); // distance to nearest integer line
+    let w = max(fwidth(u) * 1.2, 1.0e-4);
+    return 1.0 - smoothstep(0.03 - w, 0.03 + w, d);
+}
+
 // Enhancement 1: toroidal HUD inset unwrap of the 2D boundary register.
 fn unwrap_torus_inset(screen_uv: vec2<f32>, inset_pos: vec2<f32>, inset_size: vec2<f32>) -> vec2<f32> {
     let local_uv = (screen_uv - inset_pos) / inset_size;
@@ -93,24 +103,24 @@ fn render_boundary_overlay(screen_uv: vec2<f32>, in_color: vec4<f32>) -> vec4<f3
     let inset_pos = vec2<f32>(0.74, 0.74);
     let inset_size = vec2<f32>(0.24, 0.24);
 
-    if (screen_uv.x >= inset_pos.x && screen_uv.x <= (inset_pos.x + inset_size.x) &&
-        screen_uv.y >= inset_pos.y && screen_uv.y <= (inset_pos.y + inset_size.y)) {
+    // Evaluated unconditionally: fwidth() inside aa_lattice_line requires
+    // uniform control flow, so the inset interior is selected at the end
+    // rather than computed inside a divergent branch.
+    let torus_uv = unwrap_torus_inset(screen_uv, inset_pos, inset_size);
+    let cft_sample = textureSampleLevel(boundary_register_tex, tex_sampler, torus_uv, 0.0);
+    let rho_b = cft_sample.r;
+    let rho_e = cft_sample.g;
 
-        let torus_uv = unwrap_torus_inset(screen_uv, inset_pos, inset_size);
-        let cft_sample = textureSampleLevel(boundary_register_tex, tex_sampler, torus_uv, 0.0);
-        let rho_b = cft_sample.r;
-        let rho_e = cft_sample.g;
+    let entanglement_cyan = vec3<f32>(0.02, 0.45, 0.88);
+    let saturation_magenta = vec3<f32>(0.98, 0.12, 0.45);
+    let cft_color = mix(entanglement_cyan * rho_e, saturation_magenta * rho_b, clamp(rho_b - 0.5, 0.0, 1.0));
 
-        let entanglement_cyan = vec3<f32>(0.02, 0.45, 0.88);
-        let saturation_magenta = vec3<f32>(0.98, 0.12, 0.45);
-        let cft_color = mix(entanglement_cyan * rho_e, saturation_magenta * rho_b, clamp(rho_b - 0.5, 0.0, 1.0));
+    let grid_lines = aa_lattice_line(torus_uv.x * 16.0) + aa_lattice_line(torus_uv.y * 16.0);
+    let composed = cft_color + vec3<f32>(0.2) * grid_lines;
 
-        let grid_lines = step(0.97, fract(torus_uv.x * 16.0)) + step(0.97, fract(torus_uv.y * 16.0));
-        let composed = cft_color + vec3<f32>(0.2) * grid_lines;
-
-        return mix(in_color, vec4<f32>(composed, 0.95), 0.85);
-    }
-    return in_color;
+    let inside = screen_uv.x >= inset_pos.x && screen_uv.x <= (inset_pos.x + inset_size.x) &&
+        screen_uv.y >= inset_pos.y && screen_uv.y <= (inset_pos.y + inset_size.y);
+    return select(in_color, mix(in_color, vec4<f32>(composed, 0.95), 0.85), inside);
 }
 
 // Enhancement 10: lensing Jacobian det A = (1 - kappa)^2 - |gamma|^2 over
@@ -155,7 +165,7 @@ fn hash_noise(p: vec2<f32>) -> f32 {
 // register cells (pre-nucleation overflow glitch).
 fn apply_condensation_glitch(uv: vec2<f32>, base_color: vec3<f32>, time: f32) -> vec3<f32> {
     var out_col = base_color;
-    let count = min(glitch.count, 64u);
+    let count = min(glitch.count, 256u);
 
     for (var i = 0u; i < count; i = i + 1u) {
         let seed = condensing_seeds[i];
@@ -260,7 +270,7 @@ fn fs_post(in: VertexOutput) -> @location(0) vec4<f32> {
     // Analytical softened point-mass micro-deflection over emergent seeds:
     // theta_E,k expands dynamically as each defect accretes boundary bits.
     var alpha_seeds = vec2<f32>(0.0, 0.0);
-    let num_seeds = min(params.seed_count, 64u);
+    let num_seeds = min(params.seed_count, 256u);
     for (var i = 0u; i < num_seeds; i = i + 1u) {
         let s = seeds[i];
         let diff = warped_uv - s.screen_pos;
@@ -344,7 +354,7 @@ fn fs_post(in: VertexOutput) -> @location(0) vec4<f32> {
     // Boundary screen grid: CFT torus lattice overlay fades in with the
     // unwrap transition, plus a faint permanent lattice.
     let grid_uv = warped_uv * vec2<f32>(80.0 * aspect, 80.0);
-    let grid_line = step(0.97, fract(grid_uv.x)) + step(0.97, fract(grid_uv.y));
+    let grid_line = aa_lattice_line(grid_uv.x) + aa_lattice_line(grid_uv.y);
     let grid_rgb = vec3<f32>(0.02, 0.05, 0.08) * clamp(grid_line, 0.0, 1.0)
         * (0.35 + 0.65 * params.post1.x);
 

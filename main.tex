@@ -6119,6 +6119,130 @@ $10/33$--$23/33$ split, and the de~Sitter observer freeze, and the ledger
 is exported under \pyvar{result.json:causal_point_simulation}.
 \end{proof}
 
+\begin{theorem}[First-Principles $\kappa_{\mathrm{GET}}$ Transport Coefficient]
+\label{thm:kappa-get-first-principles}
+The GET entropic acceleration coefficient is fixed on the canonical
+branch by the modular data alone,
+\begin{equation}
+\label{eq:kappa-get-first-principles}
+ \kappa_{\mathrm{GET}}(\fload)
+ \;=\;
+ \frac{1}{d_1-h^\vee_{\su(3)}}
+ \left(1+\frac{c_{\mathrm{eff}}}{d_1}\,\fload\right)
+ \;=\;
+ \frac{1}{23}\left(1+\frac{1325}{4004}\,\fload\right),
+\end{equation}
+with $d_1=26$ the modular branch dimension, $h^\vee_{\su(3)}=3$ the dual
+Coxeter number of the color sector, and $c_{\mathrm{eff}}=1325/154$ the
+coset central charge.  No empirical coupling enters: as the register
+saturates ($\fload\to1$) the coefficient interpolates smoothly between
+$1/23$ and $\kappa_{\mathrm{GET}}^{\max}=(1/23)(1+1325/4004)$.
+\end{theorem}
+
+\begin{proof}[Implementation statement]
+\pyvar{src/shbt/visualizer/src/shaders/causal_point_get.wgsl}
+(\pyvar{compute_kappa_get}) evaluates
+Eq.~\eqref{eq:kappa-get-first-principles} from a \pyvar{TheoryInvariants}
+uniform carrying $(\kell,\kq,\Kpar,c_{\mathrm{eff}},d_1,h^\vee,\Nsat)$;
+\pyvar{cs_causal_point_get} applies the resulting entropy-erasure rate
+and center-of-mass kick.  The invariant gate
+\pyvar{tests/first_principles_kernels.rs} verifies the closed form at the
+endpoints $\fload\in\{0,1\}$.
+\end{proof}
+
+\begin{theorem}[Instanton-Gated Seed Nucleation]
+\label{thm:instanton-seed-nucleation}
+Seed condensation is a non-perturbative tunneling event gated by the
+Euclidean instanton action on the coset,
+\begin{equation}
+\label{eq:instanton-action}
+ S_{\mathrm{inst}}(\mathbf x,z)
+ \;=\;
+ \frac{2\pi c_{\mathrm{eff}}}{\kq}
+ \left(\frac{N_{\mathrm{limit}}-N_{\mathrm{local}}}{N_{\mathrm{limit}}}\right)^{2}
+ \quad(N_{\mathrm{local}}<N_{\mathrm{limit}}),
+ \qquad
+ S_{\mathrm{inst}}=0\ \text{on overflow},
+\end{equation}
+with Cardy capacity ceiling
+\begin{equation}
+\label{eq:cardy-ceiling}
+ N_{\mathrm{limit}}(z)
+ \;=\;
+ \gamma_{\mathrm{CFT}}\,
+ \frac{H(z)^{2}}{H_{\mathrm{ref}}^{2}}\,
+ \frac{V_{\mathrm{cell}}}{V_{H}(z)}\,\Nsat,
+ \qquad
+ \gamma_{\mathrm{CFT}}=\frac{c_{\mathrm{eff}}}{6}=\frac{1325}{924}
+ \approx1.4339826,
+\end{equation}
+so the homogeneous state is strictly sub-critical at $z\gg z_{\mathrm{ref}}$
+and overflow is barrierless.  The nucleation rate
+$\Gamma_{\mathrm{nuc}}=A_{0}\,e^{-S_{\mathrm{inst}}}$ gives the per-cell
+probability $P_{\mathrm{nuc}}=1-e^{-\Gamma_{\mathrm{nuc}}\,\delta t}$;
+the condensed mass is the register content in excess of the ceiling,
+$M_{\mathrm{seed}}\propto\sum_{\mathrm{basin}}\max(0,\,N_{\mathrm{local}}-N_{\mathrm{limit}})$,
+which stays bounded as $N_{\mathrm{limit}}\to0$ in the
+$z\to-1$ asymptote.
+\end{theorem}
+
+\begin{proof}[Implementation statement]
+\pyvar{src/shbt/visualizer/src/shaders/seed_emergence.wgsl}
+(\pyvar{cardy_limit_norm}, \pyvar{instanton_action},
+\pyvar{cs_detect_condensation}) evaluates
+Eqs.~\eqref{eq:instanton-action}--\eqref{eq:cardy-ceiling} in the
+normalized ratio $R=N_{\mathrm{local}}/N_{\mathrm{limit}}$ (absolute bit
+counts $\sim10^{122}$ overflow f32), with a PCG-hashed tunneling draw
+decorrelated per frame and an atomic append into the dynamically sized
+\pyvar{GlobalSeedBuffer} pool.  The absolute-units overflow integral
+keeps $M_{\mathrm{seed}}$ finite for all $z$; the earlier sigmoid
+turn-on envelope, empirical $K_{\mathrm{bit}}$ multiplier, and hardcoded
+64-seed cap are removed.  \pyvar{tests/first_principles_kernels.rs}
+verifies instanton positivity and the zero-action limit at overflow.
+\end{proof}
+
+\begin{theorem}[Stinespring Thermal De-Rendering Expectation]
+\label{thm:stinespring-thermal-expectation}
+The visible-channel weight of the Stinespring isometric state projection
+is the thermal expectation
+\begin{equation}
+\label{eq:stinespring-thermal-expectation}
+ w_{\mathrm{vis}}(z)
+ \;=\;
+ (1-\eta_D)
+ \;+\;
+ \frac{\eta_D}{1+\left(z_N/z\right)^{\Delta_{\bar B}}},
+ \qquad
+ \eta_D=\frac{23}{33},\quad
+ z_N=7.356\times10^{10},\quad
+ \Delta_{\bar B}=\frac{26}{3},
+\end{equation}
+with derivative
+$\frac{dw_{\mathrm{vis}}}{dz}
+ =\frac{\eta_D\,\Delta_{\bar B}}{z}\,
+   \frac{u}{(1+u)^{2}}$,
+$u\equiv(z_N/z)^{\Delta_{\bar B}}$.
+Channel~A emission scales strictly by $w_{\mathrm{vis}}(z)$ while
+Channel~B is independent of the expectation, so the anti-baryon
+de-rendering transition is confined to the window
+$z\in[10^{11},10^{10}]$ and the quenched fraction
+$(1-w_{\mathrm{vis}})/\eta_D\in[0,1]$ drives the per-particle channel
+assignment.
+\end{theorem}
+
+\begin{proof}[Implementation statement]
+\pyvar{evaluate_stinespring_channel} /
+\pyvar{evaluate_quench_fraction} in
+\pyvar{nbody_pm.wgsl} and \pyvar{dual_channel_render.wgsl} implement
+Eq.~\eqref{eq:stinespring-thermal-expectation}, replacing the earlier
+polynomial smoothstep; the Rust mirrors
+\pyvar{stinespring_w_vis}/\pyvar{stinespring_quench_fraction} in
+\pyvar{lib.rs}/\pyvar{hud.rs} feed the ledger partition.
+\pyvar{tests/first_principles_kernels.rs} fixes bit conservation
+$|(N_{\mathrm{vis}}+N_{\mathrm{dark}})-\Nsat\fload(z)|/\Nsat<10^{-30}$
+and the analytic--numeric derivative match across the transition.
+\end{proof}
+
 \subsection{Two-Tier Interactive Visualization Architecture}
 \label{sec:boundary-visualizer}
 

@@ -43,7 +43,7 @@ use wasm_bindgen::prelude::*;
 const GRID_DIM: u32 = 32;
 const BOX_SIZE: f32 = 200.0; // comoving Mpc/h
 const TARGET_FORMAT: TextureFormat = TextureFormat::Rgba16Float;
-const MAX_SEEDS: usize = 64;
+const MAX_SEEDS: usize = 256;
 const CAUSAL_NODE_COUNT: usize = 8;
 const TRACER_COUNT: u32 = 10_000;
 const TETHER_CAP: u32 = 65_536;
@@ -73,6 +73,33 @@ const SEED_MASS_NORM: f32 = 2.0e7;
 const LANDAUER_RATE: f64 = 906.0; // GW per M_sun of collapsed register mass
 const FIXED_POINT_SCALE: f64 = 1024.0;
 const TRACK_RADIUS_MPC: f32 = 12.0;
+
+// shbt7 first-principles invariants (coset CFT SO(10)_312/SU(3)_8).
+const C_EFF: f64 = 1325.0 / 154.0;            // coset central charge
+const GAMMA_CFT: f64 = 1325.0 / 924.0;        // c_eff/6 Cardy ceiling
+const Z_REF: f64 = 17.0;                       // modular onset reference
+const S_INST_PREFACTOR: f64 = 6.7576509;      // 2*pi*c_eff/k_q = 1325pi/616
+/// Instanton nucleation attempt rate A_0 (per unit normalized timestep).
+const ATTEMPT_FREQ: f64 = 0.5;
+/// Thermal Stinespring channel constants (shbt7 Section 4 / Thm 9.10).
+const ETA_D: f64 = 23.0 / 33.0;
+const Z_N: f64 = 7.356e10;
+const DELTA_BBAR: f64 = 26.0 / 3.0;
+
+/// Thermal Stinespring visible overlap w_vis(z) = (1-eta_D) +
+/// eta_D/(1+(z_N/z)^Delta_Bbar) — shared by the HUD ledger, the engine
+/// channel-assignment quench fraction, and the CPU telemetry replica.
+fn stinespring_w_vis(z: f64) -> f64 {
+    if z <= 0.0 {
+        return 1.0 - ETA_D;
+    }
+    (1.0 - ETA_D) + ETA_D / (1.0 + (Z_N / z).powf(DELTA_BBAR))
+}
+
+/// Quenched fraction of the register: (1 - w_vis)/eta_D, 0 -> 1 as z -> 0.
+fn stinespring_quench_fraction(z: f64) -> f64 {
+    ((1.0 - stinespring_w_vis(z)) / ETA_D).clamp(0.0, 1.0)
+}
 
 #[repr(C)]
 #[derive(Copy, Clone, Pod, Zeroable)]
@@ -105,8 +132,10 @@ struct EmergenceParams {
     landauer_rate: f32,
     track_radius: f32,
     fixed_point_scale: f32,
-    k_bit: f32,
-    growth_amp: f32,
+    // Repurposed slots (shbt7): A_0 nucleation attempt rate and the
+    // per-frame decorrelation seed for the instanton tunneling draw.
+    attempt_freq: f32,
+    frame_seed: f32,
     mean_density: f32,
     _pad: f32,
 }
@@ -1046,16 +1075,32 @@ impl ShbtWebGpuEngine {
     ///   N_limit = N_sat f_load gamma_geom / N_cells   (per-voxel ceiling)
     ///   K_bit   = N_sat f_load / raw_mass_total     (demand coupling)
     ///   delta_eff = delta * 31 / (1+z)             (linear growth)
+    /// Boundary loading fraction f_load(z) and the instanton nucleation
+    /// attempt rate A_0. The empirical sigmoid growth envelope is gone
+    /// (shbt7): the Cardy ceiling cardy_limit_norm(z) in the shader sets
+    /// the onset epoch first-principally through H(z)^5 scaling.
     fn update_redshift_and_loading(&self, z: f64) -> (f64, f64) {
-        let beta_load = WZW_K / (WZW_K_L * WZW_K * 0.0 + 13.0 * WZW_K_L * 0.0 + 13.0);
-        let _ = beta_load;
         let f_load = telemetry::loading_fraction(z);
-        // Condensation growth window: the linear growth factor is suppressed
-        // while the register is thermalized (z > 17.5), then ramps through a
-        // sharp horizon-entry transition near z ~ 17 and plateaus at the
-        // canonical post-onset value 31/(1+z)|_z=7 = 3.875.
-        let growth_amp = 3.875 / (1.0 + ((z - 17.0) / 0.25).exp());
-        (f_load, growth_amp)
+        (f_load, ATTEMPT_FREQ)
+    }
+
+    /// Cardy boundary capacity ceiling in normalized units (mirrors
+    /// seed_emergence.wgsl): N_limit ~ gamma_CFT * H(z)^5, evaluated as
+    /// gamma_CFT * ((1+z)/(1+z_ref))^7.5 in the matter-era H ~ (1+z)^1.5.
+    #[allow(dead_code)]
+    fn cardy_limit_norm(z: f64) -> f64 {
+        GAMMA_CFT * ((1.0 + z).max(1.0e-3) / (1.0 + Z_REF)).powf(7.5)
+    }
+
+    /// Euclidean instanton action on the normalized density ratio
+    /// R = N_local/N_limit: (2 pi c_eff/k_q) (1-R)^2 for R<1, else 0.
+    #[allow(dead_code)]
+    fn instanton_action(r_ratio: f64) -> f64 {
+        if r_ratio >= 1.0 {
+            return 0.0;
+        }
+        let d = 1.0 - r_ratio;
+        S_INST_PREFACTOR * d * d
     }
 
     fn new_common(device: Device, queue: Queue, num_particles: u32) -> Self {
@@ -1537,11 +1582,23 @@ impl ShbtWebGpuEngine {
         })
     }
 
+    /// Orbiting camera direction on the observation sphere, slerped
+    /// toward the boundary-plane normal as unwrap_transition -> 1 so the
+    /// bulk->CFT projection swap is a smooth arc (shbt7 Phase 2).
+    fn camera_dir(&self) -> [f32; 3] {
+        let (sy, cy) = (self.frame_index as f32 * 0.0004).sin_cos();
+        let orbit = normalize([sy, 0.1786, -cy]);
+        let cft_axis = [0.0, 0.0, 1.0];
+        let t = self.unwrap_transition.clamp(0.0, 1.0);
+        let t = t * t * (3.0 - 2.0 * t); // smoothstep ease
+        slerp3(orbit, cft_axis, t)
+    }
+
     /// World-space camera eye for the current orbiting view.
     fn camera_eye(&self) -> [f32; 3] {
         let dist = BOX_SIZE * 1.4;
-        let (sy, cy) = (self.frame_index as f32 * 0.0004).sin_cos();
-        [sy * dist, 0.25 * BOX_SIZE, -cy * dist]
+        let dir = self.camera_dir();
+        [dir[0] * dist, dir[1] * dist, dir[2] * dist]
     }
 
     /// Project the emergent seed centroids into normalized screen UVs and
@@ -1808,25 +1865,48 @@ impl ShbtWebGpuEngine {
                 }
             }
         }
-        let (_, growth_amp) = self.update_redshift_and_loading(self.redshift);
-        let growth_amp = growth_amp as f32;
-        let gamma = GAMMA_GEOM as f32;
+        let (_, attempt_freq) = self.update_redshift_and_loading(self.redshift);
+        let n_limit = Self::cardy_limit_norm(self.redshift) as f32;
         let mean_raw = (self.mean_raw_total / n_cells as f64) as f32;
-        let demand = |raw: f32| -> f32 {
-            let delta = ((raw - mean_raw) / mean_raw.max(1e-5)).max(0.0);
-            (raw / mean_raw.max(1e-5)) * (1.0 + delta * growth_amp) / gamma
+        let ratio = |raw: f32| -> f32 {
+            (raw / mean_raw.max(1e-5)) / n_limit
+        };
+        let pcg = |input: u32| -> u32 {
+            let state = input.wrapping_mul(747796405).wrapping_add(2891336453);
+            let word = ((state >> ((state >> 28) + 4)) ^ state).wrapping_mul(277803737);
+            (word >> 22) ^ word
         };
         let idx = |x: i32, y: i32, z: i32| -> usize {
             (((z + dim) % dim) * 1024 + ((y + dim) % dim) * 32 + ((x + dim) % dim)) as usize
         };
         let cell_size = BOX_SIZE / GRID_DIM as f32;
         let mut candidates: Vec<([f32; 3], f32)> = Vec::new();
+        let mut dbg_rmax = 0f32;
+        let mut dbg_ovmax = 0f32;
         for z in 0..dim {
             for y in 0..dim {
                 for x in 0..dim {
-                    let n_local = demand(grid[idx(x, y, z)]);
-                    let overflow = n_local - 1.0;
-                    if overflow <= DELTA_N_THRESH_NORM {
+                    let r_local = ratio(grid[idx(x, y, z)]);
+                    dbg_rmax = dbg_rmax.max(r_local);
+                    dbg_ovmax = dbg_ovmax
+                        .max((grid[idx(x, y, z)] / mean_raw.max(1e-5) - n_limit).max(0.0));
+                    // Barrierless condensation on overflow; instanton-gated
+                    // tunneling draw below the Cardy ceiling (shbt7 5.2).
+                    let mut tunneled = false;
+                    if r_local < 1.0 {
+                        let s_inst = Self::instanton_action(r_local as f64);
+                        let gamma_nuc = attempt_freq * (-s_inst).exp();
+                        let p_nuc = 1.0 - (-gamma_nuc * (1.0 / 60.0)).exp();
+                        let rng = pcg(
+                            (idx(x, y, z) as u32)
+                                ^ (self.frame_index as u32).wrapping_mul(2654435761),
+                        ) as f32
+                            / u32::MAX as f32;
+                        if rng >= p_nuc as f32 || r_local <= DELTA_N_THRESH_NORM {
+                            continue;
+                        }
+                        tunneled = true;
+                    } else if r_local - 1.0 <= DELTA_N_THRESH_NORM {
                         continue;
                     }
                     let mut is_max = true;
@@ -1837,9 +1917,9 @@ impl ShbtWebGpuEngine {
                                     continue;
                                 }
                                 let n_idx = idx(x + dx, y + dy, z + dz);
-                                let n_neigh = demand(grid[n_idx]);
-                                if n_neigh > n_local
-                                    || (n_neigh == n_local && n_idx < idx(x, y, z))
+                                let n_neigh = ratio(grid[n_idx]);
+                                if n_neigh > r_local
+                                    || (n_neigh == r_local && n_idx < idx(x, y, z))
                                 {
                                     is_max = false;
                                     break 'nms;
@@ -1856,11 +1936,23 @@ impl ShbtWebGpuEngine {
                         for dy in -1..=1 {
                             for dx in -1..=1 {
                                 let n_idx = idx(x + dx, y + dy, z + dz);
-                                let ov = (demand(grid[n_idx]) - 1.0).max(0.0);
-                                sum_overflow += ov;
-                                wp[0] += ((x + dx) as f32 * cell_size) * ov;
-                                wp[1] += ((y + dy) as f32 * cell_size) * ov;
-                                wp[2] += ((z + dz) as f32 * cell_size) * ov;
+                                let n_local_basin = grid[n_idx] / mean_raw.max(1e-5);
+                                // Overflow in absolute normalized units:
+                                // n_local - n_limit (bounded by the cell
+                                // content as n_limit -> 0 for z -> -1).
+                                // A tunneling nucleation has no overflow;
+                                // it deposits the register content it
+                                // tunnels (the full basin n_local) into the
+                                // seed defect.
+                                let contrib = if tunneled {
+                                    n_local_basin
+                                } else {
+                                    (n_local_basin - n_limit).max(0.0)
+                                };
+                                sum_overflow += contrib;
+                                wp[0] += ((x + dx) as f32 * cell_size) * contrib;
+                                wp[1] += ((y + dy) as f32 * cell_size) * contrib;
+                                wp[2] += ((z + dz) as f32 * cell_size) * contrib;
                             }
                         }
                     }
@@ -1919,8 +2011,8 @@ impl ShbtWebGpuEngine {
         self.cpu_prev_seeds = next_prev;
         let tot: f32 = records.iter().map(|r| r.mass_msun).sum();
         self.debug_grid_stats = format!(
-            "cpu cands={} matched={} prev_n={} total={:.3e}",
-            records.len(), matched_count, prev_n, tot,
+            "cpu cands={} matched={} prev_n={} total={:.3e} rmax={:.4} ovmax={:.4} nlim={:.4}",
+            records.len(), matched_count, prev_n, tot, dbg_rmax, dbg_ovmax, n_limit,
         );
         self.absorb_seed_records(records);
     }
@@ -2043,8 +2135,8 @@ impl ShbtWebGpuEngine {
             [0.0, 0.0, near * far / (near - far), 0.0],
         ];
         let dist = BOX_SIZE * 1.4;
-        let (sy, cy) = (self.frame_index as f32 * 0.0004).sin_cos();
-        let eye = [sy * dist, 0.25 * BOX_SIZE, -cy * dist];
+        let dir = self.camera_dir();
+        let eye = [dir[0] * dist, dir[1] * dist, dir[2] * dist];
         let view = look_at(eye, [0.0, 0.0, 0.0], [0.0, 1.0, 0.0]);
         let persp = mat_mul(proj, view);
         let t = self.unwrap_transition.clamp(0.0, 1.0);
@@ -2364,7 +2456,7 @@ impl ShbtWebGpuEngine {
         self.queue
             .write_buffer(&self.telemetry_buffer, 0, &frame);
 
-        let (f_load, growth_amp) =
+        let (f_load, attempt_freq) =
             self.update_redshift_and_loading(self.redshift);
         let mean_density = (self.mean_raw_total
             / (GRID_DIM * GRID_DIM * GRID_DIM) as f64) as f32;
@@ -2397,8 +2489,8 @@ impl ShbtWebGpuEngine {
             landauer_rate: LANDAUER_RATE as f32,
             track_radius: TRACK_RADIUS_MPC,
             fixed_point_scale: FIXED_POINT_SCALE as f32,
-            k_bit: 0.0,
-            growth_amp: growth_amp as f32,
+            attempt_freq: attempt_freq as f32,
+            frame_seed: self.frame_index as f32,
             mean_density,
             _pad: 0.0,
         };
@@ -2848,6 +2940,29 @@ fn mat_mul(a: [[f32; 4]; 4], b: [[f32; 4]; 4]) -> [[f32; 4]; 4] {
     out
 }
 
+/// Spherical linear interpolation between two unit directions: keeps the
+/// camera transition on the observation sphere instead of cutting
+/// through it (shbt7 Phase 2, smooth orbit camera).
+fn slerp3(a: [f32; 3], b: [f32; 3], t: f32) -> [f32; 3] {
+    let d = (a[0] * b[0] + a[1] * b[1] + a[2] * b[2]).clamp(-1.0, 1.0);
+    if d > 0.9995 {
+        return normalize([
+            a[0] + (b[0] - a[0]) * t,
+            a[1] + (b[1] - a[1]) * t,
+            a[2] + (b[2] - a[2]) * t,
+        ]);
+    }
+    let theta = d.acos();
+    let s = theta.sin().max(1.0e-9);
+    let w0 = ((1.0 - t) * theta).sin() / s;
+    let w1 = (t * theta).sin() / s;
+    [
+        a[0] * w0 + b[0] * w1,
+        a[1] * w0 + b[1] * w1,
+        a[2] * w0 + b[2] * w1,
+    ]
+}
+
 fn normalize(v: [f32; 3]) -> [f32; 3] {
     let l = (v[0] * v[0] + v[1] * v[1] + v[2] * v[2]).sqrt().max(1e-9);
     [v[0] / l, v[1] / l, v[2] / l]
@@ -3068,12 +3183,12 @@ impl ShbtWebGpuEngine {
     /// the wasm host (diagnoses host-vs-GPU discrepancies in Dawn runs).
     #[wasm_bindgen]
     pub fn debug_eparams(&self) -> String {
-        let (f_load, growth_amp) = self.update_redshift_and_loading(self.redshift);
+        let (f_load, attempt_freq) = self.update_redshift_and_loading(self.redshift);
         let mean_density = (self.mean_raw_total
             / (GRID_DIM * GRID_DIM * GRID_DIM) as f64) as f32;
         format!(
-            "{{\"growth_amp\":{:.6e},\"mean_density\":{:.6e},\"f_load\":{:.6e},\"particles\":{},\"in_flight\":{},\"map_started\":{},\"map_calls\":{},\"map_errors\":{},\"map_err\":\"{}\",\"seed_count\":{},\"cpu_fallback\":{},\"grid\":\"{}\",\"drains\":{},\"redshift\":{:.4}}}",
-            growth_amp, mean_density, f_load, self.num_particles,
+            "{{\"attempt_freq\":{:.6e},\"mean_density\":{:.6e},\"f_load\":{:.6e},\"particles\":{},\"in_flight\":{},\"map_started\":{},\"map_calls\":{},\"map_errors\":{},\"map_err\":\"{}\",\"seed_count\":{},\"cpu_fallback\":{},\"grid\":\"{}\",\"drains\":{},\"redshift\":{:.4}}}",
+            attempt_freq, mean_density, f_load, self.num_particles,
             self.readback.in_flight, self.readback.map_started,
             self.readback.map_calls.load(Ordering::SeqCst), self.readback.map_errors.load(Ordering::SeqCst),
             self.readback.map_err_text.lock().map(|t| t.clone()).unwrap_or_default(),
@@ -3084,6 +3199,18 @@ impl ShbtWebGpuEngine {
 
 fn clean_zero(v: f64) -> f64 {
     if v == 0.0 { 0.0 } else { v }
+}
+
+/// Keep hud_json valid JSON even when a telemetry channel overflows to
+/// inf/NaN (e.g. runaway diagnostic sums): NaN -> 0, +/-inf -> +/-3.0e38.
+fn jnum(v: f64) -> f64 {
+    if v.is_nan() {
+        0.0
+    } else if v.is_infinite() {
+        v.signum() * 3.0e38
+    } else {
+        v
+    }
 }
 
 impl ShbtWebGpuEngine {
@@ -3100,31 +3227,31 @@ impl ShbtWebGpuEngine {
              \"max_einstein_radius\":{:.6},\"active_caustics\":{},\
              \"seedCount\":{},\"totalMass\":{:.6e},\"landauerDebt\":{:.6e},\
              \"redshift\":{:.6e}}}",
-            m.redshift,
-            m.scale_factor,
-            m.bulk_time_gyr,
-            m.hubble,
-            m.loading_frac,
-            m.n_vis,
-            m.n_dark,
-            m.delta_n_bits,
-            m.seed_mass_msun,
-            m.landauer_debt_gw,
-            m.f_sigma8,
-            m.delta_isw,
+            jnum(m.redshift),
+            jnum(m.scale_factor),
+            jnum(m.bulk_time_gyr),
+            jnum(m.hubble),
+            jnum(m.loading_frac),
+            jnum(m.n_vis),
+            jnum(m.n_dark),
+            jnum(m.delta_n_bits),
+            jnum(m.seed_mass_msun),
+            jnum(m.landauer_debt_gw),
+            jnum(m.f_sigma8),
+            jnum(m.delta_isw),
             m.particle_count,
             m.frame_index,
             m.delta_fr_zero,
             m.e_munu_zero,
             m.horizon_frozen,
-            self.telemetry.peak_shear,
-            self.telemetry.peak_convergence,
-            self.telemetry.max_einstein_radius,
+            jnum(self.telemetry.peak_shear as f64),
+            jnum(self.telemetry.peak_convergence as f64),
+            jnum(self.telemetry.max_einstein_radius as f64),
             self.telemetry.active_caustics,
             self.seed_count,
-            clean_zero(self.emergent_total_mass_msun()),
-            clean_zero(self.emergent_landauer_debt_gw()),
-            m.redshift,
+            jnum(clean_zero(self.emergent_total_mass_msun())),
+            jnum(clean_zero(self.emergent_landauer_debt_gw())),
+            jnum(m.redshift),
         )
     }
 }

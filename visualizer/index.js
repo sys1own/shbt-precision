@@ -26,6 +26,7 @@ function sliderToZ(x) {
 
 function refreshHud(m) {
   window.__lastHudMetrics = m;
+  refreshHudTrack(m);
   $("hud-time").textContent = `${fmt(m.t_gyr)} Gyr`;
   $("bar-time").style.width = `${Math.min(m.t_gyr / 13.8, 1) * 100}%`;
   $("hud-fload").textContent = fmt(m.f_load, 5);
@@ -86,6 +87,10 @@ function refreshHud(m) {
   if (document.activeElement !== $("timeline")) {
     $("timeline").value = zToSlider(m.z);
   }
+}
+
+function refreshHudTrack(m) {
+  lastKnownZ = m.z;
 }
 
 async function boot() {
@@ -183,9 +188,31 @@ let captureCtx = null;
 let captureBusy = false;
 let engineQueue = Promise.resolve();
 
+// Log-redshift scrub easing (shbt7 Phase 2): slider input sets a target
+// epoch and the engine redshift is advanced toward it each frame in
+// ln(1+z) space, so drags across decades land smoothly instead of
+// snapping the camera through abrupt epoch jumps.
+let zTarget = null;
+let lastKnownZ = null;
+
+function easeRedshift(dt) {
+  if (zTarget === null || !engine) return;
+  const cur = lastKnownZ ?? zTarget;
+  const a = Math.log1p(Math.max(cur, -0.999));
+  const b = Math.log1p(Math.max(zTarget, -0.999));
+  if (Math.abs(b - a) < 1e-3) {
+    engine.set_redshift(zTarget);
+    zTarget = null;
+    return;
+  }
+  const k = Math.min(1.0, dt * 7.0); // ~140 ms exponential approach
+  engine.set_redshift(Math.expm1(a + (b - a) * k));
+}
+
 function frame(now) {
   const dt = Math.min((now - lastT) / 1000, 0.1);
   lastT = now;
+  easeRedshift(dt);
   if (captureCtx) {
     if (!captureBusy) {
       captureBusy = true;
@@ -218,7 +245,7 @@ function frame(now) {
 }
 
 $("timeline").addEventListener("input", (ev) => {
-  if (engine) engine.set_redshift(sliderToZ(parseFloat(ev.target.value)));
+  if (engine) zTarget = sliderToZ(parseFloat(ev.target.value));
 });
 $("play").addEventListener("click", () => {
   if (!engine) return;
@@ -257,6 +284,7 @@ document.querySelectorAll("#epoch-bar button").forEach((b) =>
     if (!engine) return;
     const e = EPOCHS[b.dataset.epoch];
     if (!e) return;
+    zTarget = null; // epoch jumps are instant; cancel any pending ease
     engine.set_redshift(e.z);
     engine.set_speed(e.speed);
     engine.set_playing(e.playing);

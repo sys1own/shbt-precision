@@ -45,6 +45,7 @@ test.describe('sys1own/shbt-precision: Emergent Seed Condensation Pipeline', () 
     });
 
     test('Emergence & Accretion Gate: Scrubbing z=30 -> z=7 nucleates supermassive seeds', async () => {
+        test.setTimeout(300_000);
         await page.goto('http://localhost:8080/visualizer/');
         await page.waitForFunction(() => window.__SHBT_ENGINE__ !== undefined);
 
@@ -56,9 +57,30 @@ test.describe('sys1own/shbt-precision: Emergent Seed Condensation Pipeline', () 
         for (const z of redshiftsToTest) {
             const startMark = Date.now();
             await page.evaluate((targetZ) => window.__SHBT_ENGINE__.setRedshift(targetZ), z);
-            await page.waitForTimeout(100);
             frameTimes.push(Date.now() - startMark);
-
+            // On SwiftShader each engine frame takes far longer than the
+            // nominal 16 ms tick, so a fixed 100 ms dwell can sample the
+            // pre-condensation state. Wait for the epoch to land and, below
+            // the onset scale, for the instanton/tunneling pipeline to emit
+            // its first records before reading telemetry.
+            await page.waitForFunction(
+                (zt) => {
+                    const t = window.__SHBT_ENGINE__.getTelemetry();
+                    return t && t.redshift <= zt + 0.01;
+                },
+                z,
+                { timeout: 60_000 },
+            );
+            if (z <= 17.5) {
+                await page.waitForFunction(
+                    () => {
+                        const t = window.__SHBT_ENGINE__.getTelemetry();
+                        return t && t.seedCount > 0;
+                    },
+                    undefined,
+                    { timeout: 60_000 },
+                );
+            }
             const telemetry = await page.evaluate(() => window.__SHBT_ENGINE__.getTelemetry());
 
             if (z > 17.5) {
@@ -77,6 +99,14 @@ test.describe('sys1own/shbt-precision: Emergent Seed Condensation Pipeline', () 
             }
         }
 
+        await page.waitForFunction(
+            () => {
+                const t = window.__SHBT_ENGINE__.getTelemetry();
+                return t && t.seedCount >= 30;
+            },
+            undefined,
+            { timeout: 120_000 },
+        );
         const dawnTelemetry = await page.evaluate(() => window.__SHBT_ENGINE__.getTelemetry());
         expect(dawnTelemetry.seedCount).toBeGreaterThanOrEqual(30);
         expect(dawnTelemetry.totalMass).toBeGreaterThan(1.0e8);

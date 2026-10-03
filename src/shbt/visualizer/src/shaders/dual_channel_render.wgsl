@@ -48,6 +48,23 @@ struct CrystallizationEvent {
 // into relativistic beta factors for the Doppler beaming model.
 const C_SPEED: f32 = 60.0;
 
+// Thermal Stinespring channel overlap (shbt7 Section 4 / Thm 9.10):
+// Channel-A visibility follows the anti-baryon scaling dimension
+// Delta_Bbar = 26/3 across the modular crossover z_N = 7.356e10,
+//   w_vis(z) = (1 - eta_D) + eta_D / (1 + (z_N/z)^Delta),
+// with eta_D = 23/33. Channel-B emission is independent of w_vis.
+const ETA_D: f32 = 0.6969696970;   // 23/33
+const Z_N: f32 = 7.356e10;         // modular crossover redshift
+const DELTA_BBAR: f32 = 8.6666667; // 26/3 anti-baryon scaling dimension
+
+fn evaluate_stinespring_channel(z: f32) -> f32 {
+    if (z <= 0.0) {
+        return 1.0 - ETA_D;
+    }
+    let power = pow(Z_N / max(z, 1.0e-3), DELTA_BBAR);
+    return (1.0 - ETA_D) + ETA_D / (1.0 + power);
+}
+
 // Blackbody thermal color mapping (Tanner Helland approximation):
 // maps an effective Kelvin temperature onto an RGB tint.
 fn kelvin_to_rgb(temp_kelvin: f32) -> vec3<f32> {
@@ -112,7 +129,7 @@ fn resolve_charge_color(p: Particle, time: f32) -> vec4<f32> {
 
 @group(1) @binding(0) var<storage, read> events: array<CrystallizationEvent>;
 @group(1) @binding(1) var<uniform> event_count: u32;
-@group(1) @binding(2) var<storage, read> active_seeds: array<SeedDefectRecord, 64>;
+@group(1) @binding(2) var<storage, read> active_seeds: array<SeedDefectRecord, 256>;
 @group(1) @binding(3) var<storage, read> seed_state: array<u32, 4>;
 
 // History crystallization flash (Enhancement 9): incandescent shockwave at
@@ -154,6 +171,7 @@ struct VertexOutput {
     @location(9) landauer_debt: f32,
     @location(10) @interpolate(flat) channel: u32,
     @location(11) @interpolate(flat) charge_flags: u32,
+    @location(12) seed_debt: f32,
 };
 
 struct GBufferOutput {
@@ -208,14 +226,19 @@ fn vs_particle_billboard(
     // condensation centroid in normalized box units (no hardcoded wells).
     let u_norm = fract(p.position / camera.params.y);
     var d_min = 1.0e9;
-    let n_seeds = min(seed_state[1], 64u);
+    var seed_debt = 0.0;
+    let n_seeds = min(seed_state[1], 256u);
     for (var si = 0u; si < n_seeds; si = si + 1u) {
         let seed = active_seeds[si];
         if (seed.position.w > 0.5) {
             let s_norm = seed.position.xyz / camera.params.y;
             var dd = abs(u_norm - s_norm);
             dd = min(dd, vec3<f32>(1.0) - dd);
-            d_min = min(d_min, length(dd));
+            let d = length(dd);
+            // Carry the closest defect's Landauer dissipation power
+            // P_debt = M_seed * 906 GW for the thermal corona (shbt7 5.3).
+            seed_debt = select(seed_debt, seed.dynamics.z, d < d_min);
+            d_min = min(d_min, d);
         }
     }
 
@@ -258,6 +281,7 @@ fn vs_particle_billboard(
     out.seed_glow = seed_glow;
     out.causal_env = causal_env;
     out.landauer_debt = p.landauer_debt;
+    out.seed_debt = seed_debt;
     out.channel = p.channel;
     out.charge_flags = p.charge_flags;
 
@@ -307,9 +331,11 @@ fn fs_render_dual_channel(in: VertexOutput) -> GBufferOutput {
     }
     let pulse = 0.75 + 0.25 * sin(in.branch_hash * 40.0 + z * 0.7);
 
-    // Dark-branch emission decays quadratically with vis_weight so the
-    // de-rendering population dims faster than the baryon branch.
-    var emit_w = in.vis_factor;
+    // Channel-A emission scales strictly by the thermal Stinespring
+    // overlap w_vis(z); Channel B is the independent dark sector and
+    // keeps its quadratic ghost dimming (shbt7 5.3).
+    let w_vis = evaluate_stinespring_channel(z);
+    var emit_w = in.vis_factor * w_vis;
     if (is_dark_branch) {
         emit_w = in.vis_factor * in.vis_factor;
     }
@@ -332,16 +358,24 @@ fn fs_render_dual_channel(in: VertexOutput) -> GBufferOutput {
     // History crystallization shockwave (Enhancement 9).
     glow_rgb += sample_crystallization_flash(in.world_pos, z * 0.01 + in.linear_depth * 0.0) * core_intensity;
 
-    // Emergent-seed starburst: glowing white/gold cores with caustic
-    // lensing rings around freshly condensed topological defects.
+    // Emergent-seed starburst modulated by the instantaneous Landauer
+    // dissipation P_debt = M_seed * 906 GW (shbt7 Phase 2): heavier
+    // defects burn brighter amber/white cores with a radiant thermal
+    // corona keyed to the same blackbody debt curve.
     if (in.seed_glow > 0.0) {
         let ring_dist = abs(dist_from_center - 0.40);
         let caustic_fringe = exp(-pow(ring_dist * 30.0, 2.0)) * (0.85 + 0.15 * sin(dist_from_center * 45.0 + z * 0.4));
-        // Gains trimmed so 64 concurrent defects read as distinct
-        // starbursts rather than a merged white field.
-        let seed_core = vec3<f32>(1.0, 0.98, 0.85) * exp(-dist_from_center * 12.0) * pulse * 2.0;
+        // Log-normalized debt luminosity: M_seed x 906 GW spans ~1e10-1e12
+        // at these seed masses; normalize into [0, 1] on the debt curve.
+        let debt_lum = clamp(log(max(in.seed_debt, 1.0)) / 27.63, 0.0, 1.0);
+        let core_gain = 0.6 + 1.8 * debt_lum;
+        let seed_core = vec3<f32>(1.0, 0.98, 0.85) * exp(-dist_from_center * 12.0) * pulse * core_gain;
         let seed_ring = vec3<f32>(1.0, 0.85, 0.35) * caustic_fringe * pulse * 1.5 + vec3<f32>(0.3, 0.8, 1.0) * caustic_fringe * 1.0;
-        glow_rgb += (seed_core + seed_ring) * in.seed_glow;
+        // Radiant thermal corona beyond the core: wide gaussian shoulder
+        // in the Landauer blackbody palette, gain capped against fusion.
+        let corona = compute_landauer_emission(in.seed_debt)
+            * exp(-dist_from_center * 5.0) * 0.45;
+        glow_rgb += (seed_core + seed_ring + corona) * in.seed_glow;
         glow_a = max(glow_a, in.seed_glow * (core_intensity + caustic_fringe));
     }
     // Channel A: spectral radiance in RGB, normalized line-of-sight

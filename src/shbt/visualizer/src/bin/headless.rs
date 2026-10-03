@@ -101,7 +101,7 @@ fn main() {
 
         // Calibration sweep for the emergent condensation thresholds.
         if std::env::var("SHBT_Z_SWEEP").is_ok() {
-            for z in [30.0f64, 25.0, 20.0, 17.5, 17.0, 14.0, 10.0, 7.0] {
+            for z in [30.0f64, 25.0, 20.0, 17.5, 17.0, 14.0, 10.0, 7.0, 3.0, 0.5, -0.999] {
                 engine.set_redshift(z);
                 for _ in 0..8 {
                     engine.step(1.0 / 60.0, None);
