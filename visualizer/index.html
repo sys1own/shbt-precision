@@ -103,6 +103,16 @@
   </div>
 </div>
 
+<!-- shbt10 recorder contract (record_simulation_events.py): machine-
+     readable HUD telemetry overlay. The DOM ids are asserted at each
+     milestone keyframe; values mirror the hud_json telemetry frame. -->
+<div id="hud-telemetry-overlay" class="ledger" style="position:absolute;left:10px;bottom:10px;font-size:11px;line-height:1.5">
+  <div>z = <span id="hud-redshift-val">1.0e14</span></div>
+  <div>quench = <span id="hud-quench-fraction-val">0.000</span></div>
+  <div>P<sub>debt</sub> = <span id="hud-landauer-debt-val">0</span> GW</div>
+  <div>fps = <span id="hud-fps-val">0</span></div>
+</div>
+
 <div id="controls">
   <input id="timeline" type="range" min="-12" max="14" step="0.01" value="14"
          title="log-space timeline: z = 10^x - 1, x in [-12, 14]">

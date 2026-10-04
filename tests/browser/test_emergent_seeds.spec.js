@@ -201,11 +201,18 @@ test.describe('sys1own/shbt-precision: Emergent Seed Condensation Pipeline', () 
         const onPatch = await patch();
 
         // Toggle OFF via the UI checkbox; the engine flag must drop to 0.
+        // The checkbox listener queues set_glitch_enabled behind any
+        // in-flight capture_frame_rgba, and telemetry reports the flag
+        // through hud_json (or __lastHudMetrics). Await one queued
+        // mutating call first so the FIFO queue drains past the toggle;
+        // then hud_json reports glitchEnabled=false on the first read
+        // instead of needing a whole extra capture frame.
         await page.evaluate(() => {
             const el = document.getElementById('glitch-toggle');
             el.checked = false;
             el.dispatchEvent(new Event('change'));
         });
+        await page.evaluate(() => window.__SHBT_ENGINE__.setPlaying(false));
         await page.waitForFunction(
             () => {
                 const t = window.__SHBT_ENGINE__.getTelemetry();

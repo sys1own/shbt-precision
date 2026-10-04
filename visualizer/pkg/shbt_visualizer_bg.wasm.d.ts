@@ -3,6 +3,7 @@
 export const memory: WebAssembly.Memory;
 export function __wbg_shbtwebgpuengine_free(a: number): void;
 export function shbtwebgpuengine_capture_frame_rgba(a: number, b: number): number;
+export function shbtwebgpuengine_clear_camera_override(a: number): void;
 export function shbtwebgpuengine_create(a: number, b: number): number;
 export function shbtwebgpuengine_debug_eparams(a: number, b: number): void;
 export function shbtwebgpuengine_get_active_observers_count(a: number): number;
@@ -25,6 +26,7 @@ export function shbtwebgpuengine_set_unwrap_transition(a: number, b: number): vo
 export function shbtwebgpuengine_set_viewport_mode(a: number, b: number): void;
 export function shbtwebgpuengine_step_frame(a: number, b: number, c: number): void;
 export function shbtwebgpuengine_unproject_and_dispatch_causal_point(a: number, b: number, c: number, d: number, e: number): number;
+export function shbtwebgpuengine_update_cosmic_state(a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number): void;
 export function shbtwebgpuengine_update_frame_telemetry(a: number, b: number, c: number, d: number): void;
 export function __wbg_wasmshbtengine_free(a: number): void;
 export function wasmshbtengine_causal_point_count(a: number): number;

@@ -65,6 +65,7 @@ const WZW_K_L: f64 = 26.0;
 const WZW_K_Q: f64 = 8.0;
 #[allow(dead_code)]
 const WZW_K: f64 = 312.0;
+#[allow(dead_code)]
 const GAMMA_GEOM: f64 = std::f64::consts::PI * std::f64::consts::PI / 4.0; // ~2.467401
 /// N_sat expressed in scaled bits (1 scaled bit = 1e30 physical bits) so
 /// all GPU register arithmetic stays inside f32 dynamic range.
@@ -112,6 +113,20 @@ fn stinespring_w_vis(z: f64) -> f64 {
 /// Quenched fraction of the register: (1 - w_vis)/eta_D, 0 -> 1 as z -> 0.
 fn stinespring_quench_fraction(z: f64) -> f64 {
     ((1.0 - stinespring_w_vis(z)) / ETA_D).clamp(0.0, 1.0)
+}
+
+/// Modular restoration rate |dw_vis/dz|(z) (Thm 9.13): the Stinespring
+/// dilation source Gamma_S driving the dark ledger in the incubation
+/// transport kernel. dw_vis/dz = eta_D * Delta * p / (z (1+p)^2) with
+/// p = (Z_N/z)^Delta.
+fn stinespring_dw_vis_dz(z: f64) -> f64 {
+    if z <= 0.0 {
+        return 0.0;
+    }
+    let zz = z.max(1.0e-3);
+    let power = (Z_N / zz).powf(DELTA_BBAR);
+    let denom = 1.0 + power;
+    ETA_D * power * DELTA_BBAR / (zz * denom * denom)
 }
 
 // shbt8 Phase 1: the n-body uniform block is the byte-exact
@@ -216,6 +231,8 @@ struct CameraParams {
     view_proj: [[f32; 4]; 4],
     params: [f32; 4], // x: point extent, y: box_size, z: unwrap_transition, w: redshift
     aux: [f32; 4],    // xyz: camera world position, w: doppler beaming flag
+    // x/y: viewport size in px; z/w: min/max SPH splat radius in px.
+    params2: [f32; 4],
 }
 
 /// Causal-observer render node (f64-free mirror of the WGSL CausalPoint
@@ -362,6 +379,14 @@ pub struct ShbtWebGpuEngine {
     emergence_track_pipeline: ComputePipeline,
     /// shbt9 Pass 1.5: Wendland C4 percolation convolution.
     emergence_convo_pipeline: ComputePipeline,
+    /// shbt10 continuum: incubation diffusion + Stinespring ledger and
+    /// the regularized seed-potential solve (Thms 9.13/9.14).
+    incubation_pipeline: ComputePipeline,
+    seed_potential_pipeline: ComputePipeline,
+    /// shbt10 continuum hydro: fixed-point CIC deposition and the
+    /// thermodynamic pressure solve feeding the KDK pressure force.
+    hydro_deposit_pipeline: ComputePipeline,
+    hydro_pressure_pipeline: ComputePipeline,
     /// shbt9 sandbox observer GET + FDT backaction pass.
     sandbox_get_pipeline: ComputePipeline,
     /// shbt9 diagnostics: clear / P(k) reduce / phase-space raster.
@@ -417,6 +442,15 @@ pub struct ShbtWebGpuEngine {
     seed_candidates_buffer: Buffer,
     active_seeds_buffer: Buffer,
     prev_seeds_buffer: Buffer,
+
+    // shbt10 continuum transport + hydrodynamic grids (Thms 9.13-9.15).
+    rho_tot_atomic_buffer: Buffer,
+    rho_baryon_atomic_buffer: Buffer,
+    rho_baryon_buffer: Buffer,
+    pressure_baryon_buffer: Buffer,
+    dark_ledger_buffer: Buffer,
+    seed_mass_grid_buffer: Buffer,
+    seed_potential_buffer: Buffer,
 
     // Sandbox observer + diagnostics buffers (shbt9 Phase 1-2).
     sandbox_params_buffer: Buffer,
@@ -515,6 +549,10 @@ pub struct ShbtWebGpuEngine {
     sandbox_count: usize,
     /// Cached inverse view-projection for click unprojection.
     inv_view_proj: [[f32; 4]; 4],
+    /// Cinematic camera override (shbt10 `update_cosmic_state`):
+    /// (eye, look-at) in world coordinates; `None` resumes the
+    /// procedural orbit.
+    camera_override: Option<([f32; 3], [f32; 3])>,
     /// D_ms/D_s ratios for the 4-slice lens stack (z_s = 4.0).
     lens_slice_ratios: [f32; 4],
     telemetry: VisualizerTelemetry,
@@ -635,6 +673,11 @@ impl ShbtWebGpuEngine {
                 Self::storage_entry(3, ShaderStages::COMPUTE, false),
                 // shbt9: Wendland-smoothed overflow field.
                 Self::storage_entry(4, ShaderStages::COMPUTE, false),
+                // shbt10: dark ledger, seed mass, and regularized seed
+                // potential grids (Thms 9.13/9.14).
+                Self::storage_entry(5, ShaderStages::COMPUTE, false),
+                Self::storage_entry(6, ShaderStages::COMPUTE, false),
+                Self::storage_entry(7, ShaderStages::COMPUTE, false),
             ],
         });
         (g0, g1)
@@ -644,7 +687,14 @@ impl ShbtWebGpuEngine {
         device: &Device,
         g0: &BindGroupLayout,
         g1: &BindGroupLayout,
-    ) -> (ComputePipeline, ComputePipeline, ComputePipeline, ComputePipeline) {
+    ) -> (
+        ComputePipeline,
+        ComputePipeline,
+        ComputePipeline,
+        ComputePipeline,
+        ComputePipeline,
+        ComputePipeline,
+    ) {
         let shader = device.create_shader_module(ShaderModuleDescriptor {
             label: Some("seed_emergence.wgsl"),
             source: ShaderSource::Wgsl(include_str!("shaders/seed_emergence.wgsl").into()),
@@ -667,6 +717,8 @@ impl ShbtWebGpuEngine {
             mk("condensation detect", "cs_detect_condensation"),
             mk("temporal tracking", "cs_temporal_tracking"),
             mk("wendland convolve", "cs_convolve_overflow"),
+            mk("incubation transport", "step_incubation_transport"),
+            mk("seed potential solve", "solve_seed_potential"),
         )
     }
 
@@ -770,6 +822,14 @@ impl ShbtWebGpuEngine {
                 Self::sampler_entry(4, ShaderStages::COMPUTE),
                 Self::storage_entry(5, ShaderStages::COMPUTE, true),
                 Self::storage_entry(6, ShaderStages::COMPUTE, true),
+                // shbt10 continuum hydro grids: atomic CIC deposits,
+                // unpacked baryon density, thermodynamic pressure, and
+                // the regularized incubation seed potential (Thm 9.15).
+                Self::storage_entry(7, ShaderStages::COMPUTE, false),
+                Self::storage_entry(8, ShaderStages::COMPUTE, false),
+                Self::storage_entry(9, ShaderStages::COMPUTE, false),
+                Self::storage_entry(10, ShaderStages::COMPUTE, false),
+                Self::storage_entry(11, ShaderStages::COMPUTE, true),
             ],
         });
         let g1 = device.create_bind_group_layout(&BindGroupLayoutDescriptor {
@@ -1532,6 +1592,50 @@ impl ShbtWebGpuEngine {
             mapped_at_creation: false,
         });
 
+        // shbt10 continuum transport + hydrodynamic grids (Thms 9.13-9.15).
+        let rho_tot_atomic_buffer = device.create_buffer(&BufferDescriptor {
+            label: Some("rho_tot atomic CIC grid (2^20 fixed-point)"),
+            size: n_cells * 4,
+            usage: BufferUsages::STORAGE | BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+        let rho_baryon_atomic_buffer = device.create_buffer(&BufferDescriptor {
+            label: Some("rho_baryon atomic CIC grid (2^20 fixed-point)"),
+            size: n_cells * 4,
+            usage: BufferUsages::STORAGE | BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+        let rho_baryon_buffer = device.create_buffer(&BufferDescriptor {
+            label: Some("rho_baryon unpacked grid"),
+            size: n_cells * 4,
+            usage: BufferUsages::STORAGE,
+            mapped_at_creation: false,
+        });
+        let pressure_baryon_buffer = device.create_buffer(&BufferDescriptor {
+            label: Some("pressure_baryon grid p_gas = norm*T_b*rho_b"),
+            size: n_cells * 4,
+            usage: BufferUsages::STORAGE,
+            mapped_at_creation: false,
+        });
+        let dark_ledger_buffer = device.create_buffer(&BufferDescriptor {
+            label: Some("Stinespring dark ledger grid (persistent)"),
+            size: n_cells * 4,
+            usage: BufferUsages::STORAGE | BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+        let seed_mass_grid_buffer = device.create_buffer(&BufferDescriptor {
+            label: Some("Psi_nuc seed mass grid"),
+            size: n_cells * 4,
+            usage: BufferUsages::STORAGE,
+            mapped_at_creation: false,
+        });
+        let seed_potential_buffer = device.create_buffer(&BufferDescriptor {
+            label: Some("regularized seed potential grid"),
+            size: n_cells * 4,
+            usage: BufferUsages::STORAGE,
+            mapped_at_creation: false,
+        });
+
         // shbt9 sandbox observers + real-time diagnostics.
         let sandbox_params_buffer = device.create_buffer(&BufferDescriptor {
             label: Some("sandbox GET params (32B)"),
@@ -1708,6 +1812,8 @@ impl ShbtWebGpuEngine {
             emergence_detect_pipeline,
             emergence_track_pipeline,
             emergence_convo_pipeline,
+            incubation_pipeline,
+            seed_potential_pipeline,
         ) = Self::build_emergence_pipelines(&device, &emergence_g0_bgl, &emergence_g1_bgl);
         let (sandbox_bgl, sandbox_get_pipeline) = Self::build_sandbox_pipeline(&device);
         let (diag_bgl, diag_clear_pipeline, diag_power_pipeline, diag_phase_pipeline) =
@@ -1728,6 +1834,19 @@ impl ShbtWebGpuEngine {
             layout: Some(&compute_pipeline_layout),
             module: &compute_shader,
             entry_point: "cs_advance_particles",
+        });
+        // shbt10 continuum hydro kernels on the same group-0 layout.
+        let hydro_deposit_pipeline = device.create_compute_pipeline(&ComputePipelineDescriptor {
+            label: Some("nbody_pm fixed-point CIC deposit pipeline"),
+            layout: Some(&compute_pipeline_layout),
+            module: &compute_shader,
+            entry_point: "deposit_mass_cic",
+        });
+        let hydro_pressure_pipeline = device.create_compute_pipeline(&ComputePipelineDescriptor {
+            label: Some("nbody_pm thermodynamic pressure pipeline"),
+            layout: Some(&compute_pipeline_layout),
+            module: &compute_shader,
+            entry_point: "compute_thermodynamic_pressure",
         });
 
         let (render_bgl, render_g1_bgl) = Self::build_render_layouts(&device);
@@ -1824,6 +1943,10 @@ impl ShbtWebGpuEngine {
             emergence_detect_pipeline,
             emergence_track_pipeline,
             emergence_convo_pipeline,
+            incubation_pipeline,
+            seed_potential_pipeline,
+            hydro_deposit_pipeline,
+            hydro_pressure_pipeline,
             sandbox_get_pipeline,
             diag_clear_pipeline,
             diag_power_pipeline,
@@ -1868,6 +1991,13 @@ impl ShbtWebGpuEngine {
             seed_candidates_buffer,
             active_seeds_buffer,
             prev_seeds_buffer,
+            rho_tot_atomic_buffer,
+            rho_baryon_atomic_buffer,
+            rho_baryon_buffer,
+            pressure_baryon_buffer,
+            dark_ledger_buffer,
+            seed_mass_grid_buffer,
+            seed_potential_buffer,
             sandbox_params_buffer,
             sandbox_observers_buffer,
             diag_params_buffer,
@@ -1954,6 +2084,7 @@ impl ShbtWebGpuEngine {
             sandbox_observers: [HudCausalRecord::default(); 1024],
             sandbox_count: 0,
             inv_view_proj: [[0.0; 4]; 4],
+            camera_override: None,
             // D_ms/D_s for the 4-slice stack z_m in {0.5, 1.2, 2.2, 3.5},
             // source plane z_s = 4.0 (Tier-1 angular-diameter distances).
             lens_slice_ratios: {
@@ -2022,8 +2153,12 @@ impl ShbtWebGpuEngine {
         slerp3(orbit, cft_axis, t)
     }
 
-    /// World-space camera eye for the current orbiting view.
+    /// World-space camera eye for the current orbiting view (or the
+    /// cinematic override when the recorder drives the camera).
     fn camera_eye(&self) -> [f32; 3] {
+        if let Some((eye, _)) = self.camera_override {
+            return eye;
+        }
         let dist = BOX_SIZE * 1.4;
         let dir = self.camera_dir();
         [dir[0] * dist, dir[1] * dist, dir[2] * dist]
@@ -2589,10 +2724,18 @@ impl ShbtWebGpuEngine {
             [0.0, 0.0, far / (near - far), -1.0],
             [0.0, 0.0, near * far / (near - far), 0.0],
         ];
-        let dist = BOX_SIZE * 1.4;
-        let dir = self.camera_dir();
-        let eye = [dir[0] * dist, dir[1] * dist, dir[2] * dist];
-        let view = look_at(eye, [0.0, 0.0, 0.0], [0.0, 1.0, 0.0]);
+        let (eye, target) = match self.camera_override {
+            Some((eye, target)) => (eye, target),
+            None => {
+                let dist = BOX_SIZE * 1.4;
+                let dir = self.camera_dir();
+                (
+                    [dir[0] * dist, dir[1] * dist, dir[2] * dist],
+                    [0.0, 0.0, 0.0],
+                )
+            }
+        };
+        let view = look_at(eye, target, [0.0, 1.0, 0.0]);
         let persp = mat_mul(proj, view);
         let t = self.unwrap_transition.clamp(0.0, 1.0);
         let mut out = persp;
@@ -2647,6 +2790,18 @@ impl ShbtWebGpuEngine {
                     binding: 4,
                     resource: self.smoothed_buffer.as_entire_binding(),
                 },
+                BindGroupEntry {
+                    binding: 5,
+                    resource: self.dark_ledger_buffer.as_entire_binding(),
+                },
+                BindGroupEntry {
+                    binding: 6,
+                    resource: self.seed_mass_grid_buffer.as_entire_binding(),
+                },
+                BindGroupEntry {
+                    binding: 7,
+                    resource: self.seed_potential_buffer.as_entire_binding(),
+                },
             ],
         });
         (g0, g1)
@@ -2688,6 +2843,26 @@ impl ShbtWebGpuEngine {
                 BindGroupEntry {
                     binding: 6,
                     resource: self.tracking_state_buffer.as_entire_binding(),
+                },
+                BindGroupEntry {
+                    binding: 7,
+                    resource: self.rho_tot_atomic_buffer.as_entire_binding(),
+                },
+                BindGroupEntry {
+                    binding: 8,
+                    resource: self.rho_baryon_atomic_buffer.as_entire_binding(),
+                },
+                BindGroupEntry {
+                    binding: 9,
+                    resource: self.rho_baryon_buffer.as_entire_binding(),
+                },
+                BindGroupEntry {
+                    binding: 10,
+                    resource: self.pressure_baryon_buffer.as_entire_binding(),
+                },
+                BindGroupEntry {
+                    binding: 11,
+                    resource: self.seed_potential_buffer.as_entire_binding(),
                 },
             ],
         });
@@ -3019,6 +3194,13 @@ impl ShbtWebGpuEngine {
             self.redshift,
             self.controls.sound_speed_scale.clamp(0.0, 3.0),
         );
+        // shbt10 thermodynamic hydro: k_B/(mu m_p)/V_0^2 normalizer and
+        // the mean fixed-point deposit for the n_local ratio.
+        cosmo.pressure_norm = self.metrology.ctx.pressure_norm_code(
+            self.controls.sound_speed_scale.clamp(0.0, 3.0),
+        );
+        cosmo.mean_cell_fixed = (self.mean_raw_total * 1048576.0
+            / (GRID_DIM * GRID_DIM * GRID_DIM) as f64) as f32;
         self.queue
             .write_buffer(&self.cosmo_buffer, 0, bytemuck::bytes_of(&cosmo));
 
@@ -3029,7 +3211,9 @@ impl ShbtWebGpuEngine {
             delta_t: dt_seconds.max(1e-4) as f32,
             redshift: self.redshift as f32,
             f_load: f_load as f32,
-            gamma_geom: GAMMA_GEOM as f32,
+            // gamma_S: modular restoration rate |dw_vis/dz|(z) — the
+            // Stinespring dilation source driving the dark ledger.
+            gamma_geom: stinespring_dw_vis_dz(self.redshift) as f32,
             delta_n_thresh: DELTA_N_THRESH_NORM,
             alpha_mass: SEED_MASS_NORM,
             landauer_rate: LANDAUER_RATE as f32,
@@ -3047,7 +3231,10 @@ impl ShbtWebGpuEngine {
                 .controls
                 .percolation_threshold_scale
                 .clamp(0.5, 2.0),
-            _pad2: [0.0; 3],
+            // _pad2.x: incubation Laplacian diffusion coefficient (cell
+            // units; < 1/6 keeps the explicit scheme stable).
+            // _pad2.y: seed-core regularization radius in grid cells.
+            _pad2: [0.05, 1.5, 0.0],
         };
         self.queue
             .write_buffer(&self.emergence_params_buffer, 0, bytemuck::bytes_of(&eparams));
@@ -3120,6 +3307,12 @@ impl ShbtWebGpuEngine {
                 eye[2],
                 if self.doppler_enabled { 1.0 } else { 0.0 },
             ],
+            params2: [
+                self.width as f32,
+                self.height as f32,
+                1.0, // min SPH splat radius (px)
+                3.5, // max SPH splat radius (px; 16 px absolute cap in-shader)
+            ],
         };
         self.queue
             .write_buffer(&self.camera_buffer, 0, bytemuck::bytes_of(&camera));
@@ -3127,6 +3320,12 @@ impl ShbtWebGpuEngine {
         // Per-frame zero-fill of the condensation registers.
         let zeros = vec![0u8; (GRID_DIM * GRID_DIM * GRID_DIM * 4) as usize];
         self.queue.write_buffer(&self.grid_density_buffer, 0, &zeros);
+        // shbt10: atomic hydro deposition grids are cleared per frame;
+        // the dark ledger persists (time-integrated Stinespring record).
+        self.queue
+            .write_buffer(&self.rho_tot_atomic_buffer, 0, &zeros);
+        self.queue
+            .write_buffer(&self.rho_baryon_atomic_buffer, 0, &zeros);
         self.queue
             .write_buffer(&self.tracking_state_buffer, 0, &[0u8; 16]);
         self.queue.write_buffer(
@@ -3181,6 +3380,12 @@ impl ShbtWebGpuEngine {
                 self.fog_density,             // exponential depth fog (Enhancement 13)
             ],
             post3: self.lens_slice_ratios,
+            post4: [
+                self.telemetry.peak_shear,
+                self.telemetry.peak_convergence,
+                14.0, // Landauer desaturation knee Y_desat
+                0.55, // tone exposure for the luminance-preserving ACES curve
+            ],
         };
         self.queue
             .write_buffer(&self.post_buffer, 0, bytemuck::bytes_of(&lensing));
@@ -3285,6 +3490,13 @@ impl ShbtWebGpuEngine {
             cpass.dispatch_workgroups((GRID_DIM + 3) / 4, (GRID_DIM + 3) / 4, (GRID_DIM + 3) / 4);
             cpass.set_pipeline(&self.emergence_track_pipeline);
             cpass.dispatch_workgroups(1, 1, 1);
+            // shbt10 Pass 1.6/1.7: incubation diffusion + Stinespring
+            // ledger, then the regularized seed-potential solve
+            // consumed by nbody_pm's grid force below.
+            cpass.set_pipeline(&self.incubation_pipeline);
+            cpass.dispatch_workgroups((GRID_DIM + 3) / 4, (GRID_DIM + 3) / 4, (GRID_DIM + 3) / 4);
+            cpass.set_pipeline(&self.seed_potential_pipeline);
+            cpass.dispatch_workgroups((GRID_DIM + 3) / 4, (GRID_DIM + 3) / 4, (GRID_DIM + 3) / 4);
         }
         // Entropy streamline advection (Enhancement 3).
         {
@@ -3313,9 +3525,16 @@ impl ShbtWebGpuEngine {
                 label: Some("nbody_pm compute pass"),
                 timestamp_writes: None,
             });
-            cpass.set_pipeline(&self.compute_pipeline);
             cpass.set_bind_group(0, &g0, &[]);
             cpass.set_bind_group(1, &g1, &[]);
+            // shbt10 continuum hydro: fixed-point CIC deposit, then the
+            // thermodynamic pressure field p_gas = norm*T_b(z)*rho_b
+            // before the KDK kick interpolates its central differences.
+            cpass.set_pipeline(&self.hydro_deposit_pipeline);
+            cpass.dispatch_workgroups((self.num_particles + 255) / 256, 1, 1);
+            cpass.set_pipeline(&self.hydro_pressure_pipeline);
+            cpass.dispatch_workgroups((GRID_DIM + 3) / 4, (GRID_DIM + 3) / 4, (GRID_DIM + 3) / 4);
+            cpass.set_pipeline(&self.compute_pipeline);
             cpass.dispatch_workgroups((self.num_particles + 255) / 256, 1, 1);
         }
         // shbt9 sandbox GET backaction (causal_point_get.wgsl Pass 3):
@@ -3830,10 +4049,15 @@ impl ShbtWebGpuEngine {
                 &DeviceDescriptor {
                     label: Some("SHBT-Precision WebGPU Device"),
                     required_features: Features::empty(),
-                    // 5 storage buffers in the emergence group (shbt9
-                    // adds the smoothed-overflow field).
+                    // shbt10: Dawn counts storage buffers across ALL bind
+                    // groups of a pipeline layout (emergence: 2 + 8 = 10,
+                    // nbody compute: 8 + 2 = 10), so request the adapter's
+                    // advertised maximum rather than the default 8.
                     required_limits: Limits {
-                        max_storage_buffers_per_shader_stage: 8,
+                        max_storage_buffers_per_shader_stage: adapter
+                            .limits()
+                            .max_storage_buffers_per_shader_stage
+                            .max(10),
                         ..Limits::downlevel_defaults()
                     },
                 },
@@ -3920,6 +4144,40 @@ impl ShbtWebGpuEngine {
         self.timeline.seek(z);
         self.redshift = z;
         self.timeline.playing = false;
+    }
+
+    /// Cinematic director hook (shbt10 record_simulation_events.py):
+    /// atomically sets the cosmic epoch and the camera eye/look-at in
+    /// world coordinates. Passing eye == look keeps the previous orbit.
+    #[wasm_bindgen]
+    pub fn update_cosmic_state(
+        &mut self,
+        z: f64,
+        px: f32,
+        py: f32,
+        pz: f32,
+        lx: f32,
+        ly: f32,
+        lz: f32,
+    ) {
+        self.set_redshift(z);
+        let eye = [px, py, pz];
+        let target = [lx, ly, lz];
+        let delta = [
+            target[0] - eye[0],
+            target[1] - eye[1],
+            target[2] - eye[2],
+        ];
+        let len = (delta[0] * delta[0] + delta[1] * delta[1] + delta[2] * delta[2]).sqrt();
+        if len > 1.0e-6 {
+            self.camera_override = Some((eye, target));
+        }
+    }
+
+    /// Clear the cinematic camera override (back to the procedural orbit).
+    #[wasm_bindgen]
+    pub fn clear_camera_override(&mut self) {
+        self.camera_override = None;
     }
 
     #[wasm_bindgen]
@@ -4322,8 +4580,13 @@ impl ShbtWebGpuEngine {
                 &DeviceDescriptor {
                     label: Some("SHBT headless device"),
                     required_features: Features::empty(),
+                    // See the wasm request site: 10 storage buffers per
+                    // compute stage (cross-bind-group accounting).
                     required_limits: Limits {
-                        max_storage_buffers_per_shader_stage: 8,
+                        max_storage_buffers_per_shader_stage: adapter
+                            .limits()
+                            .max_storage_buffers_per_shader_stage
+                            .max(10),
                         ..Limits::downlevel_defaults()
                     },
                 },

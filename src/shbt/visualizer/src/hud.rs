@@ -269,7 +269,7 @@ impl Default for HorizonLedger {
 // trailing vec4 parameter slots (post0/post1) consumed by fs_post.
 // ---------------------------------------------------------------------------
 
-/// Post-process lensing uniform block: 224 bytes, 16-byte aligned.
+/// Post-process lensing uniform block: 272 bytes, 16-byte aligned.
 #[repr(C)]
 #[derive(Clone, Copy, Debug, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct LensingUniforms {
@@ -300,6 +300,11 @@ pub struct LensingUniforms {
     /// 4-slice lens stack centered at z_m in {0.5, 1.2, 2.2, 3.5}
     /// against the source plane z_s = 4.0.
     pub post3: [f32; 4],
+    /// shbt11 thermodynamic optics: x = telemetry gamma_max,
+    /// y = kappa_max (caustic halo accentuation det J drivers),
+    /// z = Landauer desaturation knee, w = tone exposure for the
+    /// luminance-preserving ACES curve.
+    pub post4: [f32; 4],
 }
 
 /// Sandbox control block streamed from the DOM sliders (shbt9 Phase 2).
@@ -399,6 +404,7 @@ impl VisualizerEngine {
             post1: [0.0; 4],
             post2: [0.7853982, 0.032, 0.08, 0.6], // Theta_FoV, zeta_disp, bloom, fog
             post3: [0.0; 4],
+            post4: [0.0, 0.0, 14.0, 0.55],
         };
         uniforms.view_proj[0] = 1.0;
         uniforms.view_proj[5] = 1.0;
@@ -520,7 +526,7 @@ mod lensing_tests {
 
     #[test]
     fn lensing_uniform_layout_is_wgsl_contract() {
-        assert_eq!(std::mem::size_of::<LensingUniforms>(), 256);
+        assert_eq!(std::mem::size_of::<LensingUniforms>(), 272);
         assert_eq!(std::mem::align_of::<LensingUniforms>(), 4);
         assert_eq!(std::mem::size_of::<SeedDefect>(), 16);
         assert_eq!(std::mem::align_of::<SeedDefect>(), 4);
