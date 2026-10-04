@@ -6658,10 +6658,13 @@ to $[2500,25000]\,\mathrm{K}$, so the Planckian palette stays on the
 observationally meaningful segment of the blackbody locus; and
 (iii) the splat smoothing length
 $R = \bigl(R_{\min} + (R_{\max}-R_{\min})(1+0.45\max(0,\rho_b-1))^{-1/3}\bigr)
-(1-0.4\,\mathrm{smoothstep}(0.8,1.2,\sigma))\,(d_{\mathrm{ref}}/d_{\mathrm{cam}})$
-is bounded below by $R_{\min}\cdot(1-0.4)\cdot(d_{\mathrm{ref}}/d_{\mathrm{cam}})$
-and reproduces the SPH spacing hierarchy: overdense cores contract to
-compact kernels while underdense filaments diffuse.
+\Phi_{\mathrm{topo}}(\sigma)\,(d_{\mathrm{ref}}/d_{\mathrm{cam}})$,
+with the topological SPH contraction
+$\Phi_{\mathrm{topo}}(\sigma) = (1 + 7.5\,\sigma^{2})^{-1}$,
+is bounded below by $R_{\min}\cdot\Phi_{\mathrm{topo}}\cdot(d_{\mathrm{ref}}/d_{\mathrm{cam}})$
+and reproduces the SPH spacing hierarchy: over-capacity
+(instanton-saturated) cores collapse to point-like kernels while
+underdense filaments diffuse.
 \pyvar{compute\_thermodynamic\_state} and the dynamic splat radius in
 \pyvar{dual\_channel\_render.wgsl} implement the pair.
 \end{theorem}
@@ -6680,7 +6683,8 @@ stated band.
 (iii) The cubic-root law is the SPH mean-spacing estimate
 $h\propto\rho^{-1/3}$ reparametrized onto pixel units; boundedness
 follows from $0\le(1+0.45\max(0,\rho_b-1))^{-1/3}\le1$ and
-$0.6\le1-0.4\,\mathrm{smoothstep}\le1$.
+$0<\Phi_{\mathrm{topo}}=(1+7.5\sigma^{2})^{-1}\le1$ for the clamped
+$\sigma\le8$.
 \end{proof}
 
 \begin{theorem}[{Branchless single-cycle blackbody on $u\in[0.040,0.400]$}]
@@ -6688,39 +6692,41 @@ $0.6\le1-0.4\,\mathrm{smoothstep}\le1$.
 The inverse-temperature Planckian palette
 $u = 1000/T \mapsto \mathrm{RGB}(u)$, evaluated over
 $u\in[0.040,0.400]$ (i.e.\ $T\in[2500,25000]\,\mathrm{K}$) by the
-per-channel polynomial fits
+per-channel degree-$(2,2)$ rational (Pad\'e) fits
 \begin{align}
-R(u) &= \mathrm{clamp}\bigl(0.443 + 3.918\,u - 1.842\,u^{2},\;0,1\bigr),\\
-G(u) &= \mathrm{clamp}\bigl(1 - 18.55\,(u-0.154)^{2}
-       + 27.6\,(u-0.154)^{3},\;0.28,1\bigr),\\
-B(u) &= \mathrm{clamp}\bigl(1 - 3.25\,\delta - 2.85\,\delta^{2},\;
-       0.015,1\bigr),\quad \delta=\max(0,u-0.125),
+R(u) &= \frac{0.657842 - 15.067116\,u + 144.948029\,u^{2}}
+            {1 - 19.160428\,u + 155.930970\,u^{2}},\\
+G(u) &= \frac{0.540874 - 1.770797\,u + 12.417570\,u^{2}}
+            {1 - 9.751228\,u + 48.259277\,u^{2}},\\
+B(u) &= \frac{0.855655 - 3.605022\,u + 4.930827\,u^{2}}
+            {1 - 8.226975\,u + 39.334862\,u^{2}},
 \end{align}
-satisfies (i) $C^{\infty}$ smoothness on the open domain and global
-$C^0$ continuity, since every constituent is polynomial or a single
-$\max$ hinge; (ii) channel values confined to $[0,1]$ with the green
-floor $0.28$ preserving the Planckian locus hue ordering
-$R\ge G\ge B$ toward the red edge; and (iii) evaluation with zero
-data-dependent control flow — three clamped polynomials and one
-hinge — so every SIMD lane retires in a single uniform cycle,
-eliminating the warp-divergence penalty of temperature-binned
-\pyvar{if} ladders.
+clamped below at zero, satisfies (i) $C^{\infty}$ smoothness on the
+open domain and global $C^0$ continuity, since every denominator is
+strictly positive on $u\in[0.040,0.400]$; (ii) channel values confined
+to $[0,1.05]$ — the rational denominators track the Wien-tail
+curvature, so no piecewise hinge or clamp ladder is needed to keep the
+Planckian hue ordering; and (iii) evaluation with zero data-dependent
+control flow — three straight-line rational evaluations — so every
+SIMD lane retires in a single uniform cycle, eliminating the
+warp-divergence penalty of temperature-binned \pyvar{if} ladders.
 \pyvar{blackbody\_to\_linear\_rgb} in
 \pyvar{dual\_channel\_render.wgsl} implements the map.
 \end{theorem}
 
 \begin{proof}
-Each channel is a low-degree polynomial in $u$ composed with
-$\mathrm{clamp}$ and a single $\max(0,\cdot)$ hinge, all of which are
-$C^0$ and piecewise-$C^{\infty}$; the hinge at $u=0.125$ joins
-$B=1$ identically on both sides, giving (i). The explicit clamp
-bounds give (ii) directly, and $R(u)\ge G(u)\ge B(u)$ on
-$u\in[0.040,0.400]$ follows from the red channel's slower decay
-($3.918u-1.842u^2$ stays $\ge1$ up to $u\approx0.34$) against the
-blue channel's quadratic falloff past the hinge. (iii) is immediate:
-the shader body contains no branch, loop, or lane-varying
-\pyvar{select} on divergent conditions — the entire palette is a
-straight-line polynomial evaluation.
+Each channel is a ratio of two quadratics in $u$; the denominators
+$1-19.160428u+155.930970u^{2}$, $1-9.751228u+48.259277u^{2}$, and
+$1-8.226975u+39.334862u^{2}$ each have negative discriminant or
+roots outside $[0.040,0.400]$, hence stay positive on the domain and
+the map is $C^{\infty}$ there, giving (i). Direct evaluation of the
+three ratios on $u\in[0.040,0.400]$ (enumerated by
+\pyvar{test\_branchless\_blackbody\_simd\_rational\_monotonicity} in
+\pyvar{tests/first\_principles\_kernels.rs}) bounds each channel in
+$[0,1.05]$, giving (ii). (iii) is immediate: the shader body contains
+no branch, loop, or lane-varying \pyvar{select} on divergent
+conditions — the entire palette is a straight-line rational
+evaluation closed by a single $\max(\cdot,0)$.
 \end{proof}
 
 \begin{theorem}[Anti-blowout luminance-preserving ACES film transform]
@@ -6769,6 +6775,57 @@ The bilateral range kernel
 $\exp(-(\Delta Y)^2/2\sigma_r^2)$ decouples the filter's smoothing
 from luminance edges, leaving the caustic Laplacian
 $\nabla^2 Y = Y_{\mathrm{center}}-Y_{\mathrm{bilateral}}$ intact.
+\end{proof}
+
+\begin{theorem}[$\varepsilon$-softened thin-screen caustic magnification]
+\label{thm:caustic_eps_soft}
+Let the boundary screen carry convergence $\kappa$ and shear
+$\gamma=(\gamma_{1},\gamma_{2})$ deposited by the Channel-B metric
+buffer, and let the macro-deflection field be the central difference
+of convergence,
+\begin{equation}
+\boldsymbol{\alpha}_{\mathrm{macro}}
+  = -\tfrac12\bigl(\kappa_{+x}-\kappa_{-x},\,
+                   \kappa_{+y}-\kappa_{-y}\bigr),
+\end{equation}
+augmented by the per-seed Einstein-ring deflection
+$\boldsymbol{\alpha}_{\mathrm{seeds}}
+ =\sum_{k}\theta_{E,k}^{2}\,\boldsymbol{\delta}_{k}/
+   (|\boldsymbol{\delta}_{k}|^{2}+r_{\mathrm{soft}}^{2})$ with
+$\theta_{E,k}$ from Eq.~\eqref{eq:einstein-radius}. Then the caustic
+magnification accent
+\begin{equation}
+\mathcal{A}_{\mathrm{caustic}}
+  = \frac{1}{\sqrt{\det J^{2} + \varepsilon^{2}}},
+\qquad
+\det J = (1-\kappa)^{2} - \gamma_{1}^{2} - \gamma_{2}^{2},
+\end{equation}
+satisfies (i) uniform boundedness
+$\mathcal{A}_{\mathrm{caustic}} \le 1/\varepsilon$
+($\varepsilon = 0.08$ in the implementation), removing the
+critical-curve divergence without the sign-asymmetric bias of a linear
+$1/(\det J+\varepsilon)$ regularization; (ii) exact critical
+enhancement — on the fold set $\det J=0$ the accent reaches its
+softened maximum $1/\varepsilon$, so Einstein rings and caustic
+fringes are amplified precisely where the Jacobian vanishes; and
+(iii) chromatic consistency, since the deflected samples
+$(R,G,B)$ at $(436,546,700)$ nm share the same scalar $\mathcal{A}$,
+preserving the dispersion fringes of
+Eq.~\eqref{eq:boundary-dispersion} across the critical curves.
+\pyvar{fs\_post} in \pyvar{holographic\_post.wgsl} implements the
+deflection, magnification, and accent.
+\end{theorem}
+
+\begin{proof}
+(i) $\det J^{2}+\varepsilon^{2}\ge\varepsilon^{2}$ gives
+$\mathcal{A}\le1/\varepsilon$ for all $(\kappa,\gamma)$. (ii) On
+$\det J=0$ the expression reduces to $1/\sqrt{\varepsilon^{2}}
+=1/\varepsilon$; moving off the critical curve decreases
+$\mathcal{A}$ monotonically in $|\det J|$, so the accent peaks
+exactly on the fold/cusp set rather than shifting away from it as a
+linear floor would. (iii) $\mathcal{A}$ is a scalar multiplier of the
+already-dispersed luminance and contains no wavelength dependence,
+so it rescales but never recolors the chromatic fringes.
 \end{proof}
 
 \subsection{Two-Tier Interactive Visualization Architecture}
@@ -7857,6 +7914,10 @@ Sandbox GET observers, Thm.~\ref{thm:causal-point-get-clustering} & \pyvar{causa
 On-GPU diagnostics, Sec.~\ref{sec:boundary-visualizer} & \pyvar{diagnostics.wgsl} & \pyvar{reduce_power_spectrum}, \pyvar{project_phase_space} & 64-bin $P(k)$ + 256$^2$ phase-space texture \\
 Multi-plane lensing and split view, Thm.~\ref{thm:lens-metrology} & \pyvar{holographic_post.wgsl} & \pyvar{fs_post} 4-slice march + Shapiro delay & \pyvar{LensingUniforms.post3}, \pyvar{post1.y} \\
 DOM sandbox controls, Sec.~\ref{sec:boundary-visualizer} & \pyvar{visualizer/index.html} & \pyvar{slider-cs}, \pyvar{slider-pt}, \pyvar{select-viewport-mode} & \pyvar{hud::SimulationControls} 24-byte block \\
+Rational Planckian palette and topological SPH, Thms.~\ref{thm:shading_multi_tier} and \ref{thm:blackbody_branchless} & \pyvar{dual_channel_render.wgsl} & \pyvar{blackbody_to_linear_rgb}, dynamic splat radius & degree-$(2,2)$ Pad\'e channels, $\Phi_{\mathrm{topo}}=(1+7.5\sigma^{2})^{-1}$ \\
+$\varepsilon$-softened caustics and dispersion fringes, Thm.~\ref{thm:caustic_eps_soft} & \pyvar{holographic_post.wgsl} & \pyvar{fs_post} deflection + caustic accent & $\mathcal{A}=1/\sqrt{\det J^{2}+\varepsilon^{2}}$, 3-tap $(436,546,700)$ nm \\
+First-principles kernel gates, Thms.~\ref{thm:kappa-get-first-principles} and \ref{thm:caustic_eps_soft} & \pyvar{tests/first_principles_kernels.rs}, \pyvar{tests/test_harness_metrology.py} & \pyvar{test_symplectic_energy_drift_static_background}, \pyvar{test_branchless_blackbody_simd_rational_monotonicity}, shbt12 metrology gates & 512-bit bit conservation, KDK drift $<10^{-4}$, palette bounds \\
+Monotonic cosmic-age clock, Sec.~\ref{sec:boundary-visualizer} & \pyvar{cosmology.rs}, \pyvar{telemetry.rs}, \pyvar{visualizer/index.js} & \pyvar{cosmic_age_gyr}, \pyvar{lookback_gyr}, live phase banner & $t(z)=\frac{1}{H_0}\int_{\ln(1+z)}^{40}du/E(u)$, lookback field \\
 \bottomrule
 \end{tabularx}
 \caption{Code and equation traceability matrix (Table~28 verification

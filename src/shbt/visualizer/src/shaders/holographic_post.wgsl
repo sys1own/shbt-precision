@@ -195,7 +195,7 @@ fn hash_noise(p: vec2<f32>) -> f32 {
 fn apply_condensation_glitch(uv: vec2<f32>, base_color: vec3<f32>, time: f32) -> vec3<f32> {
     if (glitch.u_glitch_enabled == 0u) { return base_color; }
     var out_col = base_color;
-    let count = min(glitch.count, 256u);
+    let count = min(glitch.count, 1024u);
 
     for (var i = 0u; i < count; i = i + 1u) {
         let seed = condensing_seeds[i];
@@ -276,7 +276,10 @@ fn linear_to_srgb(c: vec3<f32>) -> vec3<f32> {
 // high-frequency Laplacian for caustic accentuation.
 fn sample_cross_bilateral(center_uv: vec2<f32>, texel: vec2<f32>, center_rgb: vec3<f32>) -> vec3<f32> {
     let sigma_space = 1.8;
-    let sigma_range = 0.10;
+    // Tightened photometric range (0.10 -> 0.025): with the looser kernel
+    // dark-matter halo luminance bled across caustic edges into the
+    // deep-field voids, lifting their black point to a chalky gray.
+    let sigma_range = 0.025;
     let two_sigma_sq_space = 2.0 * sigma_space * sigma_space;
     let two_sigma_sq_range = 2.0 * sigma_range * sigma_range;
 
@@ -369,7 +372,7 @@ fn sample_bilateral_convergence(uv: vec2<f32>, texel: vec2<f32>, center_depth: f
     var accum_conv = 0.0;
     let radius = i32(clamp(params.dark_glow_radius, 1.0, 8.0));
     let sigma_s = params.dark_glow_radius;
-    let sigma_r = 0.08;
+    let sigma_r = 0.025;
 
     for (var dy = -radius; dy <= radius; dy = dy + 1) {
         for (var dx = -radius; dx <= radius; dx = dx + 1) {
@@ -419,7 +422,7 @@ fn macro_deflection(uv: vec2<f32>, texel: vec2<f32>) -> vec2<f32> {
 // and a (1+z_m) weighted potential-depth term to Delta t_Shapiro.
 fn seed_deflection_shapiro(uv: vec2<f32>, z_m: f32, shapiro: ptr<function, f32>) -> vec2<f32> {
     var alpha_seeds = vec2<f32>(0.0, 0.0);
-    let num_seeds = min(params.seed_count, 256u);
+    let num_seeds = min(params.seed_count, 1024u);
     for (var i = 0u; i < num_seeds; i = i + 1u) {
         let s = seeds[i];
         let diff = uv - s.screen_pos;
@@ -499,6 +502,32 @@ fn fs_post(in: VertexOutput) -> @location(0) vec4<f32> {
     var rad_g = textureSampleLevel(channel_a_tex, tex_sampler, uv_g, 0.0).g;
     var rad_b = textureSampleLevel(channel_a_tex, tex_sampler, uv_b, 0.0).b;
 
+    // Wide-scale optical pedestal (shbt12 deep-space pass): a uniform
+    // mass sheet is gravitationally invisible (mass-sheet degeneracy),
+    // so a diffuse field seen from inside the bulk must not glow. A
+    // 16-tap coarse ring estimates the local diffuse mean of the
+    // Channel-A luminance and the Channel-B convergence/shear fields;
+    // only CONTRAST above that pedestal emits — void floors collapse
+    // to black and genuine filaments/seeds keep full brightness.
+    var lum_wide = 0.0;
+    var conv_wide = 0.0;
+    var shear_wide = vec2<f32>(0.0);
+    for (var wi = 0u; wi < 16u; wi = wi + 1u) {
+        let wa = f32(wi) * 0.3926991; // 2*pi/16
+        let woff = vec2<f32>(cos(wa), sin(wa))
+            * vec2<f32>(0.055, 0.055) * (1.0 + 0.35 * f32(wi % 3u));
+        let ca_w = textureSampleLevel(channel_a_tex, tex_sampler,
+            clamp(warped_uv + woff, vec2<f32>(0.0), vec2<f32>(1.0)), 0.0);
+        let cb_w = textureSampleLevel(channel_b_tex, tex_sampler,
+            clamp(warped_uv + woff, vec2<f32>(0.0), vec2<f32>(1.0)), 0.0);
+        lum_wide = lum_wide + calculate_luminance(ca_w.rgb);
+        conv_wide = conv_wide + cb_w.z;
+        shear_wide = shear_wide + cb_w.xy;
+    }
+    lum_wide = lum_wide / 16.0;
+    conv_wide = conv_wide / 16.0;
+    shear_wide = shear_wide / 16.0;
+
     // Wave-optics caustic fringing regularizes det A = 0 into Airy
     // patterns (Enhancement 10) applied on the deflected sample.
     let fringe_col = evaluate_caustic_fringing(warped_uv, texel, vec3<f32>(rad_r, rad_g, rad_b));
@@ -507,6 +536,15 @@ fn fs_post(in: VertexOutput) -> @location(0) vec4<f32> {
     rad_b = mix(rad_b, fringe_col.b, params.dispersion_coeff);
 
     var lensed_color = vec3<f32>(rad_r, rad_g, rad_b) * params.post0.x;
+
+    // Mass-sheet gate on the direct emission: pixels at or below the
+    // wide-scale pedestal luminance fade to black, peaks above ~1.8x
+    // the diffuse mean keep full radiance. Hue-preserving (scalar
+    // gate, no per-channel shift).
+    let lum_local = calculate_luminance(lensed_color);
+    let sheet_gate = smoothstep(lum_wide * 0.95 + 1.0e-6,
+        lum_wide * 1.80 + 2.0e-6, lum_local);
+    lensed_color = lensed_color * sheet_gate;
 
     // Emergent condensation glitch (Enhancement 11): pre-nucleation
     // register overflow tears the UV field around saturating cells.
@@ -526,24 +564,33 @@ fn fs_post(in: VertexOutput) -> @location(0) vec4<f32> {
 
     // Depth-aware bilateral convergence -> volumetric dark-matter halo glow.
     let aspect = params.screen_size.x / params.screen_size.y;
-    let num_seeds = min(params.seed_count, 256u);
+    let num_seeds = min(params.seed_count, 1024u);
     var dark_glow_emission = vec3<f32>(0.0);
     if (params.post0.y > 0.5) {
         let smooth_conv = sample_bilateral_convergence(warped_uv, texel, center_depth);
         let dark_glow_palette = vec3<f32>(0.15, 0.35, 0.85);
+        // Convergence structure gate (shbt12): the diffuse pedestal is
+        // invisible, so emission follows only the locally overdense
+        // convergence — filaments glow, uniform sheets stay black.
+        let conv_gate = smoothstep(conv_wide * 1.05 + 1.0e-6,
+            conv_wide * 2.10 + 2.0e-6, smooth_conv);
         // Soft-cap the summed convergence so stacked billboards can't
         // push the palette into the tone-map's white saturation point.
-        dark_glow_emission = dark_glow_palette * min(smooth_conv * params.dark_glow_intensity, 0.6);
+        dark_glow_emission = dark_glow_palette
+            * min(smooth_conv * params.dark_glow_intensity, 0.6)
+            * conv_gate;
 
         // Precursor congestion field (shbt10): the 13-tap depth-aware
         // bilateral over Channel B synthesizes continuous precursor
         // halos — indigo dark-metric potential (shear .y) and teal
         // congestion (shear .x) — without a volumetric Poisson solve.
         let precursor_filtered = sample_bilateral_channel_b(warped_uv, texel, center_depth);
+        let shear_gate = smoothstep(length(shear_wide) * 1.05 + 1.0e-6,
+            length(shear_wide) * 2.20 + 2.0e-6, length(precursor_filtered));
         let dm_potential_color = vec3<f32>(0.12, 0.05, 0.28)
-            * min(precursor_filtered.y * 3.5, 0.35);
+            * min(precursor_filtered.y * 3.5, 0.35) * shear_gate;
         let precursor_congestion_color = vec3<f32>(0.02, 0.22, 0.35)
-            * min(precursor_filtered.x * 2.8, 0.30);
+            * min(precursor_filtered.x * 2.8, 0.30) * shear_gate;
 
         // Multi-tier seed radiance (shbt10): amber-white Planckian cubic
         // core inside the Einstein radius plus a blue Landauer thermal
@@ -584,7 +631,13 @@ fn fs_post(in: VertexOutput) -> @location(0) vec4<f32> {
     // entropy budget; modulate a faint Fresnel ripple at observer nodes.
     let entropy = b_center.a;
     let ripple_phase = params.time * 2.0 - entropy * 40.0;
-    let causal_ripple = (sin(ripple_phase) * 0.5 + 0.5) * entropy * 0.12 * params.post0.y;
+    // Observer shimmer is gated by local convergence structure as well —
+    // an ungated uniform ripple is the same ambient blue lift the
+    // deep-space pass removes.
+    let conv_gate_shim = smoothstep(conv_wide * 1.05 + 1.0e-6,
+        conv_wide * 2.10 + 2.0e-6, b_center.z);
+    let causal_ripple = (sin(ripple_phase) * 0.5 + 0.5) * entropy * 0.12
+        * params.post0.y * conv_gate_shim;
     let causal_rgb = vec3<f32>(0.4, 0.75, 1.0) * causal_ripple;
 
     // Holographic horizon boundary overlay: the loaded screen fraction
@@ -610,10 +663,16 @@ fn fs_post(in: VertexOutput) -> @location(0) vec4<f32> {
     let laplacian = max(0.0,
         calculate_luminance(vec3<f32>(rad_r, rad_g, rad_b))
         - calculate_luminance(filtered_a));
-    let det_jacobian = abs(
+    // Epsilon-softened caustic magnification (canonical thin-screen
+    // form): A_caustic = 1 / sqrt(det J^2 + eps^2) — the quadratic floor
+    // regularizes the critical-curve divergence without the linear
+    // 1/(detJ + eps) bias that flattened ring contrast.
+    let det_jacobian =
         (1.0 - params.post4.y) * (1.0 - params.post4.y)
-        - params.post4.x * params.post4.x);
-    let caustic_magnification = 1.0 / (det_jacobian + 0.08);
+        - params.post4.x * params.post4.x;
+    let eps_caustic = 0.08;
+    let caustic_magnification = 1.0 / sqrt(
+        det_jacobian * det_jacobian + eps_caustic * eps_caustic);
     let caustic_halo_accent = vec3<f32>(0.25, 0.75, 1.00)
         * (laplacian * caustic_magnification * 0.35);
 
@@ -631,7 +690,11 @@ fn fs_post(in: VertexOutput) -> @location(0) vec4<f32> {
     // params.post2.w — dim voids read as receding atmosphere rather
     // than flat black.
     let fog_amt = (1.0 - exp(-max(center_depth, 0.0) * params.post2.w)) * 0.6;
-    let fog_ambient = vec3<f32>(0.02, 0.01, 0.05);
+    // Void-preserving fog: attenuate toward true black rather than a
+    // lifted ambient — any non-zero ambient offset reads as chalky
+    // gray/cyan noise across the deep field once the sRGB EOTF expands
+    // the toe. Zero-flux pixels must stay vec3(0.0) end to end.
+    let fog_ambient = vec3<f32>(0.0, 0.0, 0.0);
     let fogged = mix(raw_composite + bloom_rgb, fog_ambient, clamp(fog_amt, 0.0, 1.0));
 
     // Anti-blowout luminance-preserving ACES tonemap (shbt11 /
@@ -647,13 +710,17 @@ fn fs_post(in: VertexOutput) -> @location(0) vec4<f32> {
     // Conformal boundary unwrap HUD inset (Enhancement 1).
     var composed = render_boundary_overlay(uv, vec4<f32>(final_composite, 1.0));
 
-    // Split viewport (shbt9): the right half shows the (x, v_x)
-    // phase-space raster written by diagnostics.wgsl when
-    // split_viewport_mode is on. This MUST be a post-composite select,
-    // not an early return — render_boundary_overlay uses fwidth(), which
-    // requires uniform control flow in WGSL.
-    if (params.post1.y > 0.5 && uv.x > 0.5) {
-        let diag_uv = vec2<f32>((uv.x - 0.5) * 2.0, uv.y);
+    // Diagnostics inset (shbt12): the (x, v_x) phase-space raster written
+    // by diagnostics.wgsl only draws inside a bounded bottom-right rect
+    // when the HUD toggle enables it — no raw half-screen blit. The DOM
+    // card (#phase-space-card) supplies the border/title/axis chrome over
+    // the same rect. This MUST be a post-composite select, not an early
+    // return — render_boundary_overlay uses fwidth(), which requires
+    // uniform control flow in WGSL.
+    if (params.post1.y > 0.5
+        && uv.x > 0.60 && uv.x < 0.98
+        && uv.y > 0.52 && uv.y < 0.96) {
+        let diag_uv = vec2<f32>((uv.x - 0.60) / 0.38, (uv.y - 0.52) / 0.44);
         composed = textureSampleLevel(phase_space_tex, tex_sampler, diag_uv, 0.0);
     }
     return composed;

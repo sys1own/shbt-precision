@@ -45,7 +45,7 @@ use wasm_bindgen::prelude::*;
 const GRID_DIM: u32 = 32;
 const BOX_SIZE: f32 = 200.0; // comoving Mpc/h
 const TARGET_FORMAT: TextureFormat = TextureFormat::Rgba16Float;
-const MAX_SEEDS: usize = 256;
+const MAX_SEEDS: usize = 1024;
 const CAUSAL_NODE_COUNT: usize = 8;
 const TRACER_COUNT: u32 = 10_000;
 /// Wireframe past-light-cone spokes are drawn only for the top N
@@ -4353,7 +4353,7 @@ impl ShbtWebGpuEngine {
     fn hud_json_impl(&self) -> String {
         let m = self.hud_metrics();
         format!(
-            "{{\"z\":{:.6e},\"a\":{:.6e},\"t_gyr\":{:.6e},\"hubble\":{:.4},\
+            "{{\"z\":{:.6e},\"a\":{:.6e},\"t_gyr\":{:.6e},\"lookback_gyr\":{:.6e},\"hubble\":{:.4},\
              \"f_load\":{:.8},\"n_vis\":{:.6e},\"n_dark\":{:.6e},\
              \"delta_n_bits\":{:.6e},\"seed_mass_msun\":{:.6e},\
              \"landauer_debt_gw\":{:.6e},\"f_sigma8\":{:.6e},\
@@ -4369,6 +4369,7 @@ impl ShbtWebGpuEngine {
             jnum(m.redshift),
             jnum(m.scale_factor),
             jnum(m.bulk_time_gyr),
+            jnum(telemetry::lookback_gyr(m.redshift)),
             jnum(m.hubble),
             jnum(m.loading_frac),
             jnum(m.n_vis),

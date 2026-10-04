@@ -281,3 +281,54 @@ fn adaptive_simpson(f: impl Fn(f64) -> f64, a: f64, b: f64, tol: f64, max_depth:
     }
     step(&f, a, b, simpson(&f, a, b), tol, max_depth)
 }
+
+/// Dimensionless expansion rate E(u) = H(z)/H0 with u = ln(1+z), over the
+/// canonical matter+radiation+Lambda background (f64 mirror; ledger code
+/// re-evaluates in `Float` where bit-exactness is required).
+fn expansion_rate_e(u: f64) -> f64 {
+    let one_plus_z = u.exp();
+    (0.315_f64 * one_plus_z.powi(3)
+        + OMEGA_R0 * one_plus_z.powi(4)
+        + (1.0 - 0.315 - OMEGA_R0))
+        .sqrt()
+}
+
+/// Cosmic age t(z) in Gyr: the proper time elapsed from the Big Bang
+/// (z -> +inf) to redshift z,
+///     t(z) = (1/H0) * \int_z^\infty dz' / [(1+z') E(z')]
+///          = (1/H0) * \int_{ln(1+z)}^\infty du / E(u).
+/// The integral is convergent for every z > -1: for u -> +inf the
+/// integrand decays ~ e^{-3u/2} / sqrt(Omega_m), and for the asymptotic
+/// future branch (u < 0) the integrand saturates at 1/sqrt(Omega_L),
+/// producing a finite-age de Sitter future at any z > -1 and +inf at
+/// z <= -1 (the conformal boundary itself). t(z) is strictly monotonic
+/// decreasing in z; t(50) ~ 0.05 Gyr, t(0) ~ 13.8 Gyr, t(-0.999) ~ 22 Gyr.
+pub fn cosmic_age_gyr(z: f64) -> f64 {
+    if z <= -1.0 {
+        return f64::INFINITY;
+    }
+    const U_HI: f64 = 40.0;
+    let u_lo = (1.0 + z).ln();
+    if u_lo >= U_HI {
+        return 0.0;
+    }
+    let h0_per_gyr = H0_CMB * 1.0227121650537077e-3;
+    adaptive_simpson(expansion_rate_e_fn, u_lo, U_HI, 1.0e-9, 24) / h0_per_gyr
+}
+
+fn expansion_rate_e_fn(u: f64) -> f64 {
+    1.0 / expansion_rate_e(u)
+}
+
+/// Cosmic age today: t_0 = t(z = 0) in Gyr (~13.8 Gyr on the canonical
+/// branch).
+pub fn cosmic_age_today_gyr() -> f64 {
+    cosmic_age_gyr(0.0)
+}
+
+/// Lookback time t_lookback(z) = t(0) - t(z) in Gyr. Positive on the past
+/// branch (z > 0), zero today, and negative on the asymptotic future
+/// branch (z < 0) where it measures time remaining after the present.
+pub fn lookback_gyr(z: f64) -> f64 {
+    cosmic_age_today_gyr() - cosmic_age_gyr(z)
+}

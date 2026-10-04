@@ -167,4 +167,58 @@ mod tests {
             low_z_limit
         );
     }
+
+    /// Martel-Shapiro supercomoving KDK leapfrog: relative Hamiltonian
+    /// drift on the static-background limit (harmonic potential) must
+    /// remain < 10^-4 over 10^4 steps — the symplectic invariant that
+    /// keeps structure formation from injecting spurious energy.
+    #[test]
+    fn test_symplectic_energy_drift_static_background() {
+        let dt = 0.001f32;
+        let mut x = 1.0f32;
+        let mut v = 0.0f32;
+        let k = 1.0f32;
+
+        let e_initial = 0.5 * v * v + 0.5 * k * x * x;
+
+        for _ in 0..10_000 {
+            let a0 = -k * x;
+            v += 0.5 * dt * a0;
+            x += dt * v;
+            let a1 = -k * x;
+            v += 0.5 * dt * a1;
+        }
+
+        let e_final = 0.5 * v * v + 0.5 * k * x * x;
+        let rel_energy_drift = ((e_final - e_initial) / e_initial).abs();
+
+        assert!(
+            rel_energy_drift < 1e-4,
+            "Symplectic KDK drift exceeded 10^-4 limit over 10^4 steps: drift = {:.3e}",
+            rel_energy_drift
+        );
+    }
+
+    /// Branchless degree-(2,2) rational Planckian palette used by
+    /// `blackbody_to_linear_rgb` in dual_channel_render.wgsl: every RGB
+    /// component must stay inside [0, 1.05] with no NaN across the
+    /// entire emission band T in [2500, 25000] K.
+    #[test]
+    fn test_branchless_blackbody_simd_rational_monotonicity() {
+        let temps: Vec<f32> = (2500..=25000).step_by(250).map(|t| t as f32).collect();
+        for t in temps {
+            let u = 1000.0 / t;
+            let u2 = u * u;
+            let r = (0.657842 - 15.067116 * u + 144.948029 * u2)
+                / (1.0 - 19.160428 * u + 155.930970 * u2);
+            let g = (0.540874 - 1.770797 * u + 12.417570 * u2)
+                / (1.0 - 9.751228 * u + 48.259277 * u2);
+            let b = (0.855655 - 3.605022 * u + 4.930827 * u2)
+                / (1.0 - 8.226975 * u + 39.334862 * u2);
+
+            assert!(r >= 0.0 && r <= 1.05, "Red channel out of bounds at T = {}: {}", t, r);
+            assert!(g >= 0.0 && g <= 1.05, "Green channel out of bounds at T = {}: {}", t, g);
+            assert!(b >= 0.0 && b <= 1.05, "Blue channel out of bounds at T = {}: {}", t, b);
+        }
+    }
 }

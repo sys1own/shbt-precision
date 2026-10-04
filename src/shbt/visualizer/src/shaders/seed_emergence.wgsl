@@ -116,7 +116,7 @@ struct TrackingState {
 // append into an expandable storage pool. SEED_POOL_CAP is the allocated
 // capacity of this frame's pool; the population itself scales with the
 // overflow distribution, not with a preset constant.
-const SEED_POOL_CAP: u32 = 256u;
+const SEED_POOL_CAP: u32 = 1024u;
 
 // Bind Group 0: Simulation Constants and Spatial Meshes
 @group(0) @binding(0) var<uniform> params: SimulationParameters;
@@ -125,9 +125,9 @@ const SEED_POOL_CAP: u32 = 256u;
 
 // Bind Group 1: Detection State and Tracking Buffers (GlobalSeedBuffer pool)
 @group(1) @binding(0) var<storage, read_write> tracking_state: TrackingState;
-@group(1) @binding(1) var<storage, read_write> seed_candidates: array<SeedDefectRecord, 256>;
-@group(1) @binding(2) var<storage, read> prev_seeds: array<SeedDefectRecord, 256>;
-@group(1) @binding(3) var<storage, read_write> active_seeds: array<SeedDefectRecord, 256>;
+@group(1) @binding(1) var<storage, read_write> seed_candidates: array<SeedDefectRecord, 1024>;
+@group(1) @binding(2) var<storage, read> prev_seeds: array<SeedDefectRecord, 1024>;
+@group(1) @binding(3) var<storage, read_write> active_seeds: array<SeedDefectRecord, 1024>;
 @group(1) @binding(4) var<storage, read_write> smoothed_overflow: array<f32>;
 // Continuum incubation state (shbt10 Thm 9.13/9.14): the transported
 // congestion field, the cumulative Stinespring diffusion ledger, the

@@ -1,5 +1,17 @@
 [
   {
+    "milestone": -1,
+    "label": "pre-flight: seed glitch disabled",
+    "asserts": [
+      {
+        "name": "glitchEnabled == false",
+        "pass": true,
+        "detail": "canonical clean run",
+        "hard": true
+      }
+    ]
+  },
+  {
     "milestone": 0,
     "label": "primordial bit loading",
     "z_target": 100000000000000.0,
@@ -13,39 +25,73 @@
         "pass": true,
         "detail": "60.0 FPS (software rasterizer budget; strict mode: False)",
         "hard": false
+      },
+      {
+        "name": "cosmic age < 0.001 Gyr",
+        "pass": true,
+        "detail": "7.562e-26 Gyr",
+        "hard": true
+      },
+      {
+        "name": "f_load at primordial floor (<= 0.11)",
+        "pass": true,
+        "detail": "0.1074373",
+        "hard": true
       }
-    ]
+    ],
+    "metrics": {
+      "t_gyr": 7.562489e-26,
+      "lookback_gyr": 13.79091,
+      "f_load": 0.1074373,
+      "seedCount": 0,
+      "totalMass": 0,
+      "landauerDebt": 0,
+      "active_caustics": 0,
+      "peak_shear": 0.420113,
+      "horizon_frozen": false
+    }
   },
   {
     "milestone": 1,
     "label": "baryogenesis de-rendering",
     "z_target": 10000000000.0,
-    "z_hud": "7.7464e+9",
+    "z_hud": "1.0000e+10",
     "quench_pct": "69.70",
     "landauer_gw": "0.000",
-    "fps": "29.8",
+    "fps": "36.3",
     "asserts": [
       {
         "name": "fps >= 55",
         "pass": false,
-        "detail": "29.8 FPS (software rasterizer budget; strict mode: False)",
+        "detail": "36.3 FPS (software rasterizer budget; strict mode: False)",
         "hard": false
       },
       {
-        "name": "quench in [65, 72]",
+        "name": "quench in [68, 71]",
         "pass": true,
         "detail": "69.70% (theoretical 23/33 = 69.70%)",
         "hard": true
       }
-    ]
+    ],
+    "metrics": {
+      "t_gyr": 7.562627e-18,
+      "lookback_gyr": 13.79091,
+      "f_load": 0.10743659,
+      "seedCount": 0,
+      "totalMass": 0,
+      "landauerDebt": 0,
+      "active_caustics": 0,
+      "peak_shear": 0.379041,
+      "horizon_frozen": false
+    }
   },
   {
     "milestone": 2,
-    "label": "precursor incubation",
-    "z_target": 100.0,
-    "z_hud": "99.67",
+    "label": "ghost seed genesis",
+    "z_target": 16.0,
+    "z_hud": "16.00",
     "quench_pct": "69.70",
-    "landauer_gw": "0.000",
+    "landauer_gw": "9.0483e+13",
     "fps": "60.0",
     "asserts": [
       {
@@ -53,16 +99,45 @@
         "pass": true,
         "detail": "60.0 FPS (software rasterizer budget; strict mode: False)",
         "hard": false
+      },
+      {
+        "name": "active_seeds > 0",
+        "pass": true,
+        "detail": "646 seeds",
+        "hard": true
+      },
+      {
+        "name": "M_seed > 0",
+        "pass": true,
+        "detail": "9.987e+10 M_sun",
+        "hard": true
+      },
+      {
+        "name": "P_debt > 0",
+        "pass": true,
+        "detail": "9.048e+13 GW",
+        "hard": true
       }
-    ]
+    ],
+    "metrics": {
+      "t_gyr": 0.2441795,
+      "lookback_gyr": 13.54673,
+      "f_load": 0.10730904,
+      "seedCount": 646,
+      "totalMass": 99870530000,
+      "landauerDebt": 90482700000000,
+      "active_caustics": 646,
+      "peak_shear": 0.387837,
+      "horizon_frozen": false
+    }
   },
   {
     "milestone": 3,
-    "label": "seed condensation / Landauer peak",
-    "z_target": 16.0,
-    "z_hud": "15.62",
+    "label": "causal-point proto-galaxies",
+    "z_target": 3.0,
+    "z_hud": "3.000",
     "quench_pct": "69.70",
-    "landauer_gw": "4.9780e+12",
+    "landauer_gw": "7.2291e+14",
     "fps": "60.0",
     "asserts": [
       {
@@ -74,18 +149,41 @@
       {
         "name": "landauer_debt > 5e11 GW",
         "pass": true,
-        "detail": "4.978e+12 GW",
+        "detail": "7.229e+14 GW",
+        "hard": true
+      },
+      {
+        "name": "quench = 69.7 +/- 1.0",
+        "pass": true,
+        "detail": "69.70%",
+        "hard": true
+      },
+      {
+        "name": "active_seeds > 0",
+        "pass": true,
+        "detail": "646 seeds",
         "hard": true
       }
-    ]
+    ],
+    "metrics": {
+      "t_gyr": 2.138566,
+      "lookback_gyr": 11.65234,
+      "f_load": 0.10277924,
+      "seedCount": 646,
+      "totalMass": 797911100000,
+      "landauerDebt": 722907500000000,
+      "active_caustics": 646,
+      "peak_shear": 0.454454,
+      "horizon_frozen": false
+    }
   },
   {
     "milestone": 4,
-    "label": "proto-galactic clustering",
-    "z_target": 3.0,
-    "z_hud": "3.000",
+    "label": "cosmic-web lensing",
+    "z_target": 1.0,
+    "z_hud": "1.000",
     "quench_pct": "69.70",
-    "landauer_gw": "1.0280e+14",
+    "landauer_gw": "1.0562e+15",
     "fps": "60.0",
     "asserts": [
       {
@@ -95,20 +193,37 @@
         "hard": false
       },
       {
-        "name": "quench = 69.7 +/- 1.0",
+        "name": "caustics > 0",
         "pass": true,
-        "detail": "69.70%",
+        "detail": "646",
+        "hard": true
+      },
+      {
+        "name": "gamma_max > 0.1",
+        "pass": true,
+        "detail": "0.4773",
         "hard": true
       }
-    ]
+    ],
+    "metrics": {
+      "t_gyr": 5.84104,
+      "lookback_gyr": 7.94987,
+      "f_load": 0.08263788,
+      "seedCount": 646,
+      "totalMass": 1165737000000,
+      "landauerDebt": 1056158000000000,
+      "active_caustics": 646,
+      "peak_shear": 0.47728,
+      "horizon_frozen": false
+    }
   },
   {
     "milestone": 5,
     "label": "asymptotic horizon freeze",
     "z_target": -0.999,
-    "z_hud": "-0.9868",
+    "z_hud": "-0.9990",
     "quench_pct": "69.70",
-    "landauer_gw": "2.1659e+14",
+    "landauer_gw": "1.8664e+15",
     "fps": "60.0",
     "asserts": [
       {
@@ -116,7 +231,42 @@
         "pass": true,
         "detail": "60.0 FPS (software rasterizer budget; strict mode: False)",
         "hard": false
+      },
+      {
+        "name": "cosmic age > 15.0 Gyr",
+        "pass": true,
+        "detail": "133.723 Gyr",
+        "hard": true
+      },
+      {
+        "name": "f_load > 0.99",
+        "pass": true,
+        "detail": "1",
+        "hard": true
+      },
+      {
+        "name": "R_entropy < 0 (frozen)",
+        "pass": true,
+        "detail": "observer set frozen",
+        "hard": true
+      },
+      {
+        "name": "R_adm == 0",
+        "pass": true,
+        "detail": "0 admitted observers",
+        "hard": true
       }
-    ]
+    ],
+    "metrics": {
+      "t_gyr": 133.7226,
+      "lookback_gyr": -119.9317,
+      "f_load": 1,
+      "seedCount": 646,
+      "totalMass": 2060060000000,
+      "landauerDebt": 1866414000000000,
+      "active_caustics": 647,
+      "peak_shear": 0.475199,
+      "horizon_frozen": true
+    }
   }
 ]

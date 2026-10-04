@@ -55,22 +55,28 @@ pub fn loading_fraction(z: f64) -> f64 {
     (du * acc).min(1.0)
 }
 
-/// Bulk proper time elapsed (Gyr) at redshift z (loaded matter-Lambda
-/// look-back integral; de Sitter asymptote returns +inf).
+/// Bulk cosmic age t(z) in Gyr — proper time elapsed from the Big Bang to
+/// redshift z (monotonic increasing as z decreases):
+///     t(z) = (1/H0) * \int_{ln(1+z)}^inf du / E(u).
+/// Convergent for every z > -1 (integrand ~ e^{-3u/2} for u -> +inf and
+/// saturates at 1/sqrt(Omega_L) for u < 0), +inf at the conformal boundary
+/// z <= -1. Mirror of `src/shbt/cosmology.rs::cosmic_age_gyr` (the MPFR core
+/// is not linked into this crate).
 pub fn bulk_time_gyr(z: f64) -> f64 {
     if z <= -1.0 {
         return f64::INFINITY;
     }
-    if z <= 0.0 {
-        return 13.276616557;
+    const U_HI: f64 = 40.0;
+    let u_lo = (1.0 + z).ln();
+    if u_lo >= U_HI {
+        return 0.0;
     }
     let h0_gyr = H0_CMB * 1.0227121650537077e-3;
-    let upper = (1.0 + z).ln();
-    let n = 1024;
-    let du = upper / n as f64;
+    let n = 2048;
+    let du = (U_HI - u_lo) / n as f64;
     let mut acc = 0.0;
     for i in 0..=n {
-        let u = du * i as f64;
+        let u = u_lo + du * i as f64;
         let one_plus_z = u.exp();
         let e = (OMEGA_M * one_plus_z.powi(3)
             + OMEGA_R0 * one_plus_z.powi(4)
@@ -80,6 +86,12 @@ pub fn bulk_time_gyr(z: f64) -> f64 {
         acc += w / e;
     }
     du * acc / h0_gyr
+}
+
+/// Lookback time (Gyr): t_lookback(z) = t(0) - t(z). Positive in the past,
+/// negative on the asymptotic future branch (z < 0).
+pub fn lookback_gyr(z: f64) -> f64 {
+    bulk_time_gyr(0.0) - bulk_time_gyr(z)
 }
 
 /// f_sigma8 damping multiplier [1 - gamma_SHBT f_load(z)].

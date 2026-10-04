@@ -7,7 +7,7 @@
 use pyo3::prelude::*;
 use pyo3::types::PyBytes;
 
-use crate::shbt::cosmology::{ShbtUniverse, H0_CMB};
+use crate::shbt::cosmology::ShbtUniverse;
 
 /// Telemetry magic: ASCII 'SHBT' little-endian.
 pub const SHBT_MMIO_MAGIC: u32 = 0x5442_4853;
@@ -242,31 +242,8 @@ pub fn serialize_mmio_frame_py(
     Ok(PyBytes::new_bound(py, &frame).unbind())
 }
 
-/// Approximate bulk proper time elapsed (Gyr) at redshift z under the loaded
-/// matter-Lambda background (fast analytic look-back integral).
-pub fn cosmic_age_gyr(z: f64) -> f64 {
-    if z <= -1.0 {
-        return f64::INFINITY;
-    }
-    // Look-back time in Gyr: t = (1/H0) ∫_0^z dz'/[(1+z') E(z')].
-    // Integrating in u = ln(1+z') gives dz'/(1+z') = du, so t = (1/H0) ∫ du/E(u).
-    let h0_per_gyr_inv = H0_CMB * 1.0227121650537077e-3; // km/s/Mpc -> 1/Gyr
-    let n = 512;
-    let upper = z.max(0.0);
-    if upper == 0.0 {
-        return 13.276616557;
-    }
-    let du = (1.0 + upper).ln() / n as f64;
-    let mut acc = 0.0;
-    for i in 0..=n {
-        let u = du * i as f64;
-        let one_plus_z = u.exp();
-        let e = (0.315_f64 * one_plus_z.powi(3)
-            + 9.2e-5_f64 * one_plus_z.powi(4)
-            + (1.0 - 0.315 - 9.2e-5))
-            .sqrt();
-        let w = if i == 0 || i == n { 1.0 } else if i % 2 == 0 { 2.0 } else { 4.0 };
-        acc += w / e;
-    }
-    du * acc / 3.0 / h0_per_gyr_inv
-}
+/// Bulk cosmic age (Gyr) at redshift z and lookback time
+/// t_lookback(z) = t(0) - t(z) — canonical quadratures live in `cosmology`;
+/// re-exported here (a same-named wrapper would collide under the crate's
+/// glob re-exports).
+pub use crate::shbt::cosmology::{cosmic_age_gyr, lookback_gyr};

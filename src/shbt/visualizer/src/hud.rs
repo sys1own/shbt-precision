@@ -198,6 +198,9 @@ impl HorizonLedger {
         self.redshift = z;
         self.scale_factor = 1.0 / (1.0 + z.max(-0.9999));
         self.hubble_rate = self.compute_hubble(z);
+        // Monotonic clock: t_lookback(z) = t(0) - t(z) over the whole timeline
+        // (negative on the asymptotic future branch z < 0).
+        self.lookback_time_gyr = crate::telemetry::lookback_gyr(z);
 
         let f_load = if z > 1.0e10 {
             1.0e-6

@@ -179,17 +179,24 @@ def _hubble(z: float) -> float:
 
 
 def _bulk_time_gyr(z: float) -> float:
+    """Canonical bulk cosmic age t(z) in Gyr — proper time elapsed since the
+    Big Bang, strictly monotonic increasing as z decreases. Mirrors the
+    Rust `cosmology::cosmic_age_gyr` quadrature: t(z) = H0^-1 integral over
+    [ln(1+z), 40] of du/E(u); t(0) ~ 13.79 Gyr, finite de Sitter future for
+    -1 < z < 0, +inf at z <= -1.
+    """
     if z <= -1.0:
         return float("inf")
-    if z <= 0.0:
-        return 13.276616557
     h0_gyr = H0_CMB * 1.0227121650537077e-3
-    upper = math.log(1.0 + z)
+    u_lo = math.log(1.0 + z)
+    u_hi = 40.0
+    if u_lo >= u_hi:
+        return 0.0
     n = 1024
-    du = upper / n
+    du = (u_hi - u_lo) / n
     acc = 0.0
     for i in range(n + 1):
-        u = du * i
+        u = u_lo + du * i
         one_plus_z = math.exp(u)
         e = math.sqrt(
             OMEGA_M * one_plus_z**3 + OMEGA_R0 * one_plus_z**4 + (1.0 - OMEGA_M - OMEGA_R0)
