@@ -1,7 +1,7 @@
 //! Byte-layout bindings between the live engine types and the WGSL
 //! buffer contracts introduced in shbt9 Phase 1-2: the 24-byte
 //! SimulationControls block, the 32-byte sandbox CausalPointRecord,
-//! the 48-byte engine Particle stride, and the 256-byte post uniform.
+//! the 48-byte engine Particle stride, and the 272-byte post uniform.
 
 use shbt_visualizer::{
     HudCausalRecord, LensingUniforms, Particle, SimulationControls,
@@ -42,5 +42,5 @@ fn test_particle_and_post_uniform_strides() {
     // landauer_debt, grav_mass, pad).
     assert_eq!(size_of::<Particle>(), 64);
     // 192-byte base uniform + post0..post3 vec4 extension slots.
-    assert_eq!(size_of::<LensingUniforms>(), 256);
+    assert_eq!(size_of::<LensingUniforms>(), 272);
 }

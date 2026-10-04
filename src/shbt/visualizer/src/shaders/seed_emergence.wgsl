@@ -74,7 +74,7 @@ struct SimulationParameters {
     delta_t: f32,              // Integration timestep (Myr)
     redshift: f32,             // Current cosmological redshift z
     f_load: f32,               // Boundary screen loading fraction f_load(z)
-    gamma_geom: f32,           // UNUSED (legacy slot): gamma_cft is a const
+    gamma_geom: f32,           // gamma_S: modular restoration rate |dw_vis/dz|
     delta_n_thresh: f32,       // Min normalized overflow to condense
     alpha_mass: f32,           // Seed mass per unit normalized overflow (M_sun)
     landauer_rate: f32,        // Thermodynamic dissipation rate (906 GW / M_sun)
@@ -86,7 +86,7 @@ struct SimulationParameters {
     mean_density: f32,         // Mean CIC cell mass (grav units)
     r_filter_cells: f32,       // R_filter/dx, clamped to [1,4] (shbt9)
     percolation_scale: f32,    // Sandbox percolation-threshold scale (0.5-2)
-    _pad2: vec2<f32>,
+    _pad2: vec2<f32>,          // x: incubation diffusion_coeff, y: seed core_radius
 };
 
 struct Particle {
@@ -129,6 +129,13 @@ const SEED_POOL_CAP: u32 = 256u;
 @group(1) @binding(2) var<storage, read> prev_seeds: array<SeedDefectRecord, 256>;
 @group(1) @binding(3) var<storage, read_write> active_seeds: array<SeedDefectRecord, 256>;
 @group(1) @binding(4) var<storage, read_write> smoothed_overflow: array<f32>;
+// Continuum incubation state (shbt10 Thm 9.13/9.14): the transported
+// congestion field, the cumulative Stinespring diffusion ledger, the
+// Psi_nuc-weighted precursor seed-mass grid, and its regularized
+// potential consumed by nbody_pm.wgsl's grid force.
+@group(1) @binding(5) var<storage, read_write> dark_ledger: array<f32>;
+@group(1) @binding(6) var<storage, read_write> seed_mass_grid: array<f32>;
+@group(1) @binding(7) var<storage, read_write> seed_potential_grid: array<f32>;
 
 fn get_linear_index(x: u32, y: u32, z: u32) -> u32 {
     let dim = params.grid_dim;
@@ -385,12 +392,104 @@ fn cs_detect_condensation(@builtin(global_invocation_id) id: vec3<u32>) {
     let candidate_slot = atomicAdd(&tracking_state.candidate_count, 1u);
 
     if (candidate_slot < SEED_POOL_CAP) {
-        let m_seed = sum_overflow * params.alpha_mass;
+        // Quintic condensation mollifier (Thm 9.14): nucleated mass is
+        // C^2-smoothed through the z in [18, 30] window so defects grow
+        // continuously rather than popping at the instanton draw.
+        let psi_nuc = compute_nucleation_weight(params.redshift, 30.0, 18.0);
+        let m_seed = sum_overflow * params.alpha_mass * psi_nuc;
         let p_debt = m_seed * params.landauer_rate;
 
         seed_candidates[candidate_slot].position = vec4<f32>(wrapped_centroid, 1.0);
         seed_candidates[candidate_slot].dynamics = vec4<f32>(m_seed, 0.0, p_debt, f32(candidate_slot));
     }
+}
+
+// ----------------------------------------------------------------------------
+// PASS 1.6: Continuum incubation transport (shbt10 Thm 9.13)
+// ----------------------------------------------------------------------------
+// Sub-critical precursor incubation: before defects condense, local
+// register congestion n_local diffuses through the bulk while a
+// Stinespring ledger accumulates the dark-sector share
+//   S_dil = eta_D * Gamma_S * rho_tot
+// with eta_D = 23/33 and Gamma_S the modular restoration rate (host
+// streams |dw_vis/dz|(z)). The transported field feeds the
+// Psi_nuc-weighted precursor mass grid.
+const ETA_D: f32 = 0.6969696970;      // 23/33
+const Z_NUC_START: f32 = 30.0;        // precursor incubation window open
+const Z_NUC_END: f32 = 18.0;          // condensation onset handoff
+
+// C^2 quintic nucleation weight Psi_nuc(z): vanishes with zero slope and
+// curvature at z = 30, reaches 1 with zero slope/curvature at z = 18.
+fn compute_nucleation_weight(z: f32, z_start: f32, z_end: f32) -> f32 {
+    let u = clamp((z_start - z) / (z_start - z_end), 0.0, 1.0);
+    return u * u * u * (10.0 + u * (-15.0 + 6.0 * u));
+}
+
+// Fresh CIC density ratio at a grid cell (normalized by the box mean).
+fn fresh_density_ratio(cell: vec3<i32>) -> f32 {
+    let dim = i32(params.grid_dim);
+    let wrap = (cell + vec3<i32>(dim)) % vec3<i32>(dim);
+    let idx = get_linear_index(u32(wrap.x), u32(wrap.y), u32(wrap.z));
+    let raw = f32(atomicLoad(&grid_density[idx])) / params.fixed_point_scale;
+    return raw / max(params.mean_density, 1.0e-5);
+}
+
+@compute @workgroup_size(4, 4, 4)
+fn step_incubation_transport(@builtin(global_invocation_id) id: vec3<u32>) {
+    let dim = params.grid_dim;
+    if (id.x >= dim || id.y >= dim || id.z >= dim) {
+        return;
+    }
+    let cell = vec3<i32>(id);
+    let idx = get_linear_index(id.x, id.y, id.z);
+    let n_limit = cardy_limit_norm(params.redshift) * params.percolation_scale;
+    let diffusion_coeff = params._pad2.x;
+
+    // Periodic 6-neighbor Laplacian over the fresh CIC ratio field.
+    let n_center = fresh_density_ratio(cell);
+    let lap = fresh_density_ratio(cell + vec3<i32>(1, 0, 0))
+        + fresh_density_ratio(cell - vec3<i32>(1, 0, 0))
+        + fresh_density_ratio(cell + vec3<i32>(0, 1, 0))
+        + fresh_density_ratio(cell - vec3<i32>(0, 1, 0))
+        + fresh_density_ratio(cell + vec3<i32>(0, 0, 1))
+        + fresh_density_ratio(cell - vec3<i32>(0, 0, 1))
+        - 6.0 * n_center;
+
+    // Stinespring transport: diffusion spreads congestion across cells
+    // while the modular restoration rate dilutes the visible share.
+    let s_dil = ETA_D * params.gamma_geom * n_center;
+    let n_updated = max(0.0, n_center + diffusion_coeff * lap + s_dil * params.delta_t);
+
+    dark_ledger[idx] = min(dark_ledger[idx] + s_dil * params.delta_t, n_updated);
+
+    // Psi_nuc-weighted precursor mass: proto-seed mass only condenses
+    // inside the C^2 quintic window z in [18, 30].
+    let psi = compute_nucleation_weight(params.redshift, Z_NUC_START, Z_NUC_END);
+    let overflow = max(n_updated - n_limit, 0.0);
+    seed_mass_grid[idx] = params.alpha_mass * psi * overflow;
+}
+
+// ----------------------------------------------------------------------------
+// PASS 1.7: Regularized seed-potential solve (shbt10 Thm 9.14)
+// ----------------------------------------------------------------------------
+// Phi_seed(x_g) = -4 pi G m_seed / (r_core + eps) evaluated per cell as a
+// regularized monopole; the nbody integrator interpolates -a * grad Phi
+// with the same CIC weights as the mass deposition. SEED_POT_GAIN folds
+// the M_sun -> code-mass calibration into a dimensionless gain tuned so
+// precursor wells stay ~0.1x the PM well depth.
+const SEED_POT_GAIN: f32 = 3.0e-9;
+
+@compute @workgroup_size(4, 4, 4)
+fn solve_seed_potential(@builtin(global_invocation_id) id: vec3<u32>) {
+    let dim = params.grid_dim;
+    if (id.x >= dim || id.y >= dim || id.z >= dim) {
+        return;
+    }
+    let idx = get_linear_index(id.x, id.y, id.z);
+    let m_seed = seed_mass_grid[idx];
+    let core_radius = max(params._pad2.y, 1.0e-3);
+    seed_potential_grid[idx] = -4.0 * 3.14159265359 * SEED_POT_GAIN * m_seed
+        / (core_radius + 0.001);
 }
 
 // ----------------------------------------------------------------------------

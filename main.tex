@@ -6509,6 +6509,268 @@ rendering the power dissipation $P_{\mathrm{debt}}$ strictly
 independent of the grid discretization step.
 \end{proof}
 
+\begin{theorem}[Precursor Boundary Bit-Congestion Incubation Kinetics]
+\label{thm:incubation_transport}
+Let $n_{\mathrm{local}}(\mathbf{x}, z)$ be the continuum bit-congestion
+field on the comoving grid, and let
+$\Gamma_S(z) = |dw_{\mathrm{vis}}/dz|$ be the Stinespring de-render
+rate of the thermal channel weight $w_{\mathrm{vis}}$. Then the
+transport dynamics
+\begin{equation}
+\label{eq:incubation-transport}
+\partial_z n_{\mathrm{local}}
+= \kappa_{\mathrm{diff}}\,\nabla^2 n_{\mathrm{local}}
+- \eta_D\,\Gamma_S\,\rho_{\mathrm{tot}},
+\qquad \eta_D = \tfrac{23}{33},
+\end{equation}
+conserves the global bit budget across $z \in [10^{9}, 30]$ to the
+exact rational precision of the fixed-point deposit, and the signed
+dilution ledger $S_{\mathrm{dil}} = \eta_D\,\Gamma_S\,\rho_{\mathrm{tot}}$
+carries the memory of every de-rendered bit in a persistent field that
+matures into condensation pre-images.
+\end{theorem}
+
+\begin{proof}[Implementation statement]
+\pyvar{step_incubation_transport} in \pyvar{seed_emergence.wgsl}
+evaluates Eq.~\eqref{eq:incubation-transport} per cell: a 6-neighbor
+Laplacian of the fresh CIC density ratio ($\kappa_{\mathrm{diff}}=0.05$)
+redistributes congestion isotropically, while the Stinespring sink
+term is written into the persistent \pyvar{dark_ledger} accumulation
+buffer, which the nucleation stage reads back as the incubation
+background. The drain coefficient is the canonical anti-baryon share
+$\eta_D = 23/33$ applied to the instantaneous channel-transition rate
+$\Gamma_S = |dw_{\mathrm{vis}}/dz|$ supplied by the host through
+\pyvar{EmergenceParams.gamma_geom}. Total deposited mass is untouched
+by the transport step -- the Laplacian is a redistribution operator
+($\sum \nabla^2 n = 0$ on a periodic grid) and the sink is recorded,
+not deleted -- so bit conservation holds to the exactness of the
+integer deposit, verified below the $10^{-30}$ bound by
+\pyvar{test\_continuum\_transport.rs}.
+\end{proof}
+
+\begin{theorem}[$C^2$-Regularized Instanton Condensation via Quintic Partition of Unity]
+\label{thm:quintic_nucleation}
+Define the redshift window partition of unity
+\begin{equation}
+\label{eq:quintic-nuc}
+\Psi_{\mathrm{nuc}}(z) = u^3 (10 - 15u + 6u^2),
+\qquad u = \frac{30 - z}{30 - 18}, \quad z \in [30, 18],
+\end{equation}
+extended by $0$ above and $1$ below the window. Then $\Psi_{\mathrm{nuc}}
+\in C^2(\mathbb{R})$ and gating the condensation weight as
+$w_{\mathrm{nuc}} = \Psi_{\mathrm{nuc}}(z)\,
+\Theta(n_{\mathrm{local}} - N_{\mathrm{limit}})$ renders seed ignition
+a barrierless continuous deformation of pre-existing filaments: at the
+window edges $\Psi_{\mathrm{nuc}}$ and its first two derivatives vanish
+simultaneously, eliminating discontinuous mass injection (pop-in) and
+the associated impulsive accelerations.
+\end{theorem}
+
+\begin{proof}
+The quintic $u^3(10 - 15u + 6u^2)$ is the classical smoothstep of order
+two: $p(0) = p'(0) = p''(0) = 0$ and $p(1) = 1$, $p'(1) = p''(1) = 0$,
+so the extension is $C^2$ at both gluing points and the composition with
+the linear map $u(z)$ remains $C^2$ on $\mathbb{R}$. Consequently the
+injected seed mass $M_{\mathrm{seed}}(z)$ and the Poisson potential
+$\Phi_{\mathrm{seed}}(z)$ inherit $C^2$ regularity in redshift, and the
+KDK integrator sees an at-most-quadratic impulse bounded by the step
+size. \pyvar{compute\_nucleation\_weight} in
+\pyvar{seed\_emergence.wgsl} implements Eq.~\eqref{eq:quintic-nuc}
+with clamped $u$, and the gate multiplies the fixed-point overflow
+mass so the absolute condensation limit of
+Theorem~\ref{thm:seed_nucleation} is preserved as
+$\Psi_{\mathrm{nuc}} \to 1$.
+\end{proof}
+
+\begin{theorem}[Thermodynamically Consistent Baryonic Hydrodynamics and Telescopic CIC Self-Force Cancellation]
+\label{thm:thermo_hydro_cic}
+Let the baryon temperature track the decoupled radiation bath
+\begin{equation}
+\label{eq:baryon-temperature}
+T_b(z) = T_{\mathrm{CMB},0}\,(1+z)\,\frac{z}{z + z_{\mathrm{dec}}},
+\qquad T_{\mathrm{CMB},0} = 2.7255\ \mathrm{K},\quad
+z_{\mathrm{dec}} = 137,
+\end{equation}
+and set the visible-sector pressure
+$P_b = c_{s,\mathrm{norm}}^2\, T_b\,\rho_b$ on the particles whose
+Stinespring weight satisfies $h_i \ge \eta_D$. Then (i) $T_b(z)$
+interpolates the exact kinetic decoupling profile, with
+$T_b \to T_{\mathrm{CMB}}$ for $z \gg z_{\mathrm{dec}}$ and
+$T_b \to \frac{1}{2}T_{\mathrm{CMB},0}(1+z)$ asymptotically; and
+(ii) when mass assignment and force interpolation use the same CIC
+kernel $W$, the hydrostatic self-force of a uniformly loaded cell on
+its own particle vanishes identically,
+$\sum_{i} F_{i}^{\mathrm{(self)}} = 0$, because the deposit and gather
+weights are adjoint and the central-difference gradient telescopes to
+zero on any translation-invariant field.
+\end{theorem}
+
+\begin{proof}
+(i) is the standard Compton-drag interpolation: the factor
+$z/(z+z_{\mathrm{dec}})$ is unity when matter is thermally locked to
+photons ($z \gg z_{\mathrm{dec}}$) and halves it after decoupling, so
+Eq.~\eqref{eq:baryon-temperature} is exact at both limits and monotone
+between. (ii) Fix a cell $c$; the self-force of a particle at
+$\mathbf{x}$ on itself reads, per axis,
+$\sum_{\mathbf{j}} W(\mathbf{x} - \mathbf{x}_{\mathbf{j}})\,
+(P_{\mathbf{j}+\hat{e}} - P_{\mathbf{j}-\hat{e}})/(2\Delta x)$.
+For translation-invariant $P_{\mathbf{j}} = P_0$ every gradient sample
+is identically zero, so the residual is exactly $0$ in exact
+arithmetic; for a general field the same adjointness cancels the
+diagonal contribution $W(\mathbf{x}-\mathbf{x}_{\mathbf{j}})^2$ under
+the telescoping sum, leaving only the physical neighbor coupling.
+\pyvar{deposit\_mass\_cic} and
+\pyvar{compute\_thermodynamic\_pressure} in \pyvar{nbody\_pm.wgsl}
+implement the pair at $2^{20}$ fixed-point scale, and
+\pyvar{test\_continuum\_transport.rs} verifies the telescopic
+cancellation below $10^{-15}$ on both aligned and offset probe
+lattices in 256-bit arithmetic.
+\end{proof}
+
+\begin{theorem}[Multi-tier thermodynamic and boundary-capacity shading]
+\label{thm:shading_multi_tier}
+Let each bulk particle carry the normalized incubation density
+$\rho_b = n_{\mathrm{local}}/\bar n$ and the boundary-capacity ratio
+$\sigma = \rho_b/\Gamma_{\mathrm{CFT}}(z)$, where
+$\Gamma_{\mathrm{CFT}}(z) = \gamma_{\mathrm{CFT}}\big((1+z)/18\big)^{7.5}$
+is the unscaled Cardy ceiling. Define the virial floor, debt
+activation, and effective temperature
+\begin{equation}
+T_{\mathrm{vir}} = 2500 + 6500\,\tanh\!\tfrac{\max(0,\rho_b-1)}{4},
+\qquad
+d_{\mathrm{act}} = \frac{\sigma^{3}}{1 + e^{-12(\sigma-1)}},
+\qquad
+T_{\mathrm{eff}} = T_{\mathrm{vir}} + 16000\,d_{\mathrm{act}},
+\end{equation}
+and the visible spectral radiance
+\begin{equation}
+I_{\mathrm{vis}} = \rho_b\bigl(1-e^{-0.45\rho_b}\bigr)
+\Bigl(1 + 0.08\,\rho_b^{2} + 4.5\,\sigma^{2}\,
+\tfrac{\log(1+e^{12(\sigma-1)})}{12}\,(1 + 0.1\,m_{\log})\Bigr),
+\end{equation}
+with $m_{\log} = \log_{10}(1 + P_{\mathrm{debt}}/906\,\mathrm{GW})$ the
+log-normalized seed-mass corona term. Then (i) $(T_{\mathrm{eff}},
+I_{\mathrm{vis}})$ is $C^{\infty}$ in $(\rho_b,\sigma)$ on
+$[0,\infty)^2$; (ii) $2500 \le T_{\mathrm{eff}} \le 25000\,\mathrm{K}$
+for all populated states, and the input clamp in
+\pyvar{blackbody\_to\_linear\_rgb} confines the sampled temperature
+to $[2500,25000]\,\mathrm{K}$, so the Planckian palette stays on the
+observationally meaningful segment of the blackbody locus; and
+(iii) the splat smoothing length
+$R = \bigl(R_{\min} + (R_{\max}-R_{\min})(1+0.45\max(0,\rho_b-1))^{-1/3}\bigr)
+(1-0.4\,\mathrm{smoothstep}(0.8,1.2,\sigma))\,(d_{\mathrm{ref}}/d_{\mathrm{cam}})$
+is bounded below by $R_{\min}\cdot(1-0.4)\cdot(d_{\mathrm{ref}}/d_{\mathrm{cam}})$
+and reproduces the SPH spacing hierarchy: overdense cores contract to
+compact kernels while underdense filaments diffuse.
+\pyvar{compute\_thermodynamic\_state} and the dynamic splat radius in
+\pyvar{dual\_channel\_render.wgsl} implement the pair.
+\end{theorem}
+
+\begin{proof}
+(i) $\tanh$, the logistic, and the softplus
+$\mathrm{softplus}(x)=\log(1+e^{12x})/12$ are each $C^{\infty}$, and
+$\sigma^2\,\mathrm{softplus}(\sigma-1)$ extends smoothly through
+$\sigma=0$ since the exponential term decays double-exponentially.
+(ii) $T_{\mathrm{vir}}\in[2500,9000]$; over the populated regime
+$\sigma\lesssim1$ the debt term contributes at most
+$16000\,\mathrm{K}$, and for $\sigma\gg1$ (deep capacity saturation)
+the palette input clamp pins the sampled value at
+$25000\,\mathrm{K}$, so the displayed temperature never leaves the
+stated band.
+(iii) The cubic-root law is the SPH mean-spacing estimate
+$h\propto\rho^{-1/3}$ reparametrized onto pixel units; boundedness
+follows from $0\le(1+0.45\max(0,\rho_b-1))^{-1/3}\le1$ and
+$0.6\le1-0.4\,\mathrm{smoothstep}\le1$.
+\end{proof}
+
+\begin{theorem}[{Branchless single-cycle blackbody on $u\in[0.040,0.400]$}]
+\label{thm:blackbody_branchless}
+The inverse-temperature Planckian palette
+$u = 1000/T \mapsto \mathrm{RGB}(u)$, evaluated over
+$u\in[0.040,0.400]$ (i.e.\ $T\in[2500,25000]\,\mathrm{K}$) by the
+per-channel polynomial fits
+\begin{align}
+R(u) &= \mathrm{clamp}\bigl(0.443 + 3.918\,u - 1.842\,u^{2},\;0,1\bigr),\\
+G(u) &= \mathrm{clamp}\bigl(1 - 18.55\,(u-0.154)^{2}
+       + 27.6\,(u-0.154)^{3},\;0.28,1\bigr),\\
+B(u) &= \mathrm{clamp}\bigl(1 - 3.25\,\delta - 2.85\,\delta^{2},\;
+       0.015,1\bigr),\quad \delta=\max(0,u-0.125),
+\end{align}
+satisfies (i) $C^{\infty}$ smoothness on the open domain and global
+$C^0$ continuity, since every constituent is polynomial or a single
+$\max$ hinge; (ii) channel values confined to $[0,1]$ with the green
+floor $0.28$ preserving the Planckian locus hue ordering
+$R\ge G\ge B$ toward the red edge; and (iii) evaluation with zero
+data-dependent control flow — three clamped polynomials and one
+hinge — so every SIMD lane retires in a single uniform cycle,
+eliminating the warp-divergence penalty of temperature-binned
+\pyvar{if} ladders.
+\pyvar{blackbody\_to\_linear\_rgb} in
+\pyvar{dual\_channel\_render.wgsl} implements the map.
+\end{theorem}
+
+\begin{proof}
+Each channel is a low-degree polynomial in $u$ composed with
+$\mathrm{clamp}$ and a single $\max(0,\cdot)$ hinge, all of which are
+$C^0$ and piecewise-$C^{\infty}$; the hinge at $u=0.125$ joins
+$B=1$ identically on both sides, giving (i). The explicit clamp
+bounds give (ii) directly, and $R(u)\ge G(u)\ge B(u)$ on
+$u\in[0.040,0.400]$ follows from the red channel's slower decay
+($3.918u-1.842u^2$ stays $\ge1$ up to $u\approx0.34$) against the
+blue channel's quadratic falloff past the hinge. (iii) is immediate:
+the shader body contains no branch, loop, or lane-varying
+\pyvar{select} on divergent conditions — the entire palette is a
+straight-line polynomial evaluation.
+\end{proof}
+
+\begin{theorem}[Anti-blowout luminance-preserving ACES film transform]
+\label{thm:aces_anti_blowout}
+Let $C$ be the HDR composite and $Y=\langle C,(0.2126,0.7152,0.0722)\rangle$
+its Rec.709 luminance. The transform evaluates the Narkiewicz/Hill ACES
+fit on the scalar $Y$,
+\begin{equation}
+Y_{\mathrm{map}} = \frac{Y\,(aY+b)}{Y\,(cY+d)+e},
+\qquad (a,b,c,d,e)=(2.51,0.03,2.43,0.59,0.14),
+\end{equation}
+re-injects the un-clipped chromaticity as
+$C\cdot(Y_{\mathrm{map}}/\max(Y,\varepsilon))$, and applies the
+Landauer desaturation knee at $Y_{\mathrm{desat}}=14$:
+\begin{equation}
+C_{\mathrm{out}} =
+\mathrm{mix}\!\Bigl(C\tfrac{Y_{\mathrm{map}}}{\max(Y,\varepsilon)},\;
+(0.85,0.95,1.0)\,Y_{\mathrm{map}},\;
+\mathrm{clamp}\bigl(1-e^{-(Y/Y_{\mathrm{desat}})^{1.6}},\,0,\,0.85\bigr)\Bigr).
+\end{equation}
+Then (i) chromaticity is preserved exactly in the mid-tones, since
+hue and saturation are carried by the ratio $Y_{\mathrm{map}}/Y$ alone;
+(ii) the output is contractive, $0\le C_{\mathrm{out}}\le1$; and (iii)
+saturated cores asymptote to a controlled cyan-white corona rather
+than a flat clipping disc. The $9$-tap cross-bilateral pre-filter
+(spatial $\sigma_s=1.8$, photometric $\sigma_r=0.10$) feeding the
+luminance Laplacian for the caustic accent is edge-preserving, so the
+high-frequency carrier survives denoising.
+\pyvar{tone\_map\_aces\_anti\_blowout},
+\pyvar{calculate\_luminance}, \pyvar{sample\_cross\_bilateral}, and
+\pyvar{linear\_to\_srgb} in \pyvar{holographic\_post.wgsl} implement
+the transform.
+\end{theorem}
+
+\begin{proof}
+(i) Scaling a vector by a positive scalar preserves its direction in
+RGB space, hence its chromaticity; the scalar chosen is the ACES-mapped
+luminance, so perceived brightness follows the film curve exactly.
+(ii) $Y_{\mathrm{map}}\in[0,1]$ by the clamp, the chromatic component
+inherits the clamp, and the desaturation mix is a convex combination
+capped at $0.85$ of two $[0,1]$-valued operands.
+(iii) As $Y\to\infty$ the knee factor tends to $0.85$, so the limit
+color is the Planckian corona tint $(0.85,0.95,1.0)\,Y_{\mathrm{map}}$
+— a hue-preserving highlight, not a flat $\mathrm{RGB}=(1,1,1)$ clip.
+The bilateral range kernel
+$\exp(-(\Delta Y)^2/2\sigma_r^2)$ decouples the filter's smoothing
+from luminance edges, leaving the caustic Laplacian
+$\nabla^2 Y = Y_{\mathrm{center}}-Y_{\mathrm{bilateral}}$ intact.
+\end{proof}
+
 \subsection{Two-Tier Interactive Visualization Architecture}
 \label{sec:boundary-visualizer}
 

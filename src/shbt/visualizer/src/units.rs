@@ -168,6 +168,30 @@ impl CosmologicalContext {
         (ratio * ratio * scale as f64) as f32
     }
 
+    /// Exact baryon temperature history (Thm 9.15): evaluated inside the
+    /// WGSL kernel; the Rust mirror is kept for metrology reference.
+    ///   T_b(z) = T_CMB,0 * (1+z) * z / (z + z_dec)
+    /// with T_CMB,0 = 2.7255 K and z_dec = 137. Tightly coupled for
+    /// z >> z_dec (T_b ~ T_CMB), adiabatic (1+z)^2 cooling for z << z_dec.
+    #[allow(dead_code)]
+    pub fn t_baryon_k(z: f64) -> f64 {
+        const T_CMB_0: f64 = 2.7255;
+        const Z_DECOUPLING: f64 = 137.0;
+        let zz = z.max(1.0e-4);
+        T_CMB_0 * (1.0 + z.max(-0.999)) * (zz / (zz + Z_DECOUPLING))
+    }
+
+    /// Supercomoving pressure normalizer k_B / (mu m_p) in code units
+    /// (divided by V_0^2), folded with the sandbox sound_speed_scale
+    /// control. The compute_thermodynamic_pressure kernel evaluates
+    ///   p_gas = sound_speed_norm * T_b(z) * rho_b
+    /// so the pressure force -(a/rho_b) grad P_b telescopes with the CIC
+    /// deposition weights (exact self-force cancellation, Thm 9.15).
+    pub fn pressure_norm_code(&self, scale: f32) -> f32 {
+        let coeff = K_B_SI / (MU_NEUTRAL * M_H_KG);
+        (coeff / (self.v0_si * self.v0_si) * scale as f64) as f32
+    }
+
     /// Topological percolation correlation radius (shbt9 Eq. R_filter):
     ///   R_filter(z) = c / (k_l * a * H(z)) = d_H(z) / k_l
     /// in comoving Mpc (the comoving horizon over the leptonic level
@@ -263,6 +287,18 @@ pub struct GpuSimulationUniforms {
     /// Baryon sound speed squared in code units, folded with the sandbox
     /// sound_speed_scale control (P-PM hydrodynamics, shbt9 Phase 1).
     pub cs_sq_scaled: f32,
+    /// Primordial CMB normalization T_CMB,0 = 2.7255 K (Thm 9.15 thermal
+    /// history evaluated in-kernel).
+    pub t_cmb_0: f32,
+    /// Thermal decoupling redshift z_dec = 137.0.
+    pub z_dec: f32,
+    /// Dimensionless pressure normalizer k_B/(mu m_p)/V_0^2 folded with
+    /// the sandbox sound_speed_scale control.
+    pub pressure_norm: f32,
+    /// Mean fixed-point CIC deposit per grid cell (mean_cell =
+    /// sum(mass) * FIXED_POINT_SCALE / N_cells) for the normalized
+    /// incubation density ratio written into particle.pad.x.
+    pub mean_cell_fixed: f32,
 }
 
 /// Sandbox observer uniform tail piggy-backed on the emergence-side
@@ -362,6 +398,10 @@ impl MetrologyPipeline {
             inv_m_box_msun,
             wall_dt: 0.0,
             cs_sq_scaled: 0.0,
+            t_cmb_0: 2.7255,
+            z_dec: 137.0,
+            pressure_norm: 0.0,
+            mean_cell_fixed: 0.0,
         }
     }
 }

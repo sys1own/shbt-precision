@@ -55,6 +55,11 @@ struct LensingUniforms {
     // 4-slice lens stack centered at z_m in {0.5, 1.2, 2.2, 3.5} with
     // source plane z_s = 4.0 (Tier-1 angular-diameter distances).
     post3: vec4<f32>,
+    // shbt11 thermodynamic optics: x = telemetry gamma_max, y = kappa_max
+    // (lensing-Jacobian det J drivers for caustic halo accentuation),
+    // z = Landauer desaturation knee Y_desat, w = tone exposure for the
+    // luminance-preserving ACES curve.
+    post4: vec4<f32>,
 };
 
 struct SeedDefect {
@@ -213,6 +218,95 @@ fn apply_condensation_glitch(uv: vec2<f32>, base_color: vec3<f32>, time: f32) ->
     return out_col;
 }
 
+// Photometric Rec.709 relative luminance (shbt11): the scalar carrier
+// for the cross-bilateral range kernel, the caustic Laplacian, and the
+// luminance-preserving tone map.
+fn calculate_luminance(color: vec3<f32>) -> f32 {
+    return dot(color, vec3<f32>(0.2126, 0.7152, 0.0722));
+}
+
+// Anti-Blowout Luminance-Preserving ACES film transform (shbt11 /
+// Thm 9.18): the Narkiewicz/Hill ACES fit is evaluated strictly on
+// scalar luminance Y_in; pristine un-clipped chromaticity is then
+// re-injected at the mapped luminance, and a controlled Landauer corona
+// desaturation (white-cyan core tint) rolls in only above the knee
+// Y_desat so galactic centers keep golden/cyan structure instead of
+// collapsing into flat white discs.
+fn tone_map_aces_anti_blowout(color_hdr: vec3<f32>, exposure: f32) -> vec3<f32> {
+    let exposed_color = max(vec3<f32>(0.0), color_hdr * exposure);
+    let y_in = calculate_luminance(exposed_color);
+
+    // Narkiewicz/Hill ACES fit evaluated on scalar luminance.
+    let a = 2.51;
+    let b = 0.03;
+    let c = 2.43;
+    let d = 0.59;
+    let e = 0.14;
+    let y_mapped = clamp(
+        (y_in * (a * y_in + b)) / (y_in * (c * y_in + d) + e), 0.0, 1.0);
+
+    // Re-inject pristine un-clipped chromaticity (guard the dark floor).
+    let chromatic_color = exposed_color * (y_mapped / max(y_in, 1.0e-5));
+
+    // Controlled Landauer corona high-end desaturation.
+    let desat_ratio = pow(y_in / max(u_desat_threshold(), 1.0e-3), 1.6);
+    let desat_factor = clamp(1.0 - exp(-desat_ratio), 0.0, 0.85);
+
+    let landauer_core_tint = vec3<f32>(0.85 * y_mapped, 0.95 * y_mapped, 1.0 * y_mapped);
+    let final_linear = mix(chromatic_color, landauer_core_tint, desat_factor);
+
+    return clamp(final_linear, vec3<f32>(0.0), vec3<f32>(1.0));
+}
+
+fn u_desat_threshold() -> f32 {
+    return params.post4.z;
+}
+
+// Accurate linear-to-sRGB electro-optical transfer function.
+fn linear_to_srgb(c: vec3<f32>) -> vec3<f32> {
+    let cutoff = vec3<f32>(0.0031308);
+    let lower = c * 12.92;
+    let higher = 1.055 * pow(c, vec3<f32>(1.0 / 2.4)) - 0.055;
+    return select(higher, lower, c <= cutoff);
+}
+
+// 9-tap cross bilateral filter over the HDR Channel-A radiance (shbt11):
+// spatial Gaussian sigma_space times a photometric range kernel on
+// luminance sigma_range — edge-preserving noise attenuation feeding the
+// high-frequency Laplacian for caustic accentuation.
+fn sample_cross_bilateral(center_uv: vec2<f32>, texel: vec2<f32>, center_rgb: vec3<f32>) -> vec3<f32> {
+    let sigma_space = 1.8;
+    let sigma_range = 0.10;
+    let two_sigma_sq_space = 2.0 * sigma_space * sigma_space;
+    let two_sigma_sq_range = 2.0 * sigma_range * sigma_range;
+
+    let center_lum = calculate_luminance(center_rgb);
+    var filtered_color = center_rgb;
+    var total_weight = 1.0;
+
+    var offsets = array<vec2<f32>, 8>(
+        vec2<f32>(-1.0, -1.0), vec2<f32>(0.0, -1.0), vec2<f32>(1.0, -1.0),
+        vec2<f32>(-1.0, 0.0),                          vec2<f32>(1.0, 0.0),
+        vec2<f32>(-1.0, 1.0),  vec2<f32>(0.0, 1.0),  vec2<f32>(1.0, 1.0)
+    );
+
+    for (var i = 0u; i < 8u; i = i + 1u) {
+        let sample_uv = center_uv + offsets[i] * texel * 1.25;
+        let s_rgb = textureSampleLevel(channel_a_tex, tex_sampler, sample_uv, 0.0).rgb;
+        let s_lum = calculate_luminance(s_rgb);
+
+        let dist_s_sq = dot(offsets[i], offsets[i]);
+        let lum_diff = s_lum - center_lum;
+
+        let w = exp(-dist_s_sq / two_sigma_sq_space)
+            * exp(-(lum_diff * lum_diff) / two_sigma_sq_range);
+        filtered_color = filtered_color + s_rgb * w;
+        total_weight = total_weight + w;
+    }
+
+    return filtered_color / total_weight;
+}
+
 struct VertexOutput {
     @builtin(position) position: vec4<f32>,
     @location(0) uv: vec2<f32>,
@@ -230,6 +324,41 @@ fn vs_post(@builtin(vertex_index) v_idx: u32) -> VertexOutput {
     out.uv = pos[v_idx] * 0.5 + vec2<f32>(0.5);
     out.uv.y = 1.0 - out.uv.y;
     return out;
+}
+
+// Depth-aware 13-tap bilateral filter over Channel B (shbt10 precursor
+// field formalism): spatial Gaussian sigma_s = 3.2 px times a range
+// kernel sigma_d = 0.04 on the normalized Channel-A depth. Diffuses
+// precursor congestion within continuous distance shells while
+// preserving sharp contrast across foreground filament boundaries.
+fn sample_bilateral_channel_b(center_uv: vec2<f32>, texel: vec2<f32>, center_depth: f32) -> vec4<f32> {
+    let sigma_s = 3.2;
+    let sigma_d = 0.04;
+    let two_sigma_s_sq = 2.0 * sigma_s * sigma_s;
+    let two_sigma_d_sq = 2.0 * sigma_d * sigma_d;
+    var offsets = array<vec2<f32>, 13>(
+        vec2<f32>(0.0, 0.0),
+        vec2<f32>(-1.5, 0.0), vec2<f32>(1.5, 0.0),
+        vec2<f32>(0.0, -1.5), vec2<f32>(0.0, 1.5),
+        vec2<f32>(-3.0, 0.0), vec2<f32>(3.0, 0.0),
+        vec2<f32>(0.0, -3.0), vec2<f32>(0.0, 3.0),
+        vec2<f32>(-2.0, -2.0), vec2<f32>(2.0, -2.0),
+        vec2<f32>(-2.0, 2.0), vec2<f32>(2.0, 2.0)
+    );
+    var accum_col = vec4<f32>(0.0);
+    var accum_weight = 0.0;
+    for (var i = 0; i < 13; i = i + 1) {
+        let sample_uv = center_uv + offsets[i] * texel;
+        let s_depth = textureSampleLevel(channel_a_tex, tex_sampler, sample_uv, 0.0).a;
+        let s_col = textureSampleLevel(channel_b_tex, tex_sampler, sample_uv, 0.0);
+        let dist_s_sq = dot(offsets[i], offsets[i]);
+        let dist_d = abs(center_depth - s_depth) / max(center_depth, 0.01);
+        let weight = exp(-dist_s_sq / two_sigma_s_sq)
+            * exp(-(dist_d * dist_d) / two_sigma_d_sq);
+        accum_col = accum_col + s_col * weight;
+        accum_weight = accum_weight + weight;
+    }
+    return accum_col / max(accum_weight, 0.00001);
 }
 
 // Depth-aware bilateral blur over the convergence field: spatial Gaussian
@@ -396,6 +525,8 @@ fn fs_post(in: VertexOutput) -> @location(0) vec4<f32> {
     lensed_color = mix(lensed_color, lensed_color * (0.5 + 0.9 * shap_rgb), delay_intensity * 0.5);
 
     // Depth-aware bilateral convergence -> volumetric dark-matter halo glow.
+    let aspect = params.screen_size.x / params.screen_size.y;
+    let num_seeds = min(params.seed_count, 256u);
     var dark_glow_emission = vec3<f32>(0.0);
     if (params.post0.y > 0.5) {
         let smooth_conv = sample_bilateral_convergence(warped_uv, texel, center_depth);
@@ -403,11 +534,41 @@ fn fs_post(in: VertexOutput) -> @location(0) vec4<f32> {
         // Soft-cap the summed convergence so stacked billboards can't
         // push the palette into the tone-map's white saturation point.
         dark_glow_emission = dark_glow_palette * min(smooth_conv * params.dark_glow_intensity, 0.6);
+
+        // Precursor congestion field (shbt10): the 13-tap depth-aware
+        // bilateral over Channel B synthesizes continuous precursor
+        // halos — indigo dark-metric potential (shear .y) and teal
+        // congestion (shear .x) — without a volumetric Poisson solve.
+        let precursor_filtered = sample_bilateral_channel_b(warped_uv, texel, center_depth);
+        let dm_potential_color = vec3<f32>(0.12, 0.05, 0.28)
+            * min(precursor_filtered.y * 3.5, 0.35);
+        let precursor_congestion_color = vec3<f32>(0.02, 0.22, 0.35)
+            * min(precursor_filtered.x * 2.8, 0.30);
+
+        // Multi-tier seed radiance (shbt10): amber-white Planckian cubic
+        // core inside the Einstein radius plus a blue Landauer thermal
+        // corona whose extent scales with P_debt = M_seed x 906 GW
+        // (theta_e^2 proxies the condensed mass).
+        var seed_radiance = vec3<f32>(0.0);
+        for (var i = 0u; i < num_seeds; i = i + 1u) {
+            let s = seeds[i];
+            let d = warped_uv - s.screen_pos;
+            let dist = sqrt(d.x * d.x * aspect * aspect + d.y * d.y);
+            let core_radius = max(s.core_radius * 0.6, 0.0008);
+            let core_falloff = 1.0 / (1.0 + pow(dist / core_radius, 3.0));
+            let core_col = vec3<f32>(1.0, 0.96, 0.88) * core_falloff * 0.30;
+            let corona_radius = 0.045;
+            let debt_scale = clamp(s.theta_e * s.theta_e * 40.0, 0.0, 0.45);
+            let corona_col = vec3<f32>(0.25, 0.65, 1.0)
+                * exp(-dist / corona_radius) * debt_scale;
+            seed_radiance = seed_radiance + core_col + corona_col;
+        }
+        seed_radiance = min(seed_radiance, vec3<f32>(1.0));
+        dark_glow_emission = dark_glow_emission
+            + dm_potential_color + precursor_congestion_color + seed_radiance;
     }
 
     // Sharp caustic rings around dominant Einstein radii.
-    let aspect = params.screen_size.x / params.screen_size.y;
-    let num_seeds = min(params.seed_count, 256u);
     var caustic_ring_accent = 0.0;
     for (var i = 0u; i < num_seeds; i = i + 1u) {
         let s = seeds[i];
@@ -439,7 +600,25 @@ fn fs_post(in: VertexOutput) -> @location(0) vec4<f32> {
     let grid_rgb = vec3<f32>(0.02, 0.05, 0.08) * clamp(grid_line, 0.0, 1.0)
         * (0.35 + 0.65 * params.post1.x);
 
-    let raw_composite = (lensed_color + dark_glow_emission + caustic_rgb + causal_rgb + horizon_rgb + grid_rgb)
+    // Caustic halo accentuation (shbt11 / Thm 9.18): the high-frequency
+    // luminance Laplacian nabla^2 Y — extracted as the residual between
+    // the raw Channel-A radiance and its 9-tap cross-bilateral —
+    // localizes gravitational caustics; the accent gain follows the
+    // telemetry-driven lensing Jacobian
+    //   det J = |(1 - kappa_max)^2 - gamma_max^2|,  mag = 1/(det J + 0.08).
+    let filtered_a = sample_cross_bilateral(warped_uv, texel, vec3<f32>(rad_r, rad_g, rad_b));
+    let laplacian = max(0.0,
+        calculate_luminance(vec3<f32>(rad_r, rad_g, rad_b))
+        - calculate_luminance(filtered_a));
+    let det_jacobian = abs(
+        (1.0 - params.post4.y) * (1.0 - params.post4.y)
+        - params.post4.x * params.post4.x);
+    let caustic_magnification = 1.0 / (det_jacobian + 0.08);
+    let caustic_halo_accent = vec3<f32>(0.25, 0.75, 1.00)
+        * (laplacian * caustic_magnification * 0.35);
+
+    let raw_composite = (lensed_color + dark_glow_emission + caustic_rgb
+        + caustic_halo_accent + causal_rgb + horizon_rgb + grid_rgb)
         * params.post0.w;
 
     // Bloom lift (Enhancement 12): additive half-res Gaussian bloom over
@@ -455,14 +634,15 @@ fn fs_post(in: VertexOutput) -> @location(0) vec4<f32> {
     let fog_ambient = vec3<f32>(0.02, 0.01, 0.05);
     let fogged = mix(raw_composite + bloom_rgb, fog_ambient, clamp(fog_amt, 0.0, 1.0));
 
-    // ACES filmic tonemap (Enhancement 12; Narkowicz fit): rolls off the
-    // multi-billboard accumulation with better highlight compression and
-    // mid-tone contrast than the previous Reinhard curve. ACES already
-    // supplies the contrast S-curve, so no second smoothstep is applied.
-    var aces = (fogged * (2.51 * fogged + vec3<f32>(0.03)))
-        / (fogged * (2.43 * fogged + vec3<f32>(0.59)) + vec3<f32>(0.14));
-    aces = clamp(aces, vec3<f32>(0.0), vec3<f32>(1.0));
-    let final_composite = aces;
+    // Anti-blowout luminance-preserving ACES tonemap (shbt11 /
+    // Thm 9.18): the film curve acts on scalar luminance so saturated
+    // Planckian hues keep their chromaticity through the highlight
+    // rolloff, with the controlled Landauer corona desaturation knee at
+    // post4.z and tone exposure post4.w — replacing per-channel ACES
+    // (which desaturated dense cores into flat white discs).
+    let mapped_linear = tone_map_aces_anti_blowout(fogged, params.post4.w);
+    // Accurate sRGB electro-optical transfer for display presentation.
+    let final_composite = linear_to_srgb(mapped_linear);
 
     // Conformal boundary unwrap HUD inset (Enhancement 1).
     var composed = render_boundary_overlay(uv, vec4<f32>(final_composite, 1.0));

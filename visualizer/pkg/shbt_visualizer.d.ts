@@ -86,10 +86,27 @@ export class ShbtWebGpuEngine {
 */
   set_lensing_enabled(enabled: boolean): void;
 /**
+* Cinematic director hook (shbt10 record_simulation_events.py):
+* atomically sets the cosmic epoch and the camera eye/look-at in
+* world coordinates. Passing eye == look keeps the previous orbit.
+* @param {number} z
+* @param {number} px
+* @param {number} py
+* @param {number} pz
+* @param {number} lx
+* @param {number} ly
+* @param {number} lz
+*/
+  update_cosmic_state(z: number, px: number, py: number, pz: number, lx: number, ly: number, lz: number): void;
+/**
 * Seed-glitch master intensity, clamped to [0.0, 1.0].
 * @param {number} intensity
 */
   set_glitch_intensity(intensity: number): void;
+/**
+* Clear the cinematic camera override (back to the procedural orbit).
+*/
+  clear_camera_override(): void;
 /**
 * Continuous torus-unwrap transition, 0.0 = comoving bulk,
 * 1.0 = flat boundary CFT torus [0, 2pi)^2.
@@ -304,6 +321,7 @@ export interface InitOutput {
   readonly memory: WebAssembly.Memory;
   readonly __wbg_shbtwebgpuengine_free: (a: number) => void;
   readonly shbtwebgpuengine_capture_frame_rgba: (a: number, b: number) => number;
+  readonly shbtwebgpuengine_clear_camera_override: (a: number) => void;
   readonly shbtwebgpuengine_create: (a: number, b: number) => number;
   readonly shbtwebgpuengine_debug_eparams: (a: number, b: number) => void;
   readonly shbtwebgpuengine_get_active_observers_count: (a: number) => number;
@@ -326,6 +344,7 @@ export interface InitOutput {
   readonly shbtwebgpuengine_set_viewport_mode: (a: number, b: number) => void;
   readonly shbtwebgpuengine_step_frame: (a: number, b: number, c: number) => void;
   readonly shbtwebgpuengine_unproject_and_dispatch_causal_point: (a: number, b: number, c: number, d: number, e: number) => number;
+  readonly shbtwebgpuengine_update_cosmic_state: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number) => void;
   readonly shbtwebgpuengine_update_frame_telemetry: (a: number, b: number, c: number, d: number) => void;
   readonly __wbg_wasmshbtengine_free: (a: number) => void;
   readonly wasmshbtengine_causal_point_count: (a: number) => number;

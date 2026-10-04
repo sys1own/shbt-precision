@@ -41,6 +41,16 @@ function refreshHud(m) {
     `Channel A quench = ${quenchPct}% (target 23/33 = 69.7%)\n` +
     `M_seed = ${fmt(m.seed_mass_msun)} M\u2609`;
   $("hud-debt").textContent = `${fmt(m.landauer_debt_gw)} GW`;
+  // shbt10 recorder contract: machine-readable telemetry overlay
+  // (asserted by record_simulation_events.py milestone keyframes).
+  if ($("hud-telemetry-overlay")) {
+    $("hud-redshift-val").textContent = fmt(m.z, 4);
+    const qf = totalBits > 0 ? m.n_dark / totalBits : 0;
+    $("hud-quench-fraction-val").textContent = (qf * 100).toFixed(2);
+    const debt = m.landauerDebt ?? m.landauer_debt_gw ?? 0;
+    $("hud-landauer-debt-val").textContent = fmt(debt, 4);
+    $("hud-fps-val").textContent = (window.__fpsEma ?? 0).toFixed(1);
+  }
   $("bar-debt").style.width =
     `${Math.min(m.landauer_debt_gw / 1e21, 1) * 100}%`;
   $("inv-fr").classList.toggle("ok", m.delta_fr_zero);
@@ -141,6 +151,7 @@ async function boot() {
       "set_dark_glow", "set_glitch_enabled", "set_glitch_intensity",
       "set_simulation_controls", "set_viewport_mode",
       "unproject_and_dispatch_causal_point",
+      "update_cosmic_state", "clear_camera_override",
     ]);
     const raw = engine;
     engine = new Proxy(raw, {
@@ -195,6 +206,14 @@ async function boot() {
     dispatchCausalPoint: (nx, ny, cGet, nLimit) =>
       engine.unproject_and_dispatch_causal_point(nx, ny, cGet, nLimit),
     getActiveObservers: () => engine.get_active_observers_count(),
+    // shbt10 cinematic director: atomic (z, eye, look-at) state commit.
+    updateCosmicState: (z, pos, look) =>
+      engine.update_cosmic_state(z, pos[0], pos[1], pos[2], look[0], look[1], look[2]),
+    // Spec-verbatim alias (shbt10 record_simulation_events.py calls
+    // __SHBT_ENGINE__.update_cosmic_state snake_case).
+    update_cosmic_state: (z, pos, look) =>
+      engine.update_cosmic_state(z, pos[0], pos[1], pos[2], look[0], look[1], look[2]),
+    clearCameraOverride: () => engine.clear_camera_override(),
   };
   requestAnimationFrame(frame);
 }
@@ -227,6 +246,10 @@ function easeRedshift(dt) {
 function frame(now) {
   const dt = Math.min((now - lastT) / 1000, 0.1);
   lastT = now;
+  if (dt > 0) {
+    const inst = 1.0 / dt;
+    window.__fpsEma = window.__fpsEma === undefined ? inst : window.__fpsEma * 0.9 + inst * 0.1;
+  }
   easeRedshift(dt);
   if (captureCtx) {
     if (!captureBusy) {

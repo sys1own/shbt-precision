@@ -69,6 +69,10 @@ struct CosmologicalParams {
     inv_m_box: f32,          // 1 / M_box in M_sun^-1
     wall_dt: f32,            // wall-clock step (s) for tether fade
     cs_sq_scaled: f32,       // (c_s/V_0)^2 x sound-speed scale (P-PM hydro)
+    t_cmb_0: f32,            // T_CMB,0 = 2.7255 K (exact thermal history)
+    z_dec: f32,              // thermal decoupling redshift 137.0
+    pressure_norm: f32,      // k_B/(mu m_p)/V_0^2 x sound-speed scale
+    mean_cell_fixed: f32,    // mean atomic CIC deposit per grid cell
 };
 
 // Emergent seed defect record (mirrors seed_emergence.wgsl output).
@@ -98,6 +102,18 @@ struct IndirectArgs {
 @group(0) @binding(4) var force_sampler: sampler;
 @group(0) @binding(5) var<storage, read> active_seeds: array<SeedDefectRecord, 256>;
 @group(0) @binding(6) var<storage, read> seed_state: array<u32, 4>;
+// Continuum hydrodynamics grids (Thm 9.15): fixed-point atomic CIC
+// deposition feeds the thermodynamic pressure solve; the KDK force
+// interpolates the central-difference pressure acceleration with the
+// identical trilinear weights (telescopic self-force cancellation,
+// Sigma_i F_i = 0 on the periodic mesh).
+@group(0) @binding(7) var<storage, read_write> rho_tot_atomic: array<atomic<u32>>;
+@group(0) @binding(8) var<storage, read_write> rho_baryon_atomic: array<atomic<u32>>;
+@group(0) @binding(9) var<storage, read_write> grid_rho_baryon: array<f32>;
+@group(0) @binding(10) var<storage, read_write> grid_pressure_baryon: array<f32>;
+// Regularized incubation seed potential Phi_seed(x_g) written by
+// solve_seed_potential in seed_emergence.wgsl (Psi_nuc-mollified).
+@group(0) @binding(11) var<storage, read> grid_seed_potential: array<f32>;
 
 @group(1) @binding(0) var<storage, read_write> tethers: array<TetherVertex>;
 @group(1) @binding(1) var<storage, read_write> indirect_draw: IndirectArgs;
@@ -111,6 +127,15 @@ struct IndirectArgs {
 const ETA_D: f32 = 0.6969696970;   // 23/33
 const Z_N: f32 = 7.356e10;         // modular crossover redshift
 const DELTA_BBAR: f32 = 8.6666667; // 26/3 anti-baryon scaling dimension
+const GAMMA_CFT: f32 = 1.4339826830; // c_eff/6 = 1325/924 Cardy ceiling
+const Z_REF: f32 = 17.0;           // condensation onset reference
+
+// Cardy boundary capacity ceiling in normalized units (mirror of the
+// seed_emergence kernel): n_limit ~ gamma_CFT * ((1+z)/(1+z_ref))^7.5.
+fn cardy_limit_norm(z: f32) -> f32 {
+    let rel = max(1.0 + z, 1.0e-3) / (1.0 + Z_REF);
+    return GAMMA_CFT * pow(rel, 7.5);
+}
 
 fn evaluate_stinespring_channel(z: f32) -> f32 {
     if (z <= 0.0) {
@@ -206,16 +231,99 @@ fn compute_hydro_force(x_tilde: vec3<f32>, a_eval: f32) -> vec3<f32> {
     return -cosmo.cs_sq_scaled * a_eval * grad_ln_rho(x_tilde);
 }
 
-// Total supercomoving force at (x_tilde, a): PM + seed + GET (+ hydro
-// when the particle belongs to the visible gauge sector).
-fn compute_total_force(x_tilde: vec3<f32>, a_eval: f32, is_visible: bool) -> vec3<f32> {
+// Continuum hydrodynamics (Thm 9.15): fixed-point atomic CIC
+// deposition feeds the thermodynamic pressure solve; the KDK kick
+// interpolates the central-difference pressure acceleration with the
+// identical trilinear weights (telescopic self-force cancellation,
+// Sigma_i F_i = 0 on the periodic mesh).
+const FIXED_POINT_SCALE: f32 = 1048576.0; // 2^20 atomic mass deposits
+
+fn grid_idx_cell(cell: vec3<i32>, gd: u32) -> u32 {
+    let wrap = (cell + vec3<i32>(i32(gd))) % vec3<i32>(i32(gd));
+    return u32(wrap.x + wrap.y * i32(gd) + wrap.z * i32(gd) * i32(gd));
+}
+
+/// CIC-weighted central-difference pressure acceleration: for each of
+/// the 8 deposition cells the local acceleration
+///   a_press(c) = -(a / rho_b(c)) * grad p_gas(c)
+/// is evaluated from the periodic 6-point stencil, then interpolated
+/// with the same trilinear weights used at deposit time (exact
+/// telescopic cancellation: Sigma_i F_i = 0 on the periodic mesh).
+fn interpolate_pressure_force(frac_uvw: vec3<f32>, grid_dim: u32, cell_size: f32, a: f32) -> vec3<f32> {
+    let base = vec3<i32>(floor(frac_uvw));
+    let wx = frac_uvw - floor(frac_uvw);
+    var acc = vec3<f32>(0.0);
+    let inv_cell = 1.0 / cell_size;
+    for (var dz = 0; dz < 2; dz++) {
+        for (var dy = 0; dy < 2; dy++) {
+            for (var dx = 0; dx < 2; dx++) {
+                let w = select(1.0 - wx.x, wx.x, dx == 1)
+                    * select(1.0 - wx.y, wx.y, dy == 1)
+                    * select(1.0 - wx.z, wx.z, dz == 1);
+                let cell = base + vec3<i32>(dx, dy, dz);
+                let i0 = grid_idx_cell(cell, grid_dim);
+                let rho_c = grid_rho_baryon[i0];
+                if (rho_c > 1.0e-12) {
+                    let grad_p = vec3<f32>(
+                        grid_pressure_baryon[grid_idx_cell(cell + vec3<i32>(1, 0, 0), grid_dim)]
+                            - grid_pressure_baryon[grid_idx_cell(cell - vec3<i32>(1, 0, 0), grid_dim)],
+                        grid_pressure_baryon[grid_idx_cell(cell + vec3<i32>(0, 1, 0), grid_dim)]
+                            - grid_pressure_baryon[grid_idx_cell(cell - vec3<i32>(0, 1, 0), grid_dim)],
+                        grid_pressure_baryon[grid_idx_cell(cell + vec3<i32>(0, 0, 1), grid_dim)]
+                            - grid_pressure_baryon[grid_idx_cell(cell - vec3<i32>(0, 0, 1), grid_dim)],
+                    ) * (0.5 * inv_cell);
+                    acc += w * (-(a / rho_c) * grad_p);
+                }
+            }
+        }
+    }
+    return acc;
+}
+
+/// CIC-weighted incubation seed-potential acceleration
+/// a = -a * grad Phi_seed over the Psi_nuc-mollified precursor grid
+/// (applies to both gauge sectors).
+fn interpolate_seed_potential_force(frac_uvw: vec3<f32>, grid_dim: u32, cell_size: f32, a: f32) -> vec3<f32> {
+    let base = vec3<i32>(floor(frac_uvw));
+    let wx = frac_uvw - floor(frac_uvw);
+    var acc = vec3<f32>(0.0);
+    let inv_cell = 1.0 / cell_size;
+    for (var dz = 0; dz < 2; dz++) {
+        for (var dy = 0; dy < 2; dy++) {
+            for (var dx = 0; dx < 2; dx++) {
+                let w = select(1.0 - wx.x, wx.x, dx == 1)
+                    * select(1.0 - wx.y, wx.y, dy == 1)
+                    * select(1.0 - wx.z, wx.z, dz == 1);
+                let cell = base + vec3<i32>(dx, dy, dz);
+                let grad_phi = vec3<f32>(
+                    grid_seed_potential[grid_idx_cell(cell + vec3<i32>(1, 0, 0), grid_dim)]
+                        - grid_seed_potential[grid_idx_cell(cell - vec3<i32>(1, 0, 0), grid_dim)],
+                    grid_seed_potential[grid_idx_cell(cell + vec3<i32>(0, 1, 0), grid_dim)]
+                        - grid_seed_potential[grid_idx_cell(cell - vec3<i32>(0, 1, 0), grid_dim)],
+                    grid_seed_potential[grid_idx_cell(cell + vec3<i32>(0, 0, 1), grid_dim)]
+                        - grid_seed_potential[grid_idx_cell(cell - vec3<i32>(0, 0, 1), grid_dim)],
+                ) * (0.5 * inv_cell);
+                acc += w * (-a * grad_phi);
+            }
+        }
+    }
+    return acc;
+}
+
+// Total supercomoving force at (x_tilde, a): PM + seed + incubation
+// potential + GET (+ thermodynamic pressure when the particle belongs
+// to the visible gauge sector).
+fn compute_total_force(x_tilde: vec3<f32>, a_eval: f32, is_visible: bool, hydro_gate: f32) -> vec3<f32> {
     let drag = 1.0 - (10.0 / 33.0) * cosmo.f_load;
     let a_c = cosmo.g_code * a_eval * drag;
+    let cell_size = cosmo.box_size / f32(cosmo.grid_size);
+    let frac_uvw = x_tilde * f32(cosmo.grid_size);
     var total = compute_pm_force(x_tilde, a_c)
         + compute_seed_force(x_tilde, a_c)
-        + compute_get_force(x_tilde, cosmo.kappa_get);
+        + compute_get_force(x_tilde, cosmo.kappa_get)
+        + interpolate_seed_potential_force(frac_uvw, u32(cosmo.grid_size), cell_size, a_eval);
     if (is_visible) {
-        total = total + compute_hydro_force(x_tilde, a_eval);
+        total = total + hydro_gate * interpolate_pressure_force(frac_uvw, u32(cosmo.grid_size), cell_size, a_eval);
     }
     return total;
 }
@@ -251,6 +359,18 @@ fn cs_advance_particles(@builtin(global_invocation_id) global_id: vec3<u32>) {
         p.landauer_debt += 906.0 * cosmo.dt_legacy * 1.0e3;
     }
 
+    // Thermodynamic hydro floor (Thm 9.15): the pressure kick is
+    // attenuated once the particle's local congestion falls below the
+    // eta_D = 23/33 dual-horizon fraction of the Cardy ceiling — the
+    // register erases thermal support and the particle returns to
+    // collisionless infall. p.pad.x == 0 (grid not yet deposited this
+    // frame) defaults to full support.
+    let n_limit = cardy_limit_norm(z_current);
+    var hydro_gate = 1.0;
+    if (p.pad.x > 0.0 && n_limit > 1.0e-6) {
+        hydro_gate = smoothstep(0.35 * ETA_D, ETA_D, p.pad.x / n_limit);
+    }
+
     // Tether fade (Enhancement 4): each thread decays one vertex pair of
     // the TetherVertexBuffer by exp(-wall_dt / 0.5 s), so Stinespring
     // lines dissolve over ~0.5 s of wall time.
@@ -270,11 +390,11 @@ fn cs_advance_particles(@builtin(global_invocation_id) global_id: vec3<u32>) {
 
     // Kick 1 (x_n, a_n)
     let is_visible = p.channel == 0u;
-    p_tilde = p_tilde + cosmo.half_dtau * compute_total_force(x_tilde, cosmo.a, is_visible);
+    p_tilde = p_tilde + cosmo.half_dtau * compute_total_force(x_tilde, cosmo.a, is_visible, hydro_gate);
     // Drift
     x_tilde = fract(x_tilde + vec3<f32>(1.0) + cosmo.dtau * p_tilde);
     // Kick 2 (x_{n+1}, a_{n+1})
-    p_tilde = p_tilde + cosmo.half_dtau * compute_total_force(x_tilde, cosmo.a_next, is_visible);
+    p_tilde = p_tilde + cosmo.half_dtau * compute_total_force(x_tilde, cosmo.a_next, is_visible, hydro_gate);
 
     // Numerical bound: cap the supercomoving momentum so a single
     // soft-kernel fluctuation cannot send the particle to NaN (register
@@ -300,4 +420,75 @@ fn cs_advance_particles(@builtin(global_invocation_id) global_id: vec3<u32>) {
     // Scatter particle density onto the PM grid cell.
     let cell = vec3<i32>(uvw * cosmo.grid_size);
     textureStore(density_grid, cell, vec4<f32>(p.grav_mass));
+
+    // Normalized incubation density ratio n_local/mean for the Channel-A
+    // incubation-weight glow (Thm 9.13); carried in particle pad.x.
+    let home = vec3<i32>(floor(uvw * cosmo.grid_size));
+    particles[idx].pad.x =
+        f32(atomicLoad(&rho_tot_atomic[grid_idx_cell(home, u32(cosmo.grid_size))]))
+        / max(cosmo.mean_cell_fixed, 1.0);
+}
+
+// ----------------------------------------------------------------------------
+// shbt10 continuum hydro (Thm 9.15): fixed-point CIC deposition +
+// thermodynamic pressure field
+// ----------------------------------------------------------------------------
+
+/// Pass H1: atomic fixed-point CIC mass assignment at S = 2^20. Total
+/// mass goes to rho_tot_atomic (pad.x incubation ratio denominator);
+/// Channel-A (visible) mass additionally accumulates into
+/// rho_baryon_atomic for the baryon pressure field.
+@compute @workgroup_size(256, 1, 1)
+fn deposit_mass_cic(@builtin(global_invocation_id) global_id: vec3<u32>) {
+    let idx = global_id.x;
+    if (idx >= cosmo.num_particles) {
+        return;
+    }
+    let p = particles[idx];
+    let gd = i32(cosmo.grid_size);
+    let inv_cell = cosmo.grid_size / cosmo.box_size;
+    let grid_pos = p.position * inv_cell;
+    let base = vec3<i32>(floor(grid_pos));
+    let frac = grid_pos - floor(grid_pos);
+    let is_baryon = p.channel == 0u;
+    for (var dz = 0; dz < 2; dz = dz + 1) {
+        let wz = select(1.0 - frac.z, frac.z, dz == 1);
+        let gz = (base.z + dz + gd) % gd;
+        for (var dy = 0; dy < 2; dy = dy + 1) {
+            let wy = select(1.0 - frac.y, frac.y, dy == 1);
+            let gy = (base.y + dy + gd) % gd;
+            for (var dx = 0; dx < 2; dx = dx + 1) {
+                let wx = select(1.0 - frac.x, frac.x, dx == 1);
+                let gx = (base.x + dx + gd) % gd;
+                let w = wx * wy * wz;
+                let fixed = u32(round(p.grav_mass * w * FIXED_POINT_SCALE));
+                let cell = grid_idx_cell(vec3<i32>(gx, gy, gz), u32(cosmo.grid_size));
+                atomicAdd(&rho_tot_atomic[cell], fixed);
+                if (is_baryon) {
+                    atomicAdd(&rho_baryon_atomic[cell], fixed);
+                }
+            }
+        }
+    }
+}
+
+/// Pass H2: thermodynamic pressure assembly on the exact baryon
+/// temperature history (Thm 9.15):
+///   T_b(z) = T_CMB,0 (1+z) z / (z + z_dec),   T_CMB,0 = 2.7255, z_dec = 137
+///   p_gas = (k_B / (mu m_p) / V_0^2) * T_b(z) * rho_b
+/// evaluated cell-wise; the KDK kick interpolates its central
+/// differences so mesh self-force cancels telescopically.
+@compute @workgroup_size(4, 4, 4)
+fn compute_thermodynamic_pressure(@builtin(global_invocation_id) gid: vec3<u32>) {
+    let gd = u32(cosmo.grid_size);
+    if (gid.x >= gd || gid.y >= gd || gid.z >= gd) {
+        return;
+    }
+    let idx = grid_idx_cell(vec3<i32>(gid), gd);
+    let rho_b = f32(atomicLoad(&rho_baryon_atomic[idx])) / FIXED_POINT_SCALE;
+    grid_rho_baryon[idx] = rho_b;
+    let z = (1.0 / max(cosmo.a, 1.0e-6)) - 1.0;
+    let zz = max(z, 1.0e-4);
+    let t_b = cosmo.t_cmb_0 * (1.0 + z) * (zz / (zz + cosmo.z_dec));
+    grid_pressure_baryon[idx] = cosmo.pressure_norm * t_b * rho_b;
 }

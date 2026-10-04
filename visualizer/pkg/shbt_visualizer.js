@@ -263,7 +263,7 @@ function handleError(f, args) {
         wasm.__wbindgen_exn_store(addHeapObject(e));
     }
 }
-function __wbg_adapter_408(arg0, arg1, arg2, arg3) {
+function __wbg_adapter_410(arg0, arg1, arg2, arg3) {
     wasm.wasm_bindgen_c04f4cf843a15bdf___convert__closures__invoke2_mut___wasm_bindgen_c04f4cf843a15bdf___JsValue__wasm_bindgen_c04f4cf843a15bdf___JsValue_____(arg0, arg1, addHeapObject(arg2), addHeapObject(arg3));
 }
 
@@ -432,11 +432,32 @@ export class ShbtWebGpuEngine {
         wasm.shbtwebgpuengine_set_lensing_enabled(this.__wbg_ptr, enabled);
     }
     /**
+    * Cinematic director hook (shbt10 record_simulation_events.py):
+    * atomically sets the cosmic epoch and the camera eye/look-at in
+    * world coordinates. Passing eye == look keeps the previous orbit.
+    * @param {number} z
+    * @param {number} px
+    * @param {number} py
+    * @param {number} pz
+    * @param {number} lx
+    * @param {number} ly
+    * @param {number} lz
+    */
+    update_cosmic_state(z, px, py, pz, lx, ly, lz) {
+        wasm.shbtwebgpuengine_update_cosmic_state(this.__wbg_ptr, z, px, py, pz, lx, ly, lz);
+    }
+    /**
     * Seed-glitch master intensity, clamped to [0.0, 1.0].
     * @param {number} intensity
     */
     set_glitch_intensity(intensity) {
         wasm.shbtwebgpuengine_set_glitch_intensity(this.__wbg_ptr, intensity);
+    }
+    /**
+    * Clear the cinematic camera override (back to the procedural orbit).
+    */
+    clear_camera_override() {
+        wasm.shbtwebgpuengine_clear_camera_override(this.__wbg_ptr);
     }
     /**
     * Continuous torus-unwrap transition, 0.0 = comoving bulk,
@@ -1609,7 +1630,7 @@ function __wbg_get_imports() {
                 const a = state0.a;
                 state0.a = 0;
                 try {
-                    return __wbg_adapter_408(a, state0.b, arg0, arg1);
+                    return __wbg_adapter_410(a, state0.b, arg0, arg1);
                 } finally {
                     state0.a = a;
                 }
@@ -1680,11 +1701,11 @@ function __wbg_get_imports() {
         getInt32Memory0()[arg0 / 4 + 1] = len1;
         getInt32Memory0()[arg0 / 4 + 0] = ptr1;
     };
-    imports.wbg.__wbindgen_closure_wrapper758 = function(arg0, arg1, arg2) {
+    imports.wbg.__wbindgen_closure_wrapper763 = function(arg0, arg1, arg2) {
         const ret = makeMutClosure(arg0, arg1, 253, __wbg_adapter_26);
         return addHeapObject(ret);
     };
-    imports.wbg.__wbindgen_closure_wrapper1166 = function(arg0, arg1, arg2) {
+    imports.wbg.__wbindgen_closure_wrapper1171 = function(arg0, arg1, arg2) {
         const ret = makeMutClosure(arg0, arg1, 259, __wbg_adapter_29);
         return addHeapObject(ret);
     };

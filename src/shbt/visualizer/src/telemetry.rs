@@ -103,18 +103,22 @@ pub fn encode_mmio_frame(
     seed_count: u32,
 ) -> [u8; 128] {
     let f_load = loading_fraction(z);
-    // Stinespring blend across the modular-restoration window z in
-    // [1e9, 1e12]: above it no de-rendering has occurred (all loaded bits
-    // visible), below it the 23/33 dark completion is fully quenched.
-    let blend = if z > 1.0e12 {
-        0.0
-    } else if z < 1.0e9 {
-        1.0
+    // Thermal Stinespring channel (Thm 9.10, shared with
+    // `stinespring_w_vis` in lib.rs and `evaluate_stinespring_channel`
+    // in nbody_pm.wgsl): w_vis(z) = (1-eta_D) + eta_D/(1+(Z_N/z)^Delta)
+    // with Z_N = 7.356e10, Delta = 26/3. The quenched share of the
+    // loaded register is 1 - w_vis, saturating at eta_D = 23/33 for
+    // z -> 0.
+    const Z_N: f64 = 7.356e10;
+    const DELTA_BBAR: f64 = 26.0 / 3.0;
+    let w_vis = if z <= 0.0 {
+        1.0 - ETA_DARK
     } else {
-        ((12.0 - z.log10()) / 3.0).clamp(0.0, 1.0)
+        (1.0 - ETA_DARK)
+            + ETA_DARK / (1.0 + (Z_N / z.max(1.0e-3)).powf(DELTA_BBAR))
     };
-    let eta_vis = (1.0 - blend) + blend * ETA_VISIBLE;
-    let eta_dk = blend * ETA_DARK;
+    let eta_vis = w_vis;
+    let eta_dk = 1.0 - w_vis;
     let _ = seed_count;
     let seed_mass = ALPHA_SEED_MSUN_PER_BIT * delta_n_bits;
     let p_debt = seed_mass * LANDAUER_GW_PER_MSUN;
