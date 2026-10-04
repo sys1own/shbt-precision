@@ -55,6 +55,29 @@
     border-radius: 6px; padding: 3px 8px; font-size: 11px; cursor: pointer;
   }
   #epoch-bar button:hover { color: #dfe8ff; border-color: #4f7dff; }
+  /* Phase-space diagnostics inset (shbt12): bordered HUD card wrapping the
+     bottom-right rect [0.60,0.98]x[0.52,0.96] where holographic_post.wgsl
+     blits the (x, v_x) raster when enabled. Hidden by default. */
+  #phase-space-card {
+    position: absolute; left: 60%; top: 52%; width: 38%; height: 44%;
+    border: 1px solid rgba(79, 216, 255, .45); border-radius: 6px;
+    pointer-events: none; display: none; z-index: 4;
+    box-shadow: 0 0 14px rgba(79, 216, 255, .15) inset;
+  }
+  #phase-space-card .ps-title {
+    position: absolute; top: 0; left: 0; right: 0; padding: 3px 8px;
+    background: rgba(8, 14, 28, .75); border-bottom: 1px solid rgba(79, 216, 255, .3);
+    font: 10px/1.3 ui-monospace, Consolas, monospace; color: #8fb8ff;
+    letter-spacing: .05em; border-radius: 6px 6px 0 0;
+  }
+  #phase-space-card .ps-x {
+    position: absolute; bottom: 3px; right: 8px;
+    font: 10px/1 ui-monospace, Consolas, monospace; color: #9db7dd;
+  }
+  #phase-space-card .ps-v {
+    position: absolute; top: 24px; left: 5px; writing-mode: vertical-rl;
+    font: 10px/1 ui-monospace, Consolas, monospace; color: #9db7dd;
+  }
 </style>
 </head>
 <body>
@@ -64,7 +87,7 @@
 <div id="hud">
   <h1>SHBT HOLOGRAPHIC TELEMETRY</h1>
   <div class="metric">
-    <div class="label"><span>Horizon Bar &mdash; bulk time</span><span id="hud-time">0 Gyr</span></div>
+    <div class="label"><span>Horizon Bar &mdash; cosmic age</span><span id="hud-time">0 Gyr</span></div>
     <div class="bar"><div id="bar-time"></div></div>
   </div>
   <div class="metric">
@@ -155,11 +178,11 @@
     <span id="glow-label">0.80</span>
   </div>
   <div class="row">
-    <label><input type="checkbox" id="glitch-toggle" checked title="subtle emergent-seed UV glitch"> Seed&nbsp;glitch</label>
+    <label><input type="checkbox" id="glitch-toggle" title="subtle emergent-seed UV glitch"> Seed&nbsp;glitch</label>
     <span>glitch</span>
-    <input id="glitch-slider" type="range" min="0.0" max="1.0" step="0.05" value="0.1"
+    <input id="glitch-slider" type="range" min="0.0" max="1.0" step="0.05" value="0.0"
            style="width:90px" title="seed glitch intensity">
-    <span id="glitch-label">0.10</span>
+    <span id="glitch-label">0.00</span>
   </div>
   <div class="row" title="shbt9 sandbox controls">
     <span>c<sub>s</sub></span>
@@ -187,6 +210,8 @@
       <option value="0">Bulk 3D</option>
       <option value="1">Bulk | (x, v&#8339;) phase-space</option>
     </select>
+    <label><input type="checkbox" id="diag-toggle" title="enclosed (x, v_x) phase-space inset">
+      Show Phase-Space Diagnostics</label>
     <span id="observer-count" title="click the canvas to dispatch a causal-point observer">Observers: 0</span>
   </div>
   <div id="epoch-bar">
@@ -196,6 +221,12 @@
     <button data-epoch="get">4. Proto-Galaxy Web (z=3)</button>
     <button data-epoch="freeze">5. Horizon Freeze (z=-0.999)</button>
   </div>
+</div>
+
+<div id="phase-space-card" aria-hidden="true">
+  <div class="ps-title">Phase-Space Density (x, v&#8339;)</div>
+  <div class="ps-x">x &rarr;</div>
+  <div class="ps-v">v&#8339; &uarr;</div>
 </div>
 
 <div id="status">initializing&hellip;</div>

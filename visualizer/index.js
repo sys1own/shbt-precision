@@ -27,7 +27,8 @@ function sliderToZ(x) {
 function refreshHud(m) {
   window.__lastHudMetrics = m;
   refreshHudTrack(m);
-  $("hud-time").textContent = `${fmt(m.t_gyr)} Gyr`;
+  $("hud-time").textContent =
+    `Cosmic Age: ${fmt(m.t_gyr)} Gyr (Lookback: ${fmt(m.lookback_gyr ?? 0)} Gyr)`;
   $("bar-time").style.width = `${Math.min(m.t_gyr / 13.8, 1) * 100}%`;
   $("hud-fload").textContent = fmt(m.f_load, 5);
   $("bar-fload").style.width = `${m.f_load * 100}%`;
@@ -78,18 +79,39 @@ function refreshHud(m) {
     `&theta;<sub>E</sub> = ${fmt(m.max_einstein_radius)} rad  caustics = ${m.active_caustics}`;
   $("zlabel").textContent = `z = ${fmt(m.z, 3)}  a = ${fmt(m.a, 3)}`;
   const banner = $("phase-banner");
-  if (m.z <= -0.95) {
+  const seeds = m.seedCount ?? 0;
+  const deltaN = m.delta_n_bits ?? 0;
+  if (m.z <= 0.0) {
+    // Phase 5: asymptotic de Sitter horizon freeze (z <= 0, f_load -> 1,
+    // R_entropy < 0, R_adm -> empty as z -> -0.999).
     banner.className = "ph-freeze";
-    banner.innerHTML = "PHASE 5: ASYMPTOTIC DE SITTER OBSERVER FREEZE &nbsp;|&nbsp; <em>R</em><sub>adm</sub> &rarr; &empty; &nbsp;|&nbsp; <em>E</em><sub>&mu;&nu;</sub> = 0 &nbsp;|&nbsp; &Delta;<sub>fr</sub> = 0";
+    banner.innerHTML = "PHASE 5: ASYMPTOTIC DE SITTER OBSERVER FREEZE &nbsp;|&nbsp; <em>f</em><sub>load</sub> = " +
+      fmt(m.f_load, 3) + " &nbsp;|&nbsp; <em>R</em><sub>adm</sub> = " + rAdm +
+      " &nbsp;|&nbsp; <em>E</em><sub>&mu;&nu;</sub> = 0 &nbsp;|&nbsp; &Delta;<sub>fr</sub> = 0";
   } else if (m.z > 1e12) {
     banner.className = "ph-load";
-    banner.innerHTML = "PHASE 1: CONFORMAL SCREEN BIT LOADING &nbsp;|&nbsp; Ṡ = <em>H</em>(<em>t</em>) &middot; <em>C</em><sub>max</sub> &nbsp;|&nbsp; <em>N</em><sub>sat</sub> = 3.312&times;10<sup>122</sup> bits";
+    banner.innerHTML = "PHASE 1: CONFORMAL SCREEN BIT LOADING &nbsp;|&nbsp; Ṡ = <em>H</em>(<em>t</em>) &middot; <em>C</em><sub>max</sub> &nbsp;|&nbsp; <em>f</em><sub>load</sub> = " +
+      fmt(m.f_load, 6) + " &nbsp;|&nbsp; <em>N</em><sub>sat</sub> = 3.312&times;10<sup>122</sup> bits";
   } else if (m.z >= 1e9) {
     banner.className = "ph-bary";
-    banner.innerHTML = "PHASE 2: TOPOLOGICAL BARYOGENESIS &nbsp;|&nbsp; Stinespring De-Rendering 23/33 &nbsp;|&nbsp; &eta;<sub>B</sub> = 6.1&times;10<sup>&minus;10</sup>";
-  } else if (m.z >= 7) {
+    banner.innerHTML = "PHASE 2: TOPOLOGICAL BARYOGENESIS &nbsp;|&nbsp; Stinespring De-Rendering &rarr; 23/33 &nbsp;|&nbsp; quench = " +
+      quenchPct + "% &nbsp;|&nbsp; &eta;<sub>B</sub> = 6.1&times;10<sup>&minus;10</sup>";
+  } else if (m.z <= 30 && seeds > 0) {
     banner.className = "ph-seed";
-    banner.innerHTML = "PHASE 3: TOPOLOGICAL GHOST SEED CONDENSATION &nbsp;|&nbsp; <em>M</em><sub>seed</sub> &asymp; 10<sup>9</sup> <em>M</em><sub>&#9737;</sub> &nbsp;|&nbsp; <em>K</em> = 312, &Delta;<em>N</em> = 6.0&times;10<sup>59</sup> bits";
+    banner.innerHTML = "PHASE 3: TOPOLOGICAL GHOST SEED CONDENSATION &nbsp;|&nbsp; <em>M</em><sub>seed</sub> = " +
+      fmt(m.totalMass ?? m.seed_mass_msun) + " <em>M</em><sub>&#9737;</sub> &nbsp;|&nbsp; " + seeds +
+      " seeds &nbsp;|&nbsp; &Delta;<em>N</em> = " + fmt(deltaN) + " bits";
+  } else if (m.z <= 30 && m.z >= 7) {
+    // Seed window but nothing nucleated yet: precursor incubation.
+    banner.className = "ph-seed";
+    banner.innerHTML = "PHASE 3: PRECURSOR CONGESTION INCUBATION &nbsp;|&nbsp; &Delta;<em>N</em> = " +
+      fmt(deltaN) + " bits &nbsp;|&nbsp; seeds = 0 &nbsp;|&nbsp; waiting for register overflow";
+  } else if (m.z > 30) {
+    // Between the baryogenesis boundary and the seed window the register is
+    // still congesting: same precursor incubation state, earlier epoch.
+    banner.className = "ph-seed";
+    banner.innerHTML = "PHASE 3: PRECURSOR CONGESTION INCUBATION &nbsp;|&nbsp; &Delta;<em>N</em> = " +
+      fmt(deltaN) + " bits &nbsp;|&nbsp; seeds = 0 &nbsp;|&nbsp; waiting for register overflow";
   } else {
     banner.className = "ph-get";
     banner.innerHTML = "PHASE 4: CAUSAL POINT GET CLUSTERING &nbsp;|&nbsp; <strong>a</strong><sub>GET</sub> = &minus;&kappa;<sub>GET</sub> &nabla; ln &rho;<sub>proj</sub> &nbsp;|&nbsp; <em>R</em><sub>entropy</sub> &ge; 0";
@@ -215,6 +237,12 @@ async function boot() {
       engine.update_cosmic_state(z, pos[0], pos[1], pos[2], look[0], look[1], look[2]),
     clearCameraOverride: () => engine.clear_camera_override(),
   };
+  // Push the DOM control state into the engine once so the page defaults
+  // are authoritative (shbt12: seed glitch defaults OFF for clean
+  // canonical recordings).
+  applyOptics();
+  applyGlitch();
+  applySandboxControls();
   requestAnimationFrame(frame);
 }
 
@@ -407,10 +435,27 @@ function applySandboxControls() {
   });
 });
 $("slider-z").addEventListener("input", applySandboxControls);
-$("select-viewport-mode").addEventListener("change", (ev) => {
-  if (engine && engine.set_viewport_mode) {
-    engine.set_viewport_mode(parseInt(ev.target.value, 10));
+// Phase-space diagnostics inset (shbt12): the (x, v_x) raster only draws
+// inside the bordered #phase-space-card when explicitly enabled; the
+// checkbox and the viewport-mode select stay in sync.
+function applyDiagnosticsInset(enabled) {
+  const card = $("phase-space-card");
+  if (card) {
+    card.style.display = enabled ? "block" : "none";
+    card.setAttribute("aria-hidden", enabled ? "false" : "true");
   }
+  if (engine && engine.set_viewport_mode) {
+    engine.set_viewport_mode(enabled ? 1 : 0);
+  }
+}
+$("select-viewport-mode").addEventListener("change", (ev) => {
+  const enabled = parseInt(ev.target.value, 10) === 1;
+  $("diag-toggle").checked = enabled;
+  applyDiagnosticsInset(enabled);
+});
+$("diag-toggle").addEventListener("change", (ev) => {
+  $("select-viewport-mode").value = ev.target.checked ? "1" : "0";
+  applyDiagnosticsInset(ev.target.checked);
 });
 
 // Click-to-measure (shbt9 Phase 2): unproject the click into the bulk

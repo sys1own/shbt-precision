@@ -100,7 +100,7 @@ struct IndirectArgs {
 @group(0) @binding(2) var density_grid: texture_storage_3d<r32float, write>;
 @group(0) @binding(3) var force_grid: texture_3d<f32>;
 @group(0) @binding(4) var force_sampler: sampler;
-@group(0) @binding(5) var<storage, read> active_seeds: array<SeedDefectRecord, 256>;
+@group(0) @binding(5) var<storage, read> active_seeds: array<SeedDefectRecord, 1024>;
 @group(0) @binding(6) var<storage, read> seed_state: array<u32, 4>;
 // Continuum hydrodynamics grids (Thm 9.15): fixed-point atomic CIC
 // deposition feeds the thermodynamic pressure solve; the KDK force
@@ -187,7 +187,7 @@ fn compute_pm_force(x_tilde: vec3<f32>, a_coupling: f32) -> vec3<f32> {
 // as a_coupling * g_code.
 fn compute_seed_force(x_tilde: vec3<f32>, a_coupling: f32) -> vec3<f32> {
     var acc = vec3<f32>(0.0);
-    let count = min(seed_state[1], 256u);
+    let count = min(seed_state[1], 1024u);
     for (var k = 0u; k < count; k = k + 1u) {
         let seed = active_seeds[k];
         if (seed.position.w > 0.5) {

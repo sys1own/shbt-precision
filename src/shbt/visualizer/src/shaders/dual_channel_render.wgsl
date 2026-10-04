@@ -97,19 +97,26 @@ fn evaluate_stinespring_channel(z: f32) -> vec2<f32> {
 // rational polynomial evaluation in the inverse-temperature coordinate
 // u = 1000/T over u in [0.040, 0.400] maps T in [2500, 25000] K onto
 // linear RGB with zero SIMD divergence (Thm 9.17).
+// Branchless degree-(2,2) rational Planckian palette (canonical
+// `evaluate_blackbody_simd`): u = 1000/T_eff in [0.040, 0.400] maps to
+// linear RGB through three clamped rational polynomials — the Padé
+// denominators track the Wein tail curvature far better than plain
+// polynomials, so no divergent control flow or piecewise branches are
+// needed anywhere in T in [2500, 25000] K. Bounded to [0, 1.05] on the
+// domain (see tests/first_principles_kernels.rs).
 fn blackbody_to_linear_rgb(t_kelvin: f32) -> vec3<f32> {
     let t = clamp(t_kelvin, 2500.0, 25000.0);
-    let u_temp = 1000.0 / t;
+    let u = 1000.0 / t;
+    let u2 = u * u;
 
-    let r = clamp(0.443 + 3.918 * u_temp - 1.842 * u_temp * u_temp, 0.0, 1.0);
+    let r = (0.657842 - 15.067116 * u + 144.948029 * u2)
+        / (1.0 - 19.160428 * u + 155.930970 * u2);
+    let g = (0.540874 - 1.770797 * u + 12.417570 * u2)
+        / (1.0 - 9.751228 * u + 48.259277 * u2);
+    let b = (0.855655 - 3.605022 * u + 4.930827 * u2)
+        / (1.0 - 8.226975 * u + 39.334862 * u2);
 
-    let delta_g = u_temp - 0.154;
-    let g = clamp(1.000 - 18.550 * delta_g * delta_g + 27.600 * delta_g * delta_g * delta_g, 0.280, 1.0);
-
-    let delta_b = max(0.0, u_temp - 0.125);
-    let b = clamp(1.000 - 3.250 * delta_b - 2.850 * delta_b * delta_b, 0.015, 1.0);
-
-    return vec3<f32>(r, g, b);
+    return max(vec3<f32>(r, g, b), vec3<f32>(0.0));
 }
 
 // Multi-tier thermodynamic and boundary-capacity transfer model
@@ -228,7 +235,7 @@ fn resolve_charge_color(p: Particle, time: f32, z: f32) -> vec4<f32> {
 
 @group(1) @binding(0) var<storage, read> events: array<CrystallizationEvent>;
 @group(1) @binding(1) var<uniform> event_count: u32;
-@group(1) @binding(2) var<storage, read> active_seeds: array<SeedDefectRecord, 256>;
+@group(1) @binding(2) var<storage, read> active_seeds: array<SeedDefectRecord, 1024>;
 @group(1) @binding(3) var<storage, read> seed_state: array<u32, 4>;
 
 // History crystallization flash (Enhancement 9): incandescent shockwave at
@@ -349,7 +356,10 @@ fn vs_particle_billboard(
     // local overdensity, contracts under boundary-capacity saturation
     // sigma = N_local/N_limit, and projects through the camera distance.
     //   R_splat = (min_px + (max_px - min_px) (1 + 0.45 max(0, rho_b - 1))^{-1/3})
-    //             * (1 - 0.40 smoothstep(0.8, 1.2, sigma)) * (d_ref / d_cam)
+    //             * Phi_topo(sigma) * (d_ref / d_cam)
+    // with the topological SPH contraction Phi_topo = (1 + 7.5 sigma^2)^-1:
+    // over-capacity (instanton-saturated) cores collapse to point-like
+    // splats instead of a softstep ceiling.
     // rho_b is the normalized incubation density carried on pad.x.
     let cam_pos_w = camera.aux.xyz;
     let cam_dist = max(1.0e-3, length(world - cam_pos_w));
@@ -357,11 +367,11 @@ fn vs_particle_billboard(
     // Same unity floor as the fragment-stage capacity ratio: once
     // cardy_limit_norm(z) collapses below 1 the over-capacity regime is
     // universal and rho_b is the discriminative coordinate.
-    let sigma = rho_b / max(cardy_limit_norm(z_cam), 1.0);
+    let sigma = min(rho_b / max(cardy_limit_norm(z_cam), 1.0), 8.0);
     let min_px = max(camera.params2.z, 0.5);
     let max_px = max(camera.params2.w, min_px);
     let density_term = pow(1.0 + 0.45 * max(0.0, rho_b - 1.0), -0.3333333);
-    let topo_contract = 1.0 - 0.40 * smoothstep(0.8, 1.2, sigma);
+    let topo_contract = 1.0 / (1.0 + 7.5 * sigma * sigma);
     // Nominal orbit distance (1.4 * BOX_SIZE): at the default camera
     // distance the splat range resolves to roughly min_px..max_px,
     // matching the pre-dynamic footprint; zooming in grows the splats
@@ -592,6 +602,16 @@ fn fs_render_dual_channel(in: VertexOutput) -> GBufferOutput {
     // emission below the near-field regime keeps the fly-through legible:
     // mid/far particles at 1-4 px still carry the resolved structure.
     let near_fade = smoothstep(10.0, 35.0, in.linear_depth);
+
+    // Deep-field density gate (shbt12 Phase 2): particles below the
+    // rho_b = 0.02 local-density floor contribute no splat at all —
+    // hundreds of sub-threshold background particles otherwise sum into
+    // a chalky low-density fog that lifts the void black point. Sharp
+    // knee over [0.016, 0.02] keeps the cutoff from popping frame to
+    // frame while behaving as a hard threshold visually.
+    let bg_gate = smoothstep(0.016, 0.02, rho_b);
+    glow_rgb = glow_rgb * bg_gate;
+    glow_a = glow_a * bg_gate;
 
     // Channel A: spectral radiance in RGB, normalized line-of-sight
     // depth in A for the depth-aware bilateral post pass.
