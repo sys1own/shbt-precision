@@ -110,6 +110,11 @@ struct TrackingState {
     active_seed_count: atomic<u32>,
     pad0: u32,
     pad1: u32,
+    // Stage-3 lifecycle claim flags, packed into this buffer so the
+    // shared emergence pipeline layout stays within the
+    // maxStorageBuffersPerShaderStage limit (10 on spec-minimum
+    // adapters: g0 particle + grid + these 9 group-1 buffers).
+    prev_claimed: array<atomic<u32>, 1024>,
 };
 
 // Dynamic seed pool: the hardcoded 64-seed cap is replaced by an atomic
@@ -136,10 +141,7 @@ const SEED_POOL_CAP: u32 = 1024u;
 @group(1) @binding(5) var<storage, read_write> dark_ledger: array<f32>;
 @group(1) @binding(6) var<storage, read_write> seed_mass_grid: array<f32>;
 @group(1) @binding(7) var<storage, read_write> seed_potential_grid: array<f32>;
-// shbt13 Stage-3 lifecycle buffers: per-frame match claims against the
-// previous pool (drives the carry-over of condensed defects that were
-// not re-detected this frame).
-@group(1) @binding(8) var<storage, read_write> prev_claimed: array<atomic<u32>, 1024>;
+
 
 fn get_linear_index(x: u32, y: u32, z: u32) -> u32 {
     let dim = params.grid_dim;
@@ -565,7 +567,7 @@ fn cs_temporal_tracking(@builtin(global_invocation_id) global_id: vec3<u32>) {
     } else {
         // Stage-B lifecycle claim (shbt13): mark the consumed prev entry
         // so the carry pass does not re-inject it.
-        atomicStore(&prev_claimed[matched_prev], 1u);
+        atomicStore(&tracking_state.prev_claimed[matched_prev], 1u);
     }
 
     let active_slot = atomicAdd(&tracking_state.active_seed_count, 1u);
@@ -600,7 +602,7 @@ fn cs_seed_carry(@builtin(global_invocation_id) global_id: vec3<u32>) {
     if (prev.position.w < 0.5) {
         return;
     }
-    if (atomicLoad(&prev_claimed[i]) != 0u) {
+    if (atomicLoad(&tracking_state.prev_claimed[i]) != 0u) {
         return;
     }
     let slot = atomicAdd(&tracking_state.active_seed_count, 1u);
