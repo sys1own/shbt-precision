@@ -274,8 +274,19 @@ impl HorizonLedger {
         // fraction (1 - w_vis)/eta_D for the engine's channel assignment.
         let w_vis = crate::stinespring_w_vis(z);
         self.stinespring_blend = crate::stinespring_quench_fraction(z);
-        self.active_visible_bits = self.total_bits_loaded * w_vis;
-        self.dark_completion_bits = self.total_bits_loaded - self.active_visible_bits;
+        // Partition exactly: the subtracted share must sit in
+        // [total/2, total] for the difference to round-trip bitwise
+        // (Sterbenz), so compute the >=50% side first and derive the
+        // other as the exact remainder.
+        if w_vis > 0.5 {
+            self.active_visible_bits = self.total_bits_loaded * w_vis;
+            self.dark_completion_bits =
+                self.total_bits_loaded - self.active_visible_bits;
+        } else {
+            self.dark_completion_bits = self.total_bits_loaded * (1.0 - w_vis);
+            self.active_visible_bits =
+                self.total_bits_loaded - self.dark_completion_bits;
+        }
 
         if z <= 30.0 && z >= 7.0 {
             self.total_seeds_condensed = 248;

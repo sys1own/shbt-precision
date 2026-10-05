@@ -446,8 +446,6 @@ pub struct ShbtWebGpuEngine {
     seed_candidates_buffer: Buffer,
     active_seeds_buffer: Buffer,
     prev_seeds_buffer: Buffer,
-    // shbt13 Stage-B: per-frame claim flags against prev_seeds.
-    prev_claimed_buffer: Buffer,
 
     // shbt10 continuum transport + hydrodynamic grids (Thms 9.13-9.15).
     rho_tot_atomic_buffer: Buffer,
@@ -684,8 +682,6 @@ impl ShbtWebGpuEngine {
                 Self::storage_entry(5, ShaderStages::COMPUTE, false),
                 Self::storage_entry(6, ShaderStages::COMPUTE, false),
                 Self::storage_entry(7, ShaderStages::COMPUTE, false),
-                // shbt13 Stage-B: carry-over claim flags.
-                Self::storage_entry(8, ShaderStages::COMPUTE, false),
             ],
         });
         (g0, g1)
@@ -1597,9 +1593,13 @@ impl ShbtWebGpuEngine {
             usage: BufferUsages::STORAGE | BufferUsages::COPY_DST | BufferUsages::COPY_SRC,
             mapped_at_creation: false,
         });
+        // Tracking counters + the per-frame claim flags against
+        // prev_seeds live in one buffer: a separate claimed array would
+        // push the shared emergence layout to 11 storage buffers per
+        // stage, over the 10 reported by spec-minimum adapters.
         let tracking_state_buffer = device.create_buffer(&BufferDescriptor {
             label: Some("emergence tracking_state / seed_state"),
-            size: 16,
+            size: 16 + (MAX_SEEDS * 4) as u64,
             usage: BufferUsages::STORAGE | BufferUsages::COPY_DST | BufferUsages::COPY_SRC,
             mapped_at_creation: false,
         });
@@ -1618,13 +1618,6 @@ impl ShbtWebGpuEngine {
         let prev_seeds_buffer = device.create_buffer(&BufferDescriptor {
             label: Some("emergence prev_seeds"),
             size: (MAX_SEEDS * 32) as u64,
-            usage: BufferUsages::STORAGE | BufferUsages::COPY_DST,
-            mapped_at_creation: false,
-        });
-        // shbt13 Stage-B: claim flags so un-re-detected defects carry over.
-        let prev_claimed_buffer = device.create_buffer(&BufferDescriptor {
-            label: Some("emergence prev_claimed"),
-            size: (MAX_SEEDS * 4) as u64,
             usage: BufferUsages::STORAGE | BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
@@ -2039,7 +2032,6 @@ impl ShbtWebGpuEngine {
             seed_candidates_buffer,
             active_seeds_buffer,
             prev_seeds_buffer,
-            prev_claimed_buffer,
             rho_tot_atomic_buffer,
             rho_baryon_atomic_buffer,
             rho_baryon_buffer,
@@ -2943,10 +2935,6 @@ impl ShbtWebGpuEngine {
                     binding: 7,
                     resource: self.seed_potential_buffer.as_entire_binding(),
                 },
-                BindGroupEntry {
-                    binding: 8,
-                    resource: self.prev_claimed_buffer.as_entire_binding(),
-                },
             ],
         });
         (g0, g1)
@@ -3618,10 +3606,11 @@ impl ShbtWebGpuEngine {
             0,
             (MAX_SEEDS * 32) as u64,
         );
-        // shbt13 Stage-3: clear the active pool and the claim flags so
-        // track/carry/merge rebuild a clean lifecycle union each frame.
+        // shbt13 Stage-3: clear the active pool and the claim flags
+        // (packed into tracking_state at offset 16) so track/carry/merge
+        // rebuild a clean lifecycle union each frame.
         encoder_a.clear_buffer(&self.active_seeds_buffer, 0, None);
-        encoder_a.clear_buffer(&self.prev_claimed_buffer, 0, None);
+        encoder_a.clear_buffer(&self.tracking_state_buffer, 16, Some((MAX_SEEDS * 4) as u64));
         {
             let (g0, g1) = self.emergence_bind_groups();
             let mut cpass = encoder_a.begin_compute_pass(&ComputePassDescriptor {
