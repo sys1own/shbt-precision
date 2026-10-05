@@ -63,8 +63,9 @@ KMS_TO_M_S = Decimal("1000")
 PI_DECIMAL = Decimal("3.14159265358979323846264338327950288419716939937510")
 
 # Heavy seed mass-congestion constants (Section 9.11).
-SEED_Z_PEAK = Decimal("7.5")
-SEED_SIGMA_Z = Decimal("0.801")
+# shbt13: z_peak and sigma_z are no longer hardcoded empirical fits; they
+# are derived per-call from the SHBT branch invariants through
+# ``derive_first_principles_z_peak`` / ``derive_first_principles_sigma_z``.
 SEED_ALPHA_M_SUN_PER_BIT = Decimal("1.67e-51")
 SEED_OVERFLOW_BITS = Decimal("6e59")
 # Resolution ceiling at z=7 is set so that the local/limit ratio matches the
@@ -458,6 +459,183 @@ def compute_loading_fraction(
     return _mp_to_decimal(value, precision=precision)
 
 
+def compute_backward_debt_fraction(
+    z: Number,
+    h0_cmb: Number,
+    A_H: Number,
+    omega_m: Number,
+    omega_r0: Number = DEFAULT_OMEGA_R0,
+    *,
+    precision: int = DEFAULT_PRECISION,
+) -> Decimal:
+    """shbt13 backward past-light-cone loading debt.
+
+    ``f_debt(z) = int_0^z Gamma_lock / [(1+z')^2 H_SHBT(z')] dz'`` — the
+    cumulative commitment accrued along the observer's past light cone.
+    Exactly zero for every future-directed observer (``z <= 0``) and
+    saturating at ``f_debt(1100) ~= 0.10744``. This is the Eq. (180)
+    cumulative integral, now decoupled from the forward capacity channel.
+    """
+
+    redshift = _decimal(z)
+    if redshift <= 0:
+        return Decimal("0")
+    return compute_loading_fraction(
+        redshift,
+        h0_cmb,
+        A_H,
+        omega_m,
+        omega_r0,
+        precision=precision,
+    )
+
+
+def compute_forward_cosmic_loading_fraction(
+    z: Number,
+    h0_cmb: Number,
+    A_H: Number,
+    omega_m: Number,
+    omega_r0: Number = DEFAULT_OMEGA_R0,
+    *,
+    precision: int = DEFAULT_PRECISION,
+) -> Decimal:
+    """shbt13 forward boundary-capacity loading fraction.
+
+    ``f_cosmo(z) = 1 - exp(-int_z^inf Gamma_lock / [(1+z')^2 H_SHBT] dz')``
+
+    evaluated in the conformal coordinate ``u = ln(1+z)`` as
+    ``1 - exp(-int_{ln(1+z)}^{40} K(u) du)`` with kernel
+    ``K(u) = Gamma_lock e^{-u} / [(H0 + A_H e^{-u}) E(e^u - 1)]``,
+    ``E^2 = Omega_m e^{3u} + Omega_r e^{4u} + Omega_L``.
+
+    It is << 0.01 in the primordial epoch (``z ~ 1e14``), of order ~0.10
+    at the present day, and locks to 1 on the future branch: for
+    ``-1 < z < 0`` the kernel asymptotes to ``3 / sqrt(Omega_L)`` so the
+    integral diverges logarithmically as ``z -> -1`` — the asymptotic
+    de Sitter horizon freeze. ``z <= -1`` returns the saturated value 1.
+    """
+
+    redshift = _decimal(z)
+    if redshift <= Decimal("-1"):
+        return Decimal("1")
+    matter_decimal = _decimal(omega_m)
+    radiation_decimal = _decimal(omega_r0)
+    if not Decimal("0") < matter_decimal < Decimal("1"):
+        raise ValueError("omega_m must lie between 0 and 1")
+    if radiation_decimal < 0:
+        raise ValueError("omega_r0 must be non-negative")
+    if matter_decimal + radiation_decimal >= Decimal("1"):
+        raise ValueError("omega_m + omega_r0 must be less than 1")
+
+    with mpmath.workdps(_mpmath_dps(precision)):
+        u_lo = mpmath.log(mpmath.mpf("1") + _mp(redshift))
+        h0_mp = _mp(h0_cmb)
+        amplitude = _mp(A_H)
+        matter = _mp(matter_decimal)
+        radiation = _mp(radiation_decimal)
+        omega_l = mpmath.mpf("1") - matter - radiation
+        gamma_lock = mpmath.mpf("3") * amplitude
+
+        def kernel(u: mpmath.mpf) -> mpmath.mpf:
+            e_neg = mpmath.e ** (-u)
+            opz = mpmath.mpf("1") / e_neg if e_neg != 0 else mpmath.mpf("inf")
+            h0_z = h0_mp + amplitude * e_neg
+            expansion = mpmath.sqrt(
+                matter * opz**3 + radiation * opz**4 + omega_l
+            )
+            return gamma_lock * e_neg / (h0_z * expansion)
+
+        upper = mpmath.mpf("40")
+        if u_lo >= upper:
+            return Decimal("0")
+        integral = mpmath.quad(kernel, [u_lo, mpmath.mpf("0"), upper])
+        f = mpmath.mpf("1") - mpmath.e ** (-integral)
+        f = min(max(f, mpmath.mpf("0")), mpmath.mpf("1"))
+    return _mp_to_decimal(f, precision=precision)
+
+
+def evaluate_psi_nuc(z: Number) -> Decimal:
+    """Open nucleation floor Psi_nuc(z) (shbt13): exactly 1 for ``z <= 18``,
+    0 for ``z >= 30``, C^2 quintic ``10u^3 - 15u^4 + 6u^5`` between with
+    ``u = (30 - z) / 12``."""
+
+    redshift = _decimal(z)
+    if redshift <= Decimal("18"):
+        return Decimal("1")
+    if redshift >= Decimal("30"):
+        return Decimal("0")
+    u = (Decimal("30") - redshift) / Decimal("12")
+    return u**3 * (Decimal("10") - Decimal("15") * u + Decimal("6") * u**2)
+
+
+def derive_first_principles_z_peak(
+    h0_cmb: Number,
+    A_H: Number,
+    omega_m: Number,
+    omega_r0: Number = DEFAULT_OMEGA_R0,
+    *,
+    precision: int = DEFAULT_PRECISION,
+) -> Decimal:
+    """First-principles seed-mass peak redshift (shbt13).
+
+    ``1 + z_peak^(0) = (K / (gamma_CFT * c_eff))^{2/3}``,
+    ``z_peak = z_peak^(0) * (1 - (10/33) f_cosmo(z_peak))``
+
+    with ``(k_l, k_q, K) = (26, 8, 312)``, ``c_eff = 1325/154`` and
+    ``gamma_CFT = 1325/924``. The unscreened anchor gives
+    ``z^(0) ~= 7.6146``; the fixed point closes at ``z_peak ~= 7.614``
+    after the forward-loading screen correction.
+    """
+
+    c_eff = Decimal("1325") / Decimal("154")
+    gamma_cft = Decimal("1325") / Decimal("924")
+    k_level = Decimal("312")
+    with localcontext() as context:
+        context.prec = max(int(precision), 28)
+        z0 = (k_level / (gamma_cft * c_eff)) ** (Decimal("2") / Decimal("3")) - Decimal("1")
+        z_peak = z0
+        for _ in range(32):
+            f_cosmo = compute_forward_cosmic_loading_fraction(
+                z_peak,
+                h0_cmb,
+                A_H,
+                omega_m,
+                omega_r0,
+                precision=precision,
+            )
+            z_peak = z0 * (Decimal("1") - (Decimal("10") / Decimal("33")) * f_cosmo)
+        return +z_peak
+
+
+def derive_first_principles_sigma_z(
+    h0_cmb: Number,
+    A_H: Number,
+    omega_m: Number,
+    omega_r0: Number = DEFAULT_OMEGA_R0,
+    *,
+    precision: int = DEFAULT_PRECISION,
+) -> Decimal:
+    """First-principles nucleation dispersion (shbt13):
+    ``sigma_z = (1/sqrt(2)) ((k_l+k_q)/K)^{1/4} (1+z_peak)/sqrt(c_eff)
+    sqrt(10/21)``."""
+
+    c_eff = Decimal("1325") / Decimal("154")
+    z_peak = derive_first_principles_z_peak(
+        h0_cmb, A_H, omega_m, omega_r0, precision=precision
+    )
+    with localcontext() as context:
+        context.prec = max(int(precision), 28)
+        ratio = (Decimal("34") / Decimal("312")) ** (Decimal("1") / Decimal("4"))
+        sigma = (
+            (Decimal("1") / context.sqrt(Decimal("2")))
+            * ratio
+            * (Decimal("1") + z_peak)
+            / context.sqrt(c_eff)
+            * context.sqrt(Decimal("10") / Decimal("21"))
+        )
+        return +sigma
+
+
 def compute_entropy_debt(
     z: Number,
     h0_cmb: Number,
@@ -468,14 +646,19 @@ def compute_entropy_debt(
     omega_r0: Number = DEFAULT_OMEGA_R0,
     precision: int = DEFAULT_PRECISION,
 ) -> Decimal:
-    """Implements Eqs. (176) and (180): ``S_debt = N_sat f_load``."""
+    """Implements Eqs. (176) and (180): ``S_debt = N_sat f_load_debt``.
+
+    shbt13 decoupling: the entropy debt is the backward past-light-cone
+    metric ``f_load_debt``; the forward capacity channel is a separate
+    quantity (``compute_forward_cosmic_loading_fraction``).
+    """
 
     capacity = _decimal(N_sat)
     if capacity <= 0:
         raise ValueError("N_sat must be positive")
     with localcontext() as context:
         context.prec = max(int(precision), 28)
-        return capacity * compute_loading_fraction(
+        return capacity * compute_backward_debt_fraction(
             z,
             h0_cmb,
             A_H,
@@ -496,19 +679,18 @@ def loading_fraction_asymptotic(
 ) -> Decimal:
     """Saturated loading fraction ``f_load(z)`` on ``z in (-1, +inf)``.
 
-    For ``z >= 0`` this is the Eq. (180) integral capped at the screen
-    capacity ``f_load <= 1``. For ``-1 < z < 0`` (the late-time de Sitter
-    asymptote) the cumulative boundary bit allocation grows with the
-    horizon volume as ``f_load(z) = 1 - (1+z)^3``, saturating the screen
-    at ``z -> -1``. See the observer-succession derivation in ``shbt2.txt``.
+    shbt13 decoupling: capacity consumers (observer admissibility, loaded
+    bits, growth suppression) read the forward boundary-capacity channel
+    ``f_load_cosmo(z) = 1 - exp(-int_z^inf K dz')``. It is << 0.01 at
+    primordial z, ~0.10 today, and locks to 1 as ``z -> -1`` — the
+    asymptotic de Sitter horizon freeze — replacing the previous
+    ``1 - (1+z)^3`` heuristic.
     """
 
     redshift = _decimal(z)
     if redshift <= Decimal("-1"):
         raise ValueError("z must exceed -1")
-    if redshift < 0:
-        return Decimal("1") - (Decimal("1") + redshift) ** 3
-    loading = compute_loading_fraction(
+    return compute_forward_cosmic_loading_fraction(
         redshift,
         h0_cmb,
         A_H,
@@ -516,7 +698,6 @@ def loading_fraction_asymptotic(
         omega_r0,
         precision=precision,
     )
-    return min(loading, Decimal("1"))
 
 
 def observer_admissible_set(
@@ -613,14 +794,37 @@ def asymptotic_observer_freeze(
         )
         for redshift in FREEZE_AUDIT_REDSHIFTS
     ]
-    # Analytic freeze point: N_local(z) = N_local0 (1 - f_load) drops below
-    # C_get when 1 - f_load < C_get / N_local0. With the saturated law
-    # 1 - f_load = (1+z)^3 this yields z_freeze = -1 + (C_get/N_local0)^(1/3).
+    # Freeze point: N_local(z) = N_local0 (1 - f_cosmo) drops below C_get
+    # when 1 - f_cosmo < C_get / N_local0. With the forward capacity law
+    # this is a monotone crossing on (-1, 0]; bisect for the root.
+    ratio = c_get / n_local0
     with localcontext() as context:
         context.prec = max(int(precision), 28)
-        ratio = c_get / n_local0
-        freeze_offset = ratio ** (Decimal("1") / Decimal("3"))
-        freeze_redshift = Decimal("-1") + freeze_offset
+
+        def capacity_margin(redshift: Decimal) -> Decimal:
+            return Decimal("1") - compute_forward_cosmic_loading_fraction(
+                redshift,
+                h0_cmb,
+                A_H,
+                omega_m,
+                omega_r0,
+                precision=precision,
+            ) - ratio
+
+        lo, hi = Decimal("-0.999999"), Decimal("0")
+        if capacity_margin(hi) < 0:
+            freeze_redshift = hi
+        elif capacity_margin(lo) > 0:
+            freeze_redshift = lo
+        else:
+            for _ in range(64):
+                mid = (lo + hi) / Decimal("2")
+                if capacity_margin(mid) > 0:
+                    # Still admissible at this depth — the freeze sits lower.
+                    hi = mid
+                else:
+                    lo = mid
+            freeze_redshift = (lo + hi) / Decimal("2")
     # Saturated limit row: at z -> -1 the screen is full (f_load = 1),
     # N_local -> 0 < C_get, and every admissible node vanishes.
     asymptote = {
@@ -950,10 +1154,17 @@ def compute_cluster_collapse(
 
         # Deterministic heavy-seed generation (Section 9.11).  The redshift
         # distribution of seed information is a Gaussian centred at the
-        # formation redshift z_peak = 7.5; the overflow above the resolution
-        # ceiling is converted to mass by alpha_seed.
-        z_peak = _mp(SEED_Z_PEAK)
-        sigma_z = _mp(SEED_SIGMA_Z)
+        # first-principles formation redshift z_peak (shbt13: derived from
+        # the (26, 8, 312) branch invariants + the forward-loading screen
+        # correction, ~= 7.614, sigma_z ~= 0.823 — no longer hardcoded);
+        # the overflow above the resolution ceiling is converted to mass
+        # by alpha_seed.
+        z_peak = _mp(
+            derive_first_principles_z_peak(h0_value, amplitude, matter, precision=precision)
+        )
+        sigma_z = _mp(
+            derive_first_principles_sigma_z(h0_value, amplitude, matter, precision=precision)
+        )
         z_mp = _mp(redshift)
         dz = z_mp - z_peak
         n_local = _mp(SEED_OVERFLOW_BITS) * mpmath.e ** (
@@ -1044,7 +1255,13 @@ def compute_dark_matter_density(
     if redshift < 0:
         raise ValueError("z must be non-negative")
     c_comp = _decimal(c_dark_comp)
-    f_load = compute_loading_fraction(redshift, h0_cmb, A_H, omega_m, omega_r0, precision=precision)
+    # Residual-ledger channel: the unloaded share (1 - f_load) reads the
+    # backward past-light-cone debt, which is identically zero at the
+    # present epoch — preserving the Table 18 Omega_DM/Omega_b ~= 5.4
+    # invariant (the pre-shbt13 loading_fraction was the same past-cone
+    # integral). The forward capacity fraction is a distinct metric and
+    # must NOT be substituted here.
+    f_load = compute_backward_debt_fraction(redshift, h0_cmb, A_H, omega_m, omega_r0, precision=precision)
     h_shbt = shbt_hubble_rate(redshift, h0_cmb, A_H, omega_m, omega_r0)
     rho_crit = _critical_density_kg_m3(h_shbt, c_comp)
     # The completed ledger is split 12/24: the entropy-debt half is actively
@@ -1701,7 +1918,10 @@ def build_precision_cosmology_report(
             "z": redshift,
             "h0_z_km_s_mpc": h0_redshift_dependent(redshift, h0_value, amplitude),
             "h_shbt_km_s_mpc": shbt_hubble_rate(redshift, h0_value, amplitude, matter, radiation),
-            "f_load": compute_loading_fraction(redshift, h0_value, amplitude, matter, radiation, precision=precision),
+            # shbt13 Table 23: the decoupled debt and capacity columns.
+            "f_load": compute_forward_cosmic_loading_fraction(redshift, h0_value, amplitude, matter, radiation, precision=precision),
+            "f_load_cosmo": compute_forward_cosmic_loading_fraction(redshift, h0_value, amplitude, matter, radiation, precision=precision),
+            "f_load_debt": compute_backward_debt_fraction(redshift, h0_value, amplitude, matter, radiation, precision=precision),
             "S_debt_bits": compute_entropy_debt(
                 redshift,
                 h0_value,
@@ -2024,10 +2244,13 @@ class PrecisionCosmologyTests(unittest.TestCase):
         self.assertGreater(freeze["freeze_redshift"], Decimal("-1"))
         self.assertLess(freeze["freeze_redshift"], Decimal("-0.9999"))
         # Loading fraction asymptotic law for negative redshift.
+        # shbt13: the capacity channel is the forward cosmic loading
+        # fraction 1 - exp(-int_z^inf K dz'), not the legacy 1 - (1+z)^3
+        # heuristic; at z = -0.5 the forward integral yields ~0.27623.
         self.assertDecimalClose(
             loading_fraction_asymptotic("-0.5", self.h0_cmb, self.A_H, DEFAULT_OMEGA_M),
-            str(Decimal("1") - Decimal("0.5") ** 3),
-            "1e-18",
+            "0.2762332417475072",
+            "1e-12",
         )
 
     def test_growth_ode_system_and_suppression(self) -> None:

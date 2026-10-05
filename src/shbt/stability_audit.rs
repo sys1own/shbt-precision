@@ -2,8 +2,16 @@ use rug::Float;
 
 pub(crate) const PREC: u32 = 512;
 
-const Z_PEAK: f64 = 7.5;
-const SIGMA_Z: f64 = 0.801;
+// shbt13: the Gaussian seed-profile parameters are no longer hardcoded
+// empirical fits — they are derived from the first-principles SHBT
+// invariants (k_l, k_q, K) = (26, 8, 312), c_eff = 1325/154 and
+// gamma_CFT = 1325/924 through
+// `ShbtUniverse::derive_first_principles_z_peak` /
+// `derive_first_principles_sigma_z` (spec section 1.5). The derived
+// values (z_peak ~= 7.614, sigma_z ~= 0.823) are mildly shifted from the
+// earlier constants (7.5, 0.801) by the forward-loading screen
+// correction.
+use crate::shbt::cosmology::ShbtUniverse;
 const Q_DOT_W: f64 = 906e9;
 const P_BENCH_W: f64 = 142.08e6;
 const GAMMA_BENCH_TARGET: f64 = 6377.0;
@@ -34,8 +42,11 @@ fn log_correlator(z: &Float, z_peak: &Float, sigma: &Float) -> Float {
 }
 
 pub fn verify_stability_audit() -> StabilityAudit {
-    let z_peak = Float::with_val(PREC, Z_PEAK);
-    let sigma = Float::with_val(PREC, SIGMA_Z);
+    let cosmo = ShbtUniverse::new_canonical_branch(PREC);
+    let z_peak_f64 = cosmo.derive_first_principles_z_peak();
+    let sigma_z_f64 = cosmo.derive_first_principles_sigma_z();
+    let z_peak = Float::with_val(PREC, z_peak_f64);
+    let sigma = Float::with_val(PREC, sigma_z_f64);
     let h = Float::with_val(PREC, FINITE_DIFF_H);
 
     // Seed redshift coordinate.  C_even and C_odd are modeled as the
@@ -75,8 +86,8 @@ pub fn verify_stability_audit() -> StabilityAudit {
         p_bench_w: P_BENCH_W,
         gamma_bench: gamma_bench.to_f64(),
         gamma_bench_target: GAMMA_BENCH_TARGET,
-        seed_z_peak: Z_PEAK,
-        seed_sigma_z: SIGMA_Z,
+        seed_z_peak: z_peak_f64,
+        seed_sigma_z: sigma_z_f64,
     }
 }
 
