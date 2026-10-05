@@ -21,6 +21,7 @@ mod telemetry;
 mod units;
 
 pub use engine::{CausalPointRecord, ParticleRecord, SeedDefectRecord, WasmShbtEngine};
+pub use units::{GpuLensUniforms, GpuSeedLensBuffer, GpuSimulationUniforms};
 pub use hud::{
     CausalPointRecord as HudCausalRecord, HorizonLedger, HudMetrics, LensingUniforms,
     SeedDefect, SimulationControls, TimelineController, VisualizerEngine,
@@ -377,6 +378,9 @@ pub struct ShbtWebGpuEngine {
     emergence_cic_pipeline: ComputePipeline,
     emergence_detect_pipeline: ComputePipeline,
     emergence_track_pipeline: ComputePipeline,
+    // shbt13 Stage-3 lifecycle: carry + agglomerative merge passes.
+    emergence_carry_pipeline: ComputePipeline,
+    emergence_merge_pipeline: ComputePipeline,
     /// shbt9 Pass 1.5: Wendland C4 percolation convolution.
     emergence_convo_pipeline: ComputePipeline,
     /// shbt10 continuum: incubation diffusion + Stinespring ledger and
@@ -442,6 +446,8 @@ pub struct ShbtWebGpuEngine {
     seed_candidates_buffer: Buffer,
     active_seeds_buffer: Buffer,
     prev_seeds_buffer: Buffer,
+    // shbt13 Stage-B: per-frame claim flags against prev_seeds.
+    prev_claimed_buffer: Buffer,
 
     // shbt10 continuum transport + hydrodynamic grids (Thms 9.13-9.15).
     rho_tot_atomic_buffer: Buffer,
@@ -678,6 +684,8 @@ impl ShbtWebGpuEngine {
                 Self::storage_entry(5, ShaderStages::COMPUTE, false),
                 Self::storage_entry(6, ShaderStages::COMPUTE, false),
                 Self::storage_entry(7, ShaderStages::COMPUTE, false),
+                // shbt13 Stage-B: carry-over claim flags.
+                Self::storage_entry(8, ShaderStages::COMPUTE, false),
             ],
         });
         (g0, g1)
@@ -688,6 +696,8 @@ impl ShbtWebGpuEngine {
         g0: &BindGroupLayout,
         g1: &BindGroupLayout,
     ) -> (
+        ComputePipeline,
+        ComputePipeline,
         ComputePipeline,
         ComputePipeline,
         ComputePipeline,
@@ -719,6 +729,8 @@ impl ShbtWebGpuEngine {
             mk("wendland convolve", "cs_convolve_overflow"),
             mk("incubation transport", "step_incubation_transport"),
             mk("seed potential solve", "solve_seed_potential"),
+            mk("defect carry", "cs_seed_carry"),
+            mk("defect merge", "cs_seed_merge"),
         )
     }
 
@@ -1470,6 +1482,31 @@ impl ShbtWebGpuEngine {
         S_INST_PREFACTOR * d * d
     }
 
+    /// Quintic nucleation envelope Psi_nuc(z) — open floor: exactly 1 for
+    /// z <= 18 (no suppression below the onset window), 0 for z >= 30,
+    /// C^2-smooth between (mirrors `evaluate_psi_nuc` in the Tier-1 core
+    /// and `compute_nucleation_weight` in seed_emergence.wgsl).
+    fn psi_nuc(z: f64) -> f64 {
+        let u = ((30.0 - z) / 12.0).clamp(0.0, 1.0);
+        u * u * u * (10.0 + u * (-15.0 + 6.0 * u))
+    }
+
+    /// Physical condensation threshold in normalized n = rho/rho_bar
+    /// units (shbt13 Stage-3):
+    ///   delta_th(z) = (delta_c0 / Psi_nuc(z)) * (H(z)/H0)^{1/3}
+    ///                 * (1 - (10/33) f_load_cosmo)
+    /// with delta_c0 = DELTA_N_THRESH_NORM — the canonical critical
+    /// condensation threshold in normalized units. At z <= 18 the Psi
+    /// floor opens (Psi_nuc = 1); the H^{1/3} factor scales the
+    /// suppression margin with the physical background density so the
+    /// comoving NMS stencil does not over-suppress thin-filament peaks.
+    fn condensation_threshold_norm(z: f64, f_cosmo: f64) -> f64 {
+        let psi = Self::psi_nuc(z).max(1.0e-3);
+        let h_ratio = units::CosmologicalContext::h_of_z(z) / units::CosmologicalContext::h_of_z(0.0);
+        let corr = 1.0 - (10.0 / 33.0) * f_cosmo;
+        DELTA_N_THRESH_NORM as f64 * h_ratio.powf(1.0 / 3.0) * corr / psi
+    }
+
     fn new_common(device: Device, queue: Queue, num_particles: u32) -> Self {
         let particles = Particle::seed_lattice(num_particles as usize, BOX_SIZE);
         let mean_raw_total = particles.iter().map(|p| p.grav_mass as f64).sum::<f64>();
@@ -1575,12 +1612,19 @@ impl ShbtWebGpuEngine {
         let active_seeds_buffer = device.create_buffer(&BufferDescriptor {
             label: Some("emergence active_seeds"),
             size: (MAX_SEEDS * 32) as u64,
-            usage: BufferUsages::STORAGE | BufferUsages::COPY_SRC,
+            usage: BufferUsages::STORAGE | BufferUsages::COPY_SRC | BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
         let prev_seeds_buffer = device.create_buffer(&BufferDescriptor {
             label: Some("emergence prev_seeds"),
             size: (MAX_SEEDS * 32) as u64,
+            usage: BufferUsages::STORAGE | BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+        // shbt13 Stage-B: claim flags so un-re-detected defects carry over.
+        let prev_claimed_buffer = device.create_buffer(&BufferDescriptor {
+            label: Some("emergence prev_claimed"),
+            size: (MAX_SEEDS * 4) as u64,
             usage: BufferUsages::STORAGE | BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
@@ -1814,6 +1858,8 @@ impl ShbtWebGpuEngine {
             emergence_convo_pipeline,
             incubation_pipeline,
             seed_potential_pipeline,
+            emergence_carry_pipeline,
+            emergence_merge_pipeline,
         ) = Self::build_emergence_pipelines(&device, &emergence_g0_bgl, &emergence_g1_bgl);
         let (sandbox_bgl, sandbox_get_pipeline) = Self::build_sandbox_pipeline(&device);
         let (diag_bgl, diag_clear_pipeline, diag_power_pipeline, diag_phase_pipeline) =
@@ -1942,6 +1988,8 @@ impl ShbtWebGpuEngine {
             emergence_cic_pipeline,
             emergence_detect_pipeline,
             emergence_track_pipeline,
+            emergence_carry_pipeline,
+            emergence_merge_pipeline,
             emergence_convo_pipeline,
             incubation_pipeline,
             seed_potential_pipeline,
@@ -1991,6 +2039,7 @@ impl ShbtWebGpuEngine {
             seed_candidates_buffer,
             active_seeds_buffer,
             prev_seeds_buffer,
+            prev_claimed_buffer,
             rho_tot_atomic_buffer,
             rho_baryon_atomic_buffer,
             rho_baryon_buffer,
@@ -2351,6 +2400,11 @@ impl ShbtWebGpuEngine {
                         bytes[base + o + 3],
                     ])
                 };
+                // position.w is the liveness flag — merged-away defects
+                // keep their mass word but are cleared to 0 (shbt13).
+                if f(12) < 0.5 {
+                    continue;
+                }
                 seeds.push(EmergentSeed {
                     pos: [f(0), f(4), f(8)],
                     mass_msun: f(16),
@@ -2361,7 +2415,9 @@ impl ShbtWebGpuEngine {
             }
             self.absorb_seed_records(seeds);
         }
-        #[cfg(target_arch = "wasm32")]
+        // Only ever true in-browser (cpu_fallback = cfg!(wasm32) until the
+        // GPU readback errors out); the replica is compiled on every target
+        // so it stays type-checked on native builds.
         if self.cpu_fallback {
             self.cpu_emergence_tick();
         }
@@ -2418,7 +2474,6 @@ impl ShbtWebGpuEngine {
     /// basin integration, and minimum-image tracking with accretion
     /// carry-over. The GPU pipeline still runs; this only feeds the HUD
     /// telemetry registers when the hardware readback path is dead.
-    #[cfg(target_arch = "wasm32")]
     fn cpu_emergence_tick(&mut self) {
         if self.cpu_particles.is_none() {
             self.cpu_particles = Some(particle::Particle::seed_lattice(
@@ -2455,12 +2510,24 @@ impl ShbtWebGpuEngine {
                 }
             }
         }
-        let (_, attempt_freq) = self.update_redshift_and_loading(self.redshift);
+        let (f_cosmo, attempt_freq) = self.update_redshift_and_loading(self.redshift);
         let n_limit = Self::cardy_limit_norm(self.redshift) as f32;
         let mean_raw = (self.mean_raw_total / n_cells as f64) as f32;
+        // shbt13 Stage-3: the physical condensation threshold replaces the
+        // flat NMS floor —
+        //   delta_th(z) = (delta_c0 / Psi_nuc(z)) * (H/H0)^{1/3}
+        //                 * (1 - (10/33) f_load_cosmo)
+        // with delta_c0 = DELTA_N_THRESH_NORM (the canonical critical
+        // condensation threshold in normalized n = rho/rho_bar units).
+        // It scales with the physical background density so the comoving
+        // 26-neighbor stencil does not over-suppress thin-filament peaks,
+        // and it opens to the Psi_nuc = 1 floor below z = 18.
+        let delta_th_n = Self::condensation_threshold_norm(self.redshift, f_cosmo) as f32;
+        let psi_nuc = Self::psi_nuc(self.redshift) as f32;
         let ratio = |raw: f32| -> f32 {
             (raw / mean_raw.max(1e-5)) / n_limit
         };
+        let n_of = |raw: f32| -> f32 { raw / mean_raw.max(1e-5) };
         let pcg = |input: u32| -> u32 {
             let state = input.wrapping_mul(747796405).wrapping_add(2891336453);
             let word = ((state >> ((state >> 28) + 4)) ^ state).wrapping_mul(277803737);
@@ -2507,9 +2574,15 @@ impl ShbtWebGpuEngine {
                                     continue;
                                 }
                                 let n_idx = idx(x + dx, y + dy, z + dz);
-                                let n_neigh = ratio(grid[n_idx]);
-                                if n_neigh > r_local
-                                    || (n_neigh == r_local && n_idx < idx(x, y, z))
+                                // Physical condensation threshold in
+                                // n-space: a peak is suppressed only when a
+                                // neighbor exceeds it by more than
+                                // delta_th(z), so marginally-subdominant
+                                // filament peaks survive (shbt13 Stage 3).
+                                let n_neigh = n_of(grid[n_idx]);
+                                let n_self = n_of(grid[idx(x, y, z)]);
+                                if n_neigh - n_self > delta_th_n
+                                    || (n_neigh == n_self && n_idx < idx(x, y, z))
                                 {
                                     is_max = false;
                                     break 'nms;
@@ -2551,21 +2624,29 @@ impl ShbtWebGpuEngine {
                         (wp[1] / sum_overflow.max(1e-6) + BOX_SIZE) % BOX_SIZE,
                         (wp[2] / sum_overflow.max(1e-6) + BOX_SIZE) % BOX_SIZE,
                     ];
-                    candidates.push((c, sum_overflow * SEED_MASS_NORM));
+                    // Quintic nucleation mollifier (Thm 9.14, open floor):
+                    // Psi_nuc = 1 for z <= 18 — no suppression below the
+                    // onset window; 0 for z >= 30; C^2-smooth between.
+                    candidates.push((c, sum_overflow * SEED_MASS_NORM * psi_nuc));
                 }
             }
         }
+        // Dynamic pooling (shbt13): candidates may exceed the pool; the
+        // union of this frame's detections and the carried-over pool is
+        // merged agglomeratively and truncated at SEED_POOL_CAP by mass.
         candidates.truncate(MAX_SEEDS);
         let dt = 1.0f32 / 60.0;
         let mut next_prev: Vec<(f32, [f32; 3], f32)> = Vec::new();
-        let mut records = Vec::new();
+        let mut records: Vec<EmergentSeed> = Vec::new();
         let mut matched_count = 0u32;
         let prev_n = self.cpu_prev_seeds.len();
+        let mut prev_claimed = vec![false; prev_n];
         for (cand_idx, (pos, cand_mass)) in candidates.iter().enumerate() {
             let mut matched_id = -1f32;
+            let mut matched_j = usize::MAX;
             let mut min_dist = TRACK_RADIUS_MPC;
             let mut prev_mass = 0f32;
-            for &(pid, ppos, pmass) in &self.cpu_prev_seeds {
+            for (j, &(pid, ppos, pmass)) in self.cpu_prev_seeds.iter().enumerate() {
                 let mut diff = [
                     (pos[0] - ppos[0]).abs(),
                     (pos[1] - ppos[1]).abs(),
@@ -2578,6 +2659,7 @@ impl ShbtWebGpuEngine {
                 if dist < min_dist {
                     min_dist = dist;
                     matched_id = pid;
+                    matched_j = j;
                     prev_mass = pmass;
                 }
             }
@@ -2586,6 +2668,7 @@ impl ShbtWebGpuEngine {
                 prev_mass = *cand_mass;
             } else {
                 matched_count += 1;
+                prev_claimed[matched_j] = true;
             }
             let accreted = prev_mass + cand_mass * 0.02;
             let m_dot = (accreted - prev_mass) / dt;
@@ -2596,7 +2679,65 @@ impl ShbtWebGpuEngine {
                 p_debt_gw: accreted * LANDAUER_RATE as f32,
                 seed_id: matched_id,
             });
-            next_prev.push((matched_id, *pos, accreted));
+        }
+        // Defect persistence (shbt13 Stage-3 Stage-B): a condensed
+        // topological defect does not evaporate when the instantaneous
+        // detection field dips below the threshold; unmatched pool
+        // entries carry over and only die through merging.
+        for (j, &(pid, ppos, pmass)) in self.cpu_prev_seeds.iter().enumerate() {
+            if !prev_claimed[j] {
+                records.push(EmergentSeed {
+                    pos: ppos,
+                    mass_msun: pmass,
+                    m_dot: 0.0,
+                    p_debt_gw: pmass * LANDAUER_RATE as f32,
+                    seed_id: pid,
+                });
+            }
+        }
+        // Agglomerative merging at r_merge = 1.25 * dx_cell: the earlier
+        // record absorbs mass, accretion rate (mass-weighted), and
+        // Landauer power of each near-neighbor (shbt13 Stage-3 Stage-C).
+        let r_merge2 = (1.25 * cell_size).powi(2);
+        let n_rec = records.len();
+        for i in 0..n_rec {
+            if records[i].mass_msun <= 0.0 {
+                continue;
+            }
+            for j in (i + 1)..n_rec {
+                if records[j].mass_msun <= 0.0 {
+                    continue;
+                }
+                let mut diff = [
+                    (records[i].pos[0] - records[j].pos[0]).abs(),
+                    (records[i].pos[1] - records[j].pos[1]).abs(),
+                    (records[i].pos[2] - records[j].pos[2]).abs(),
+                ];
+                for d in diff.iter_mut() {
+                    *d = d.min(BOX_SIZE - *d);
+                }
+                if diff[0] * diff[0] + diff[1] * diff[1] + diff[2] * diff[2] < r_merge2 {
+                    let mi = records[i].mass_msun;
+                    let mj = records[j].mass_msun;
+                    let mt = mi + mj;
+                    // Momentum-consistent merge: M = M1 + M2; the survivor
+                    // keeps the earlier slot and its persistent id.
+                    records[i].m_dot = (mi * records[i].m_dot + mj * records[j].m_dot)
+                        / mt.max(1e-6);
+                    records[i].mass_msun = mt;
+                    records[i].p_debt_gw += records[j].p_debt_gw;
+                    records[j].mass_msun = 0.0;
+                }
+            }
+        }
+        records.retain(|r| r.mass_msun > 0.0);
+        if records.len() > MAX_SEEDS {
+            // Pool saturation: keep the most massive live defects.
+            records.sort_by(|a, b| b.mass_msun.total_cmp(&a.mass_msun));
+            records.truncate(MAX_SEEDS);
+        }
+        for r in &records {
+            next_prev.push((r.seed_id, r.pos, r.mass_msun));
         }
         self.cpu_prev_seeds = next_prev;
         let tot: f32 = records.iter().map(|r| r.mass_msun).sum();
@@ -2801,6 +2942,10 @@ impl ShbtWebGpuEngine {
                 BindGroupEntry {
                     binding: 7,
                     resource: self.seed_potential_buffer.as_entire_binding(),
+                },
+                BindGroupEntry {
+                    binding: 8,
+                    resource: self.prev_claimed_buffer.as_entire_binding(),
                 },
             ],
         });
@@ -3426,10 +3571,10 @@ impl ShbtWebGpuEngine {
             let te_rad = ctx.compute_einstein_radius_rad(s.mass_msun as f64, d_d, d_s, d_ds);
             max_te = max_te.max(te_rad * 206_265.0);
         }
-        let mut caustics = active_seeds;
-        if peak_kappa >= 1.0 || (peak_gamma * peak_gamma + peak_kappa * peak_kappa) > 0.8 {
-            caustics += 1;
-        }
+        // shbt13 Stage-4: caustic/seed parity — one analytically tracked
+        // caustic node per live seed in the MMIO frame (the phantom +1
+        // offset that desynchronized the HUD ledger is removed).
+        let caustics = active_seeds;
         self.telemetry = VisualizerTelemetry {
             peak_shear: peak_gamma,
             peak_convergence: peak_kappa,
@@ -3473,6 +3618,10 @@ impl ShbtWebGpuEngine {
             0,
             (MAX_SEEDS * 32) as u64,
         );
+        // shbt13 Stage-3: clear the active pool and the claim flags so
+        // track/carry/merge rebuild a clean lifecycle union each frame.
+        encoder_a.clear_buffer(&self.active_seeds_buffer, 0, None);
+        encoder_a.clear_buffer(&self.prev_claimed_buffer, 0, None);
         {
             let (g0, g1) = self.emergence_bind_groups();
             let mut cpass = encoder_a.begin_compute_pass(&ComputePassDescriptor {
@@ -3488,7 +3637,15 @@ impl ShbtWebGpuEngine {
             cpass.dispatch_workgroups((GRID_DIM + 3) / 4, (GRID_DIM + 3) / 4, (GRID_DIM + 3) / 4);
             cpass.set_pipeline(&self.emergence_detect_pipeline);
             cpass.dispatch_workgroups((GRID_DIM + 3) / 4, (GRID_DIM + 3) / 4, (GRID_DIM + 3) / 4);
+            // Stage-A: candidate-vs-pool matching, one thread per
+            // candidate slot (shbt13: 16 workgroups cover all 1024).
             cpass.set_pipeline(&self.emergence_track_pipeline);
+            cpass.dispatch_workgroups((MAX_SEEDS as u32 + 63) / 64, 1, 1);
+            // Stage-B: carry over unclaimed condensed defects.
+            cpass.set_pipeline(&self.emergence_carry_pipeline);
+            cpass.dispatch_workgroups((MAX_SEEDS as u32 + 63) / 64, 1, 1);
+            // Stage-C: serial agglomerative merge at 1.25 dx_cell.
+            cpass.set_pipeline(&self.emergence_merge_pipeline);
             cpass.dispatch_workgroups(1, 1, 1);
             // shbt10 Pass 1.6/1.7: incubation diffusion + Stinespring
             // ledger, then the regularized seed-potential solve
@@ -3864,7 +4021,15 @@ impl ShbtWebGpuEngine {
             self.delta_n_bits,
             self.seed_count,
         );
-        HudMetrics::from_frame(&frame).unwrap_or_default()
+        let mut m = HudMetrics::from_frame(&frame).unwrap_or_default();
+        // Host-side channels not serialized in the v2 MMIO frame: the
+        // seed ledger values come straight from the live engine state so
+        // the HUD reads them synchronously (shbt13 Stage-4).
+        m.delta_n_bits = self.delta_n_bits;
+        m.seed_mass_msun = self.emergent_total_mass_msun();
+        m.landauer_debt_gw = self.emergent_landauer_debt_gw();
+        m.particle_count = self.num_particles as u64;
+        m
     }
 }
 
@@ -4111,8 +4276,7 @@ impl ShbtWebGpuEngine {
         if let Some(metrics) = HudMetrics::from_frame(header_bytes) {
             self.redshift = metrics.redshift;
             self.timeline.seek(metrics.redshift);
-            self.delta_n_bits = metrics.delta_n_bits;
-            self.seed_count = if metrics.seed_mass_msun > 0.0 { 1 } else { 0 };
+            self.seed_count = metrics.num_seeds;
         }
         Ok(())
     }

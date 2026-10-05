@@ -121,38 +121,181 @@ impl ShbtUniverse {
         self.hubble(z)
     }
 
-    /// Conformal loading fraction f_load(z) on (-1, +inf).
+    /// Gamma-lock kernel in conformal log-redshift u = ln(1+z):
     ///
-    /// z >= 0 integrates Eq. "Conformal Loading ODE" df/dz = Gamma_lock /
-    /// [(1+z)^2 H_SHBT(z)] and caps at screen capacity f_load <= 1;
-    /// -1 < z < 0 follows the saturated de Sitter law 1 - (1+z)^3.
-    pub fn conformal_loading_fraction(&self, z: f64) -> Float {
+    /// ```text
+    /// K(u)     = Gamma_lock e^{-u} / H_SHBT(e^u - 1),
+    /// H_SHBT(z) = (H0_CMB + A_H / (1+z)) * E(z).
+    /// ```
+    ///
+    /// This single kernel drives both decoupled loading fractions (shbt13):
+    /// the backward past-light-cone debt integrates K over [0, ln(1+z)] and
+    /// the forward boundary capacity integrates K over [ln(1+z), +inf).
+    fn gamma_lock_kernel(&self, u: f64) -> f64 {
+        let gamma_lock = 3.0 * self.params.a_h;
+        let one_plus_z = u.exp();
+        let h0_z = self.params.h0_cmb + self.params.a_h / one_plus_z;
+        let expansion = (self.params.omega_m * one_plus_z.powi(3)
+            + self.params.omega_r0 * one_plus_z.powi(4)
+            + (1.0 - self.params.omega_m - self.params.omega_r0))
+            .sqrt();
+        gamma_lock * (-u).exp() / (h0_z * expansion)
+    }
+
+    /// Backward past-light-cone loading debt (shbt13):
+    ///
+    /// ```text
+    /// f_debt(z) = int_0^z Gamma_lock / [(1+z')^2 H_SHBT(z')] dz'
+    ///           = int_0^{ln(1+z)} K(u) du        (z >= 0),
+    /// f_debt(z) = 0                              (z <= 0),
+    /// ```
+    ///
+    /// the cumulative commitment accrued along the observer's past light
+    /// cone. It is exactly zero for every future-directed conformal
+    /// observer (z <= 0) and saturates at ~0.10744 at recombination:
+    /// f_debt(1100) ~= 0.10744, f_debt(1) ~= 0.08264.
+    ///
+    /// Ref: shbt13 spec 1.1; Theorem 8.16; Table 23 (lookback debt column).
+    pub fn evaluate_backward_debt_fraction(&self, z: f64) -> Float {
+        if z <= 0.0 {
+            return self.float(0.0);
+        }
+        let upper = (1.0 + z).ln();
+        let value = adaptive_simpson(
+            |u| self.gamma_lock_kernel(u),
+            0.0,
+            upper,
+            1e-12,
+            20,
+        );
+        self.float(value.min(1.0))
+    }
+
+    /// Forward boundary-capacity loading fraction (shbt13):
+    ///
+    /// ```text
+    /// f_cosmo(z) = 1 - exp(-int_z^inf Gamma_lock / [(1+z')^2 H] dz')
+    ///            = 1 - exp(-int_{ln(1+z)}^inf K(u) du),
+    /// ```
+    ///
+    /// the share of the finite screen the observer's causal future has
+    /// already paid down. It is << 0.01 in the primordial epoch
+    /// (z ~ 1e14), stays of order ~0.10 at the present day, and locks to 1
+    /// on the future branch: for -1 < z < 0 the kernel asymptotes to
+    /// 3 A_H e^{-u} / (A_H e^{-u} sqrt(Omega_L)) = 3 / sqrt(Omega_L), so
+    /// the forward integral diverges logarithmically and f_cosmo -> 1 as
+    /// z -> -1 (the asymptotic de Sitter horizon freeze).
+    ///
+    /// This is the fraction that feeds the boundary-capacity gauge, the
+    /// loaded-bits channels, the PM drag (1 - (10/33) f_cosmo) and the
+    /// observer-freeze margin; the backward debt above is a distinct
+    /// lookback metric serialized beside it in the MMIO frame.
+    ///
+    /// Ref: shbt13 spec 1.1; Theorem 8.16.
+    pub fn evaluate_forward_cosmic_loading_fraction(&self, z: f64) -> Float {
         if z <= -1.0 {
             return self.float(1.0);
         }
-        if z < 0.0 {
-            return self.float(1.0 - (1.0 + z).powi(3));
-        }
-        if z == 0.0 {
+        const U_HI: f64 = 40.0;
+        let lower = (1.0 + z).ln();
+        if lower >= U_HI {
             return self.float(0.0);
         }
-        // Integrate in u = ln(1+z): dz = e^u du, so the loading ODE becomes
-        // df_load/du = Gamma_lock e^{-u} / H_SHBT(e^u - 1).
-        let gamma_lock = 3.0 * self.params.a_h;
-        let kernel = |u: f64| -> f64 {
-            let one_plus_z = u.exp();
-            let h0_z = self.params.h0_cmb + self.params.a_h / one_plus_z;
-            let expansion = (self.params.omega_m * one_plus_z.powi(3)
-                + self.params.omega_r0 * one_plus_z.powi(4)
-                + (1.0 - self.params.omega_m - self.params.omega_r0))
-                .sqrt();
-            // df_load = Gamma e^{-2u} / H du with dz = e^u du folded in:
-            // d/dz = Gamma / [(1+z)^2 H] => d/du = Gamma e^{-u} / H.
-            gamma_lock * (-u).exp() / (h0_z * expansion)
-        };
-        let upper = (1.0 + z).ln();
-        let value = adaptive_simpson(kernel, 0.0, upper, 1e-12, 20);
-        self.float(value.min(1.0))
+        let integral = adaptive_simpson(
+            |u| self.gamma_lock_kernel(u),
+            lower,
+            U_HI,
+            1e-12,
+            24,
+        );
+        let f = 1.0 - (-integral).exp();
+        self.float(f.min(1.0).max(0.0))
+    }
+
+    /// Conformal loading fraction f_load(z) on (-1, +inf), capacity channel.
+    ///
+    /// shbt13 decoupling: this accessor feeds capacity consumers (loaded
+    /// bits, growth suppression, PM drag, observer-freeze margin), all of
+    /// which are forward-facing, so it now evaluates the forward cosmic
+    /// loading fraction f_cosmo(z). The backward past-light-cone debt the
+    /// previous conflated form integrated is available separately as
+    /// `evaluate_backward_debt_fraction`.
+    pub fn conformal_loading_fraction(&self, z: f64) -> Float {
+        self.evaluate_forward_cosmic_loading_fraction(z)
+    }
+
+    /// Open nucleation floor partition function Psi_nuc(z) (shbt13):
+    ///
+    /// ```text
+    /// Psi_nuc(z) = 1                           (z <= 18),
+    /// Psi_nuc(z) = 10u^3 - 15u^4 + 6u^5        (18 < z < 30),
+    /// Psi_nuc(z) = 0                           (z >= 30),
+    /// ```
+    ///
+    /// with u = (30 - z) / 12 the normalized incubation coordinate. The
+    /// quintic is the unique C^2-step interpolation; the open floor at
+    /// z <= 18 guarantees the condensation threshold never suppresses
+    /// newly forming seeds inside the nucleation window. Mirrors the
+    /// WGSL kernel `compute_nucleation_weight` in seed_emergence.wgsl.
+    pub fn evaluate_psi_nuc(z: f64) -> f64 {
+        if z <= 18.0 {
+            1.0
+        } else if z >= 30.0 {
+            0.0
+        } else {
+            let u = (30.0 - z) / 12.0;
+            let u2 = u * u;
+            let u3 = u2 * u;
+            10.0 * u3 - 15.0 * u2 * u2 + 6.0 * u3 * u2
+        }
+    }
+
+    /// First-principles seed-mass peak redshift (shbt13), replacing the
+    /// hardcoded z_peak = 7.5:
+    ///
+    /// ```text
+    /// 1 + z_peak^(0) = (K / (gamma_CFT * c_eff))^{2/3},
+    /// z_peak         = z_peak^(0) * (1 - (10/33) f_cosmo(z_peak)),
+    /// ```
+    ///
+    /// with (k_l, k_q, K) = (26, 8, 312), c_eff = 1325/154 ~= 8.6039 and
+    /// gamma_CFT = c_eff/6 = 1325/924 ~= 1.4340. The unscreened anchor
+    /// 1 + z^(0) = (312/12.3378)^{2/3} ~= 8.6146 fixes z^(0) ~= 7.6146; a
+    /// few fixed-point iterations close the mild forward-loading screen
+    /// suppression self-consistently.
+    pub fn derive_first_principles_z_peak(&self) -> f64 {
+        let c_eff: f64 = 1325.0 / 154.0;
+        let gamma_cft: f64 = 1325.0 / 924.0;
+        let k: f64 = 312.0;
+        let z0 = (k / (gamma_cft * c_eff)).powf(2.0 / 3.0) - 1.0;
+        let mut z_peak = z0;
+        for _ in 0..32 {
+            let f = self
+                .evaluate_forward_cosmic_loading_fraction(z_peak)
+                .to_f64();
+            z_peak = z0 * (1.0 - (10.0 / 33.0) * f);
+        }
+        z_peak
+    }
+
+    /// First-principles nucleation dispersion (shbt13), replacing the
+    /// hardcoded sigma_z = 0.801:
+    ///
+    /// ```text
+    /// sigma_z = (1/sqrt(2)) * ((k_l + k_q)/K)^{1/4}
+    ///           * (1 + z_peak) / sqrt(c_eff) * sqrt(10/21),
+    /// ```
+    ///
+    /// the excursion-set width of the first-crossing rate peak in z.
+    pub fn derive_first_principles_sigma_z(&self) -> f64 {
+        let c_eff: f64 = 1325.0 / 154.0;
+        let z_peak = self.derive_first_principles_z_peak();
+        let ratio = ((26.0 + 8.0) / 312.0_f64).powf(0.25);
+        (1.0 / 2.0_f64.sqrt())
+            * ratio
+            * (1.0 + z_peak)
+            / c_eff.sqrt()
+            * (10.0_f64 / 21.0).sqrt()
     }
 
     /// Saturated screen capacity N_sat = 3 pi / (L_P^2 Lambda_holo).

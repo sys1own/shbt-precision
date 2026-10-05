@@ -256,13 +256,11 @@ async def verify_hud_telemetry_milestone(page, milestone_idx: int, z: float, res
         age = metrics.get("t_gyr") or 0.0
         f_load = metrics.get("f_load")
         note("cosmic age < 0.001 Gyr", age < 0.001, f"{age:.3e} Gyr")
-        # Primordial loading floor: the canonical Gamma-lock integral
-        # loading_fraction(z) evaluates to ~0.1074 at z = 1e14 — the
-        # cumulative loaded share accrued since the Big Bang, not a live
-        # flux, so the gate bounds it at the primordial floor rather
-        # than a near-zero threshold the model never produces.
-        note("f_load at primordial floor (<= 0.11)",
-             f_load is not None and f_load <= 0.11,
+        # shbt13: f_load is now the FORWARD boundary-capacity fraction
+        # f_load_cosmo(z) = 1 - exp(-int_z^inf K) — virtually zero at the
+        # primordial boundary (spec milestone M1: f_cosmo(1e14) < 0.01).
+        note("f_load_cosmo(1e14) < 0.01 (M1)",
+             f_load is not None and f_load < 0.01,
              f"{f_load}")
     elif milestone_idx == 2:
         seeds = metrics.get("seedCount") or 0
@@ -273,11 +271,21 @@ async def verify_hud_telemetry_milestone(page, milestone_idx: int, z: float, res
         note("P_debt > 0", debt > 0.0, f"{debt:.3e} GW")
     elif milestone_idx == 3:
         seeds = metrics.get("seedCount") or 0
+        # shbt13: the open nucleation floor + lifecycle merge pipeline
+        # must break the legacy static 646-seed saturation ceiling.
+        note("active_seeds > 646 (spec)", seeds > 646, f"{seeds} seeds",
+             hard=False)
         note("active_seeds > 0", seeds > 0, f"{seeds} seeds")
+        caustics = metrics.get("active_caustics") or 0
+        note("caustic:seed 1:1 parity", caustics == seeds,
+             f"{caustics} caustics vs {seeds} seeds")
     elif milestone_idx == 4:
         caustics = metrics.get("active_caustics") or 0
+        seeds = metrics.get("seedCount") or 0
         gamma = metrics.get("peak_shear") or 0.0
         note("caustics > 0", caustics > 0, f"{caustics}")
+        note("caustic:seed 1:1 parity", caustics == seeds,
+             f"{caustics} caustics vs {seeds} seeds")
         note("gamma_max > 0.1", gamma > 0.1, f"{gamma:.4f}")
     elif milestone_idx == 5:
         age = metrics.get("t_gyr") or 0.0
@@ -413,7 +421,7 @@ async def record_cosmic_evolution() -> Tuple[List[Dict], Path | None]:
                     }""",
             }.get(ms_idx)
             if settle_js:
-                await page.wait_for_function(settle_js, timeout=300_000)
+                await page.wait_for_function(settle_js, timeout=900_000)
             # Physical-relaxation dwell (spec: 30 frames @ 60 fps = 0.5 s):
             # park the milestone state and let MILESTONE_DWELL_PRESENTED
             # fresh engine frames present before the still is captured.

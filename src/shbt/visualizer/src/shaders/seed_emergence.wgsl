@@ -136,6 +136,10 @@ const SEED_POOL_CAP: u32 = 1024u;
 @group(1) @binding(5) var<storage, read_write> dark_ledger: array<f32>;
 @group(1) @binding(6) var<storage, read_write> seed_mass_grid: array<f32>;
 @group(1) @binding(7) var<storage, read_write> seed_potential_grid: array<f32>;
+// shbt13 Stage-3 lifecycle buffers: per-frame match claims against the
+// previous pool (drives the carry-over of condensed defects that were
+// not re-detected this frame).
+@group(1) @binding(8) var<storage, read_write> prev_claimed: array<atomic<u32>, 1024>;
 
 fn get_linear_index(x: u32, y: u32, z: u32) -> u32 {
     let dim = params.grid_dim;
@@ -224,6 +228,26 @@ fn instanton_action(r_ratio: f32) -> f32 {
     }
     let delta_ratio = 1.0 - r_ratio;
     return S_INST_PREFACTOR * delta_ratio * delta_ratio;
+}
+
+// Physical condensation threshold in normalized n = rho/rho_bar units
+// (shbt13 Stage-3):
+//   delta_th(z) = (delta_c0 / Psi_nuc(z)) * (H/H0)^{1/3}
+//                 * (1 - (10/33) f_load_cosmo)
+// with delta_c0 = params.delta_n_thresh — the canonical critical
+// condensation threshold in normalized units. The H^{1/3} factor scales
+// the suppression margin with the physical background density so the
+// comoving 26-neighbor NMS stencil does not over-suppress newly forming
+// peaks along thin filaments; the Psi_nuc floor opens below z = 18.
+fn condensation_threshold_n(z: f32) -> f32 {
+    let psi = max(compute_nucleation_weight(z, 30.0, 18.0), 1.0e-3);
+    let e0 = sqrt(0.315 + 9.2e-5 + 0.68491);
+    let opz = 1.0 + z;
+    let e = sqrt(0.315 * pow(opz, 3.0) + 9.2e-5 * pow(opz, 4.0) + 0.68491);
+    let h_ratio = (1.0 + (4.797960072861 / 67.4) / opz) * e
+        / ((1.0 + 4.797960072861 / 67.4) * e0);
+    let corr = 1.0 - (10.0 / 33.0) * params.f_load;
+    return params.delta_n_thresh * pow(h_ratio, 1.0 / 3.0) * corr / psi;
 }
 
 // ----------------------------------------------------------------------------
@@ -323,8 +347,14 @@ fn cs_detect_condensation(@builtin(global_invocation_id) id: vec3<u32>) {
     }
 
     // 26-neighborhood Non-Maximum Suppression over the normalized ratio.
+    // shbt13 Stage-3: suppression is measured against the physical
+    // condensation threshold delta_th(z) in n = rho/rho_bar units
+    // ((delta_c0/Psi_nuc)*(H/H0)^{1/3}*(1-(10/33)f_cosmo)), so marginally
+    // subdominant peaks along thin filaments survive instead of being
+    // eaten by the comoving stencil.
     var is_local_max: bool = true;
     let i_dim = i32(dim);
+    let d_th = condensation_threshold_n(params.redshift);
 
     for (var dz = -1; dz <= 1; dz = dz + 1) {
         let nz = u32((i32(id.z) + dz + i_dim) % i_dim);
@@ -337,11 +367,10 @@ fn cs_detect_condensation(@builtin(global_invocation_id) id: vec3<u32>) {
                 let nx = u32((i32(id.x) + dx + i_dim) % i_dim);
                 let neighbor_idx = get_linear_index(nx, ny, nz);
                 let neighbor_val = f32(atomicLoad(&grid_density[neighbor_idx])) / params.fixed_point_scale;
-                // NMS runs on the smoothed overflow field (scale-invariant
-                // condensation centers).
-                let r_neigh = (neighbor_val / max(mean_raw, 1e-5) + smoothed_overflow[neighbor_idx]) / n_limit;
+                // NMS margin on the smoothed field in normalized n units.
+                let n_neigh = neighbor_val / max(mean_raw, 1e-5) + smoothed_overflow[neighbor_idx];
 
-                if (r_neigh > r_ratio || (r_neigh == r_ratio && neighbor_idx < cell_idx)) {
+                if (n_neigh - n_smooth > d_th || (n_neigh == n_smooth && neighbor_idx < cell_idx)) {
                     is_local_max = false;
                     break;
                 }
@@ -509,6 +538,7 @@ fn cs_temporal_tracking(@builtin(global_invocation_id) global_id: vec3<u32>) {
     let cand_mass = cand.dynamics.x;
 
     var matched_id: f32 = -1.0;
+    var matched_prev: u32 = 0xFFFFFFFFu;
     var min_dist: f32 = params.track_radius;
     var prev_mass: f32 = 0.0;
 
@@ -524,6 +554,7 @@ fn cs_temporal_tracking(@builtin(global_invocation_id) global_id: vec3<u32>) {
                 min_dist = dist;
                 matched_id = prev.dynamics.w;
                 prev_mass = prev.dynamics.x;
+                matched_prev = i;
             }
         }
     }
@@ -531,6 +562,10 @@ fn cs_temporal_tracking(@builtin(global_invocation_id) global_id: vec3<u32>) {
     if (matched_id < 0.0) {
         matched_id = f32(cand_idx + 100u);
         prev_mass = cand_mass;
+    } else {
+        // Stage-B lifecycle claim (shbt13): mark the consumed prev entry
+        // so the carry pass does not re-inject it.
+        atomicStore(&prev_claimed[matched_prev], 1u);
     }
 
     let active_slot = atomicAdd(&tracking_state.active_seed_count, 1u);
@@ -545,5 +580,74 @@ fn cs_temporal_tracking(@builtin(global_invocation_id) global_id: vec3<u32>) {
 
         active_seeds[active_slot].position = vec4<f32>(cand_pos, 1.0);
         active_seeds[active_slot].dynamics = vec4<f32>(accreted_mass, m_dot, p_debt, matched_id);
+    }
+}
+
+// ----------------------------------------------------------------------------
+// PASS 3b: Defect carry-over (shbt13 Stage-3 Stage-B)
+// ----------------------------------------------------------------------------
+// Condensed topological defects do not evaporate when the instantaneous
+// detection field dips below threshold: every previous-pool entry that
+// was not claimed by a fresh candidate is re-injected into the active
+// pool. Defects only die through merging (cs_seed_merge).
+@compute @workgroup_size(64)
+fn cs_seed_carry(@builtin(global_invocation_id) global_id: vec3<u32>) {
+    let i = global_id.x;
+    if (i >= SEED_POOL_CAP) {
+        return;
+    }
+    let prev = prev_seeds[i];
+    if (prev.position.w < 0.5) {
+        return;
+    }
+    if (atomicLoad(&prev_claimed[i]) != 0u) {
+        return;
+    }
+    let slot = atomicAdd(&tracking_state.active_seed_count, 1u);
+    if (slot < SEED_POOL_CAP) {
+        active_seeds[slot] = prev;
+    }
+}
+
+// ----------------------------------------------------------------------------
+// PASS 3c: Agglomerative defect merging (shbt13 Stage-3 Stage-C)
+// ----------------------------------------------------------------------------
+// Momentum-consistent agglomerative merging at r_merge = 1.25 dx_cell.
+// For each live slot, scan backward for the lowest-index live neighbor
+// inside the merge radius; the earliest slot absorbs mass, a
+// mass-weighted m_dot, and the Landauer power of the child. Runs in a
+// single workgroup serial pass — O(N^2) over 1024 slots is cheaper than
+// cross-workgroup atomic arbitration and conserves mass exactly.
+const MERGE_RADIUS_CELLS: f32 = 1.25;
+
+@compute @workgroup_size(1)
+fn cs_seed_merge() {
+    let cell_size = params.box_size / f32(params.grid_dim);
+    let r2 = (MERGE_RADIUS_CELLS * cell_size) * (MERGE_RADIUS_CELLS * cell_size);
+    let n = min(atomicLoad(&tracking_state.active_seed_count), SEED_POOL_CAP);
+    for (var i = 0u; i < n; i = i + 1u) {
+        if (active_seeds[i].position.w < 0.5) {
+            continue;
+        }
+        for (var j = i + 1u; j < n; j = j + 1u) {
+            if (active_seeds[j].position.w < 0.5) {
+                continue;
+            }
+            var diff = abs(active_seeds[i].position.xyz - active_seeds[j].position.xyz);
+            diff = min(diff, vec3<f32>(params.box_size) - diff);
+            if (dot(diff, diff) < r2) {
+                let mi = active_seeds[i].dynamics.x;
+                let mj = active_seeds[j].dynamics.x;
+                let mt = mi + mj;
+                // Momentum-consistent merge: M = M1 + M2; the survivor
+                // keeps the earlier slot and its persistent seed id.
+                active_seeds[i].dynamics.y =
+                    (mi * active_seeds[i].dynamics.y + mj * active_seeds[j].dynamics.y)
+                    / max(mt, 1.0e-6);
+                active_seeds[i].dynamics.x = mt;
+                active_seeds[i].dynamics.z += active_seeds[j].dynamics.z;
+                active_seeds[j].position.w = 0.0;
+            }
+        }
     }
 }

@@ -5,23 +5,30 @@
 //! debt monitor, invariant status) and tracks the interactive timeline
 //! from z = 1e12 down to the asymptotic freeze at z -> -1.
 
-/// SHBT-MMIO header offsets (per `shbt3.txt`).
+/// SHBT-MMIO header offsets — revised 128-byte layout (shbt13):
+/// decoupled loading fractions, physical lens-distance channel, and a
+/// CRC32 integrity trailer.
 pub mod offsets {
     pub const MAGIC: usize = 0x00;
-    pub const SCHEMA: usize = 0x04;
+    pub const VERSION: usize = 0x04;
     pub const FRAME_INDEX: usize = 0x08;
-    pub const BULK_TIME: usize = 0x10;
-    pub const REDSHIFT: usize = 0x18;
-    pub const SCALE_FACTOR: usize = 0x20;
-    pub const HUBBLE: usize = 0x28;
-    pub const LOADING: usize = 0x30;
-    pub const ACTIVE_BITS: usize = 0x38;
-    pub const DARK_BITS: usize = 0x40;
-    pub const LANDAUER: usize = 0x48;
-    pub const SEED_MASS: usize = 0x50;
-    pub const FSIGMA8: usize = 0x58;
-    pub const ISW: usize = 0x60;
-    pub const PARTICLES: usize = 0x68;
+    pub const REDSHIFT: usize = 0x10;
+    pub const SCALE_FACTOR: usize = 0x18;
+    pub const HUBBLE: usize = 0x20;
+    pub const F_LOAD_COSMO: usize = 0x28;
+    pub const F_LOAD_DEBT: usize = 0x30;
+    pub const T_LOOKBACK: usize = 0x38;
+    pub const D_C: usize = 0x40;
+    pub const D_D: usize = 0x48;
+    pub const D_S: usize = 0x50;
+    pub const D_DS: usize = 0x58;
+    pub const NUM_SEEDS: usize = 0x60;
+    pub const NUM_CAUSTICS: usize = 0x64;
+    pub const PSI_NUC: usize = 0x68;
+    pub const DELTA_MAX: usize = 0x6C;
+    pub const D_TAU: usize = 0x70;
+    pub const FLAGS: usize = 0x74;
+    pub const CRC32: usize = 0x78;
 }
 
 /// Decoded HUD metrics for one telemetry frame.
@@ -32,11 +39,25 @@ pub struct HudMetrics {
     pub redshift: f64,
     pub scale_factor: f64,
     pub hubble: f64,
+    /// Forward cosmic-loading fraction f_load_cosmo (capacity channel).
     pub loading_frac: f64,
+    /// Backward register-debt fraction f_load_debt.
+    pub debt_frac: f64,
+    pub lookback_gyr: f64,
+    pub d_c_mpc: f64,
+    pub d_d_mpc: f64,
+    pub d_s_mpc: f64,
+    pub d_ds_mpc: f64,
+    pub num_seeds: u32,
+    pub num_caustics: u32,
+    pub psi_nuc: f32,
+    pub delta_max: f32,
+    pub d_tau: f32,
+    pub flags: u32,
     pub n_vis: f64,
     pub n_dark: f64,
-    /// Coordinate overflow bit count Delta N inferred from the seed ledger
-    /// (Delta N = M_seed / alpha_seed).
+    /// Coordinate overflow bit count Delta N from the seed ledger
+    /// (host-populated; not serialized in the v2 frame).
     pub delta_n_bits: f64,
     pub landauer_debt_gw: f64,
     pub seed_mass_msun: f64,
@@ -51,40 +72,71 @@ pub struct HudMetrics {
     pub horizon_frozen: bool,
 }
 
-const ALPHA_SEED: f64 = 1.3258316e-51;
-
 impl HudMetrics {
-    /// Decode a 128-byte SHBT-MMIO frame.
+    /// Decode a 128-byte SHBT-MMIO frame (v2 layout). Returns None on a
+    /// bad magic, wrong version, or CRC32 mismatch.
     pub fn from_frame(bytes: &[u8]) -> Option<Self> {
         if bytes.len() < 128 {
             return None;
         }
         let f64_at = |o: usize| f64::from_le_bytes(bytes[o..o + 8].try_into().unwrap());
+        let f32_at = |o: usize| f32::from_le_bytes(bytes[o..o + 4].try_into().unwrap());
+        let u32_at = |o: usize| u32::from_le_bytes(bytes[o..o + 4].try_into().unwrap());
         let u64_at = |o: usize| u64::from_le_bytes(bytes[o..o + 8].try_into().unwrap());
-        let magic = u32::from_le_bytes(bytes[offsets::MAGIC..offsets::MAGIC + 4].try_into().unwrap());
+        let magic = u32_at(offsets::MAGIC);
         if magic != 0x5442_4853 {
             return None;
         }
-        let loading = f64_at(offsets::LOADING);
-        let seed_mass = f64_at(offsets::SEED_MASS);
+        if u32_at(offsets::VERSION) != 2 {
+            return None;
+        }
+        if crate::telemetry::crc32_ieee(&bytes[..offsets::CRC32]) != u32_at(offsets::CRC32) {
+            return None;
+        }
+        let z = f64_at(offsets::REDSHIFT);
+        let f_cosmo = f64_at(offsets::F_LOAD_COSMO);
+        let flags = u32_at(offsets::FLAGS);
+        // HUD-only channels not serialized in the v2 frame are derived
+        // from the decoded epoch (same kernels as the encoder).
+        let w_vis = crate::stinespring_w_vis(z);
+        // Loaded register = max(f_cosmo, f_debt): the backward
+        // light-cone debt carries the ledger while z > 0 (the forward
+        // capacity fraction underflows to 0 above z ~ 1e5 in f64), and
+        // the forward fraction takes over as z -> -1 where f_debt = 0.
+        let total_bits =
+            crate::telemetry::N_SAT_BITS * f_cosmo.max(f64_at(offsets::F_LOAD_DEBT));
         Some(Self {
             frame_index: u64_at(offsets::FRAME_INDEX),
-            bulk_time_gyr: f64_at(offsets::BULK_TIME),
-            redshift: f64_at(offsets::REDSHIFT),
+            // The frame carries lookback; bulk cosmic age derives from z.
+            bulk_time_gyr: crate::telemetry::bulk_time_gyr(z),
+            redshift: z,
             scale_factor: f64_at(offsets::SCALE_FACTOR),
             hubble: f64_at(offsets::HUBBLE),
-            loading_frac: loading,
-            n_vis: f64_at(offsets::ACTIVE_BITS),
-            n_dark: f64_at(offsets::DARK_BITS),
-            delta_n_bits: seed_mass / ALPHA_SEED,
-            landauer_debt_gw: f64_at(offsets::LANDAUER),
-            seed_mass_msun: seed_mass,
-            f_sigma8: f64_at(offsets::FSIGMA8),
-            delta_isw: f64_at(offsets::ISW),
-            particle_count: u64_at(offsets::PARTICLES),
+            loading_frac: f_cosmo,
+            debt_frac: f64_at(offsets::F_LOAD_DEBT),
+            lookback_gyr: f64_at(offsets::T_LOOKBACK),
+            d_c_mpc: f64_at(offsets::D_C),
+            d_d_mpc: f64_at(offsets::D_D),
+            d_s_mpc: f64_at(offsets::D_S),
+            d_ds_mpc: f64_at(offsets::D_DS),
+            num_seeds: u32_at(offsets::NUM_SEEDS),
+            num_caustics: u32_at(offsets::NUM_CAUSTICS),
+            psi_nuc: f32_at(offsets::PSI_NUC),
+            delta_max: f32_at(offsets::DELTA_MAX),
+            d_tau: f32_at(offsets::D_TAU),
+            flags,
+            n_vis: total_bits * w_vis,
+            n_dark: total_bits * (1.0 - w_vis),
+            delta_n_bits: 0.0,
+            landauer_debt_gw: 0.0,
+            seed_mass_msun: 0.0,
+            f_sigma8: crate::telemetry::growth_suppression(z),
+            delta_isw: crate::telemetry::delta_isw(z),
+            particle_count: 0,
             delta_fr_zero: true,
             e_munu_zero: true,
-            horizon_frozen: loading >= 0.999_999,
+            horizon_frozen: flags & crate::telemetry::MMIO_FLAG_HORIZON_FROZEN != 0
+                || f_cosmo >= 0.999_999,
         })
     }
 }
@@ -202,16 +254,18 @@ impl HorizonLedger {
         // (negative on the asymptotic future branch z < 0).
         self.lookback_time_gyr = crate::telemetry::lookback_gyr(z);
 
-        let f_load = if z > 1.0e10 {
-            1.0e-6
-        } else if z <= -0.99 {
-            1.0
-        } else {
-            (1.0 / (1.0 + (z + 1.0).powf(0.85))).clamp(0.0, 1.0)
-        };
+        // shbt13: physical forward cosmic-loading fraction
+        // f_load_cosmo(z) = 1 - exp(-int_{ln(1+z)}^inf Gamma e^{-u}/H du)
+        // replaces the heuristic (1+z)^0.85 profile — monotonic toward the
+        // asymptotic freeze and consistent with the MMIO channel.
+        let f_load = crate::telemetry::loading_fraction(z);
 
         self.loaded_fraction = f_load;
-        self.total_bits_loaded = f_load * N_SAT;
+        // Same max(f_cosmo, f_debt) ledger blend as the MMIO decode path:
+        // the backward debt keeps the register populated while z > 0 and
+        // the forward capacity saturates it into the z -> -1 freeze.
+        self.total_bits_loaded =
+            f_load.max(crate::telemetry::debt_fraction(z)) * N_SAT;
 
         // Thermal Stinespring channel (shbt7 Thm 9.10): the visible overlap
         // w_vis(z) = (1-eta_D) + eta_D/(1+(z_N/z)^Delta_Bbar) with
@@ -498,12 +552,8 @@ impl VisualizerEngine {
             max_te = max_te.max(self.seeds[i].theta_e);
         }
         self.telemetry.max_einstein_radius = max_te;
-        let mut caustics = 0u32;
-        if peak_kappa >= 1.0 || (peak_gamma * peak_gamma + peak_kappa * peak_kappa) > 0.8 {
-            caustics += 1;
-        }
-        caustics += self.uniforms.seed_count;
-        self.telemetry.active_caustics = caustics;
+        // shbt13 caustic/seed parity: one caustic node per live seed.
+        self.telemetry.active_caustics = self.uniforms.seed_count;
     }
 
     pub fn get_uniform_ptr(&self) -> *const u8 {

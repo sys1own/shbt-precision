@@ -131,7 +131,7 @@ if __name__ == "__main__":
 # ----------------------------------------------------------------------
 
 SHBT_MMIO_MAGIC = 0x54424853
-SHBT_MMIO_SCHEMA = 0x00020000
+SHBT_MMIO_SCHEMA = 0x00000002  # MMIO v2 (shbt13 revised 128-byte layout)
 SHBT_MMIO_HEADER_BYTES = 128
 SEED_RECORD_BYTES = 128
 SPECTRUM_GRID_LEN = 256
@@ -146,13 +146,22 @@ ETA_DARK = 23.0 / 33.0
 ETA_VISIBLE = 10.0 / 33.0
 
 
-def _loading_fraction(z: float) -> float:
-    """Conformal loading fraction on (-1, +inf); mirrors Rust cosmology.rs."""
-    if z <= -1.0:
-        return 1.0
-    if z < 0.0:
-        return 1.0 - (1.0 + z) ** 3
-    if z == 0.0:
+def _gamma_lock_kernel(u: float) -> float:
+    """Gamma-lock kernel in conformal log-redshift u = ln(1+z) (shbt13):
+    K(u) = Gamma_lock e^{-u} / [(H0 + A_H e^{-u}) E(e^u - 1)]."""
+    e_neg = math.exp(-u)
+    one_plus_z = 1.0 / e_neg
+    h0_z = H0_CMB + A_H * e_neg
+    expansion = math.sqrt(
+        OMEGA_M * one_plus_z**3 + OMEGA_R0 * one_plus_z**4 + (1.0 - OMEGA_M - OMEGA_R0)
+    )
+    return GAMMA_LOCK * e_neg / (h0_z * expansion)
+
+
+def _backward_debt_fraction(z: float) -> float:
+    """shbt13 backward past-light-cone debt: integral of the Gamma-lock
+    kernel over u in [0, ln(1+z)]; exactly 0 for z <= 0."""
+    if z <= 0.0:
         return 0.0
     upper = math.log(1.0 + z)
     n = 4096
@@ -160,14 +169,64 @@ def _loading_fraction(z: float) -> float:
     acc = 0.0
     for i in range(n + 1):
         u = du * i
-        one_plus_z = math.exp(u)
-        h0_z = H0_CMB + A_H / one_plus_z
-        expansion = math.sqrt(
-            OMEGA_M * one_plus_z**3 + OMEGA_R0 * one_plus_z**4 + (1.0 - OMEGA_M - OMEGA_R0)
-        )
         w = 0.5 if i in (0, n) else 1.0
-        acc += w * GAMMA_LOCK * math.exp(-u) / (h0_z * expansion)
+        acc += w * _gamma_lock_kernel(u)
     return min(du * acc, 1.0)
+
+
+def _forward_cosmic_loading_fraction(z: float) -> float:
+    """shbt13 forward boundary-capacity loading fraction:
+    f_cosmo(z) = 1 - exp(-int_{ln(1+z)}^{inf} K(u) du), saturated at 1 for
+    z <= -1 (asymptotic de Sitter freeze). ~0.10 at z = 0."""
+    if z <= -1.0:
+        return 1.0
+    u_lo = math.log(1.0 + z)
+    u_hi = 40.0
+    if u_lo >= u_hi:
+        return 0.0
+    n = 4096
+    du = (u_hi - u_lo) / n
+    acc = 0.0
+    for i in range(n + 1):
+        u = u_lo + du * i
+        w = 0.5 if i in (0, n) else 1.0
+        acc += w * _gamma_lock_kernel(u)
+    integral = du * acc
+    return min(max(1.0 - math.exp(-integral), 0.0), 1.0)
+
+
+def _comoving_distance_mpc(z: float) -> float:
+    """D_c(z) = c int_0^z dz'/H_SHBT(z') in Mpc (Simpson, mirrors export.rs)."""
+    if z <= 0.0:
+        return 0.0
+    n = 1024
+    dz = z / n
+    acc = 0.0
+    for i in range(n + 1):
+        zi = dz * i
+        w = 1.0 if i in (0, n) else (4.0 if i % 2 == 1 else 2.0)
+        acc += w / _hubble(zi)
+    return 299_792.458 * dz / 3.0 * acc
+
+
+def _angular_diameter_mpc(z: float) -> float:
+    return _comoving_distance_mpc(z) / (1.0 + z)
+
+
+def _lens_source_distance_mpc(z_d: float, z_s: float) -> float:
+    dchi = max(_comoving_distance_mpc(z_s) - _comoving_distance_mpc(z_d), 0.0)
+    return dchi / (1.0 + z_s)
+
+
+def _psi_nuc(z: float) -> float:
+    """Open nucleation floor Psi_nuc(z) (shbt13): 1 for z <= 18, 0 for
+    z >= 30, C^2 quintic between."""
+    if z <= 18.0:
+        return 1.0
+    if z >= 30.0:
+        return 0.0
+    u = (30.0 - z) / 12.0
+    return u**3 * (10.0 - 15.0 * u + 6.0 * u**2)
 
 
 def _hubble(z: float) -> float:
@@ -226,6 +285,16 @@ def _power_grid(z: float) -> list[float]:
     return out
 
 
+MMIO_SOURCE_Z = 3.0
+MMIO_FLAG_HORIZON_FROZEN = 1 << 0
+MMIO_FLAG_HAS_SEEDS = 1 << 1
+
+
+def _lookback_gyr(z: float) -> float:
+    """t_lookback(z) = t(0) - t(z) in Gyr (negative on the future branch)."""
+    return _bulk_time_gyr(0.0) - _bulk_time_gyr(z)
+
+
 def _encode_header_python(
     frame_index: int,
     z: float,
@@ -233,30 +302,46 @@ def _encode_header_python(
     delta_n_bits: float,
     seed_count: int,
 ) -> bytes:
-    """Pure-Python SHBT-MMIO header twin of src/shbt/export.rs::to_bytes."""
+    """Pure-Python SHBT-MMIO header twin of src/shbt/export.rs::to_bytes
+    (v2 128-byte layout, shbt13): decoupled forward/debt fractions,
+    angular-diameter distances at MMIO_SOURCE_Z, Psi_nuc, and a CRC32
+    trailer over bytes 0x00..0x77."""
     import struct
+    import zlib
 
-    f_load = _loading_fraction(z)
-    seed_mass = ALPHA_SEED_MSUN_PER_BIT * delta_n_bits
-    p_debt = seed_mass * LANDAUER_GW_PER_MSUN
+    _ = particle_count
+    _ = delta_n_bits
+    f_cosmo = _forward_cosmic_loading_fraction(z)
+    f_debt = _backward_debt_fraction(z)
+    flags = 0
+    if f_cosmo >= 0.9999:
+        flags |= MMIO_FLAG_HORIZON_FROZEN
+    if seed_count > 0:
+        flags |= MMIO_FLAG_HAS_SEEDS
     buf = bytearray(SHBT_MMIO_HEADER_BYTES)
     buf[0x00:0x04] = struct.pack("<I", SHBT_MMIO_MAGIC)
     buf[0x04:0x08] = struct.pack("<I", SHBT_MMIO_SCHEMA)
     buf[0x08:0x10] = struct.pack("<Q", frame_index)
-    buf[0x10:0x18] = struct.pack("<d", _bulk_time_gyr(z))
-    buf[0x18:0x20] = struct.pack("<d", z)
-    buf[0x20:0x28] = struct.pack("<d", 1.0 / (1.0 + z))
-    buf[0x28:0x30] = struct.pack("<d", _hubble(z))
-    buf[0x30:0x38] = struct.pack("<d", f_load)
-    buf[0x38:0x40] = struct.pack("<d", ETA_VISIBLE * N_SAT_BITS * f_load)
-    buf[0x40:0x48] = struct.pack("<d", ETA_DARK * N_SAT_BITS * f_load)
-    buf[0x48:0x50] = struct.pack("<d", p_debt)
-    buf[0x50:0x58] = struct.pack("<d", seed_mass)
-    buf[0x58:0x60] = struct.pack("<d", 1.0 - ETA_VISIBLE * f_load)
-    buf[0x60:0x68] = struct.pack(
-        "<d", 2.0 * A_H * GAMMA_LOCK / ((H0_CMB + A_H / (1.0 + z)) * _hubble(z))
+    buf[0x10:0x18] = struct.pack("<d", z)
+    buf[0x18:0x20] = struct.pack("<d", 1.0 / (1.0 + z))
+    buf[0x20:0x28] = struct.pack("<d", _hubble(z))
+    buf[0x28:0x30] = struct.pack("<d", f_cosmo)
+    buf[0x30:0x38] = struct.pack("<d", f_debt)
+    buf[0x38:0x40] = struct.pack("<d", _lookback_gyr(z))
+    buf[0x40:0x48] = struct.pack("<d", _comoving_distance_mpc(z))
+    buf[0x48:0x50] = struct.pack("<d", _angular_diameter_mpc(z))
+    buf[0x50:0x58] = struct.pack("<d", _angular_diameter_mpc(MMIO_SOURCE_Z))
+    buf[0x58:0x60] = struct.pack(
+        "<d", _lens_source_distance_mpc(min(z, MMIO_SOURCE_Z), MMIO_SOURCE_Z)
     )
-    buf[0x68:0x70] = struct.pack("<Q", particle_count)
+    buf[0x60:0x64] = struct.pack("<I", seed_count)
+    buf[0x64:0x68] = struct.pack("<I", seed_count)  # caustic parity 1:1
+    buf[0x68:0x6C] = struct.pack("<f", _psi_nuc(z))
+    buf[0x6C:0x70] = struct.pack("<f", 0.0)  # delta_max
+    buf[0x70:0x74] = struct.pack("<f", 0.0)  # d_tau
+    buf[0x74:0x78] = struct.pack("<I", flags)
+    buf[0x78:0x7C] = struct.pack("<I", zlib.crc32(bytes(buf[0x00:0x78])) & 0xFFFFFFFF)
+    # 0x7C reserved: zero.
     return bytes(buf)
 
 
@@ -331,6 +416,14 @@ def export_webgpu_telemetry(
     Path(path).parent.mkdir(parents=True, exist_ok=True)
     Path(path).write_bytes(frame)
     return path
+
+
+def compute_matter_transfer(output_prefix: str = "shbt") -> tuple[str, list[dict[str, float]]]:
+    """Write the 300-point matter P(k,z) grid (shbt13: the entry point the
+    verification battery references; wraps _matter_rows)."""
+    rows = _matter_rows()
+    filename = f"{output_prefix}_matter_pk.csv"
+    return _write_csv(filename, ["k_Mpc_inv", "Pk_z0", "Pk_z05", "Pk_z1"], rows), rows
 
 
 if __name__ == "__main__":
