@@ -447,3 +447,49 @@ def test_stability_audit() -> None:
     assert audit["Q_dot_W"] == pytest.approx(906e9, rel=1e-12)
     assert audit["P_bench_W"] == pytest.approx(142.08e6, rel=1e-12)
     assert audit["Gamma_bench"] == pytest.approx(6377.0, abs=1.0)
+
+
+def test_axiomatic_uniqueness_audit() -> None:
+    s = _import_shbt_simulator()
+    report = s.run_uniqueness_audit().to_dict()
+    assert report["all_passed"] is True
+    assert report["canonical_branch"] == (26, 8, 312)
+    assert report["center_lifts"] == (6, 13)
+    assert report["diophantine_uniqueness_verified"] is True
+    assert report["conductor"] == 362670
+    assert report["conductor_primorial_factored"] is True
+    assert report["unit_ledger_verified"] is True
+
+
+def test_axiomatic_gauge_closure_audit() -> None:
+    s = _import_shbt_simulator()
+    report = s.run_gauge_closure_audit().to_dict()
+    assert report["all_passed"] is True
+    assert report["ward_identity_equivalent"] is True
+    assert report["su2_max_defect"] < 1e-2
+    assert report["su3_max_defect"] < 1e-2
+    assert len(report["prime_slices"]) == 5
+
+
+def test_axiomatic_gauge_couplings_audit() -> None:
+    s = _import_shbt_simulator()
+    report = s.run_gauge_couplings_audit().to_dict()
+    assert report["all_passed"] is True
+    assert report["alpha_s_mz"] == pytest.approx(0.1180, abs=1e-3)
+    assert report["alpha_em_inv_mz"] == pytest.approx(127.88, abs=1e-1)
+    assert report["sin2_theta_w_mz"] == pytest.approx(0.2313, abs=1e-3)
+    assert len(report["slices"]) == 9
+
+
+def test_axiomatic_flavor_audit() -> None:
+    s = _import_shbt_simulator()
+    report = s.run_flavor_audit().to_dict()
+    assert report["all_passed"] is True
+    assert report["unitary_closure_verified"] is True
+    assert report["quark_masses"]["m_t_gev"] == pytest.approx(172.69, abs=0.1)
+    assert report["quark_masses"]["m_b_gev"] == pytest.approx(4.18, abs=0.05)
+    assert report["ckm"]["v_us"] == pytest.approx(0.2228, abs=0.01)
+    assert report["ckm"]["j_cp"] == pytest.approx(1.36e-5, abs=1e-6)
+
+
+

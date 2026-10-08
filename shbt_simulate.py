@@ -1056,9 +1056,21 @@ def simulate(config: dict[str, Any]) -> dict[str, Any]:
 
     if mode in ("audit", "all"):
         report = sim.run_full_audit()
-        result["audit"] = report.to_dict()
+        audit_dict = report.to_dict()
+        result["audit"] = audit_dict
         # High-precision stationarity and thermal-flux audit (Section 9.12).
         result["stability_audit"] = _rs.get_stability_audit()
+
+        # Direct foundation audit keys (Section 12 requirement).
+        foundation = result.setdefault("foundation_audit", {})
+        if "uniqueness_proof" in audit_dict:
+            foundation["uniqueness_proof"] = audit_dict["uniqueness_proof"]
+        if "bulk_gauge_dynamics" in audit_dict:
+            foundation["bulk_gauge_dynamics"] = audit_dict["bulk_gauge_dynamics"]
+        if "standard_model_couplings" in audit_dict:
+            foundation["standard_model_couplings"] = audit_dict["standard_model_couplings"]
+        if "flavor_mixing" in audit_dict:
+            foundation["flavor_mixing"] = audit_dict["flavor_mixing"]
 
     if mode in ("cosmology", "all"):
         slices = sim.simulate_cosmology(redshift_max, redshift_samples)

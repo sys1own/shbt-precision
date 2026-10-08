@@ -1457,6 +1457,26 @@ fn get_stability_audit(py: Python<'_>) -> PyResult<Bound<'_, PyDict>> {
     Ok(d)
 }
 
+#[pyfunction]
+fn run_uniqueness_audit() -> shbt::UniquenessAuditReport {
+    shbt::run_uniqueness_audit()
+}
+
+#[pyfunction]
+fn run_gauge_closure_audit() -> shbt::GaugeClosureAuditReport {
+    shbt::run_gauge_closure_audit()
+}
+
+#[pyfunction]
+fn run_gauge_couplings_audit() -> shbt::GaugeCouplingsAuditReport {
+    shbt::run_gauge_couplings_audit()
+}
+
+#[pyfunction]
+fn run_flavor_audit() -> shbt::FlavorAuditReport {
+    shbt::run_flavor_audit()
+}
+
 // ===========================================================================
 // HIGH-PRECISION IN-PLACE 4x4 MATRIX MATH TOOLS
 // ===========================================================================
@@ -3403,6 +3423,10 @@ pub struct ShbtReport {
     pub stress_energy_preserved: bool,
     pub metric_slices: Vec<BulkMetricSlice>,
     pub history_entries: Vec<CoordinateLogEntry>,
+    pub uniqueness_report: UniquenessAuditReport,
+    pub gauge_closure_report: GaugeClosureAuditReport,
+    pub couplings_report: GaugeCouplingsAuditReport,
+    pub flavor_report: FlavorAuditReport,
 }
 
 #[pymethods]
@@ -3429,6 +3453,10 @@ impl ShbtReport {
             .map(|e| e.to_dict(py))
             .collect();
         d.set_item("history_entries", history?)?;
+        d.set_item("uniqueness_proof", self.uniqueness_report.to_dict(py)?)?;
+        d.set_item("bulk_gauge_dynamics", self.gauge_closure_report.to_dict(py)?)?;
+        d.set_item("standard_model_couplings", self.couplings_report.to_dict(py)?)?;
+        d.set_item("flavor_mixing", self.flavor_report.to_dict(py)?)?;
         Ok(d)
     }
 
@@ -3490,6 +3518,26 @@ impl ShbtReport {
     #[getter]
     fn memory_all_passed(&self) -> bool {
         self.memory_report.all_passed
+    }
+
+    #[getter]
+    fn uniqueness_report(&self) -> UniquenessAuditReport {
+        self.uniqueness_report.clone()
+    }
+
+    #[getter]
+    fn gauge_closure_report(&self) -> GaugeClosureAuditReport {
+        self.gauge_closure_report.clone()
+    }
+
+    #[getter]
+    fn couplings_report(&self) -> GaugeCouplingsAuditReport {
+        self.couplings_report.clone()
+    }
+
+    #[getter]
+    fn flavor_report(&self) -> FlavorAuditReport {
+        self.flavor_report.clone()
     }
 }
 
@@ -3556,6 +3604,10 @@ impl ShbtSimulator {
         let baryogenesis_identity = self.optimizer.baryogenesis_identity();
         let eta_b = baryogenesis_identity.eta_b.clone();
         let history_entries = self.causal_point.crystallize_history();
+        let uniqueness_report = run_uniqueness_audit();
+        let gauge_closure_report = run_gauge_closure_audit();
+        let couplings_report = run_gauge_couplings_audit();
+        let flavor_report = run_flavor_audit();
         ShbtReport {
             branch: self.boundary.benchmark_branch,
             boundary_report,
@@ -3567,7 +3619,27 @@ impl ShbtSimulator {
             stress_energy_preserved,
             metric_slices,
             history_entries,
+            uniqueness_report,
+            gauge_closure_report,
+            couplings_report,
+            flavor_report,
         }
+    }
+
+    fn run_uniqueness_audit(&self) -> UniquenessAuditReport {
+        run_uniqueness_audit()
+    }
+
+    fn run_gauge_closure_audit(&self) -> GaugeClosureAuditReport {
+        run_gauge_closure_audit()
+    }
+
+    fn run_gauge_couplings_audit(&self) -> GaugeCouplingsAuditReport {
+        run_gauge_couplings_audit()
+    }
+
+    fn run_flavor_audit(&self) -> FlavorAuditReport {
+        run_flavor_audit()
     }
 
     fn baryogenesis_identity(&self) -> BaryogenesisIdentity {
@@ -3819,4 +3891,49 @@ mod shbt_simulator {
 
     #[pymodule_export]
     use super::shbt::serialize_mmio_frame_py;
+
+    #[pymodule_export]
+    use super::shbt::UniquenessAuditReport;
+
+    #[pymodule_export]
+    use super::run_uniqueness_audit;
+
+    #[pymodule_export]
+    use super::shbt::GaugeGroup;
+
+    #[pymodule_export]
+    use super::shbt::GaugeMetricSlice;
+
+    #[pymodule_export]
+    use super::shbt::BulkGaugeSlice;
+
+    #[pymodule_export]
+    use super::shbt::GaugeClosureAuditReport;
+
+    #[pymodule_export]
+    use super::run_gauge_closure_audit;
+
+    #[pymodule_export]
+    use super::shbt::RGSliceRecord;
+
+    #[pymodule_export]
+    use super::shbt::GaugeCouplingsAuditReport;
+
+    #[pymodule_export]
+    use super::run_gauge_couplings_audit;
+
+    #[pymodule_export]
+    use super::shbt::Complex64;
+
+    #[pymodule_export]
+    use super::shbt::Matrix3x3;
+
+    #[pymodule_export]
+    use super::shbt::FlavorMixingEngine;
+
+    #[pymodule_export]
+    use super::shbt::FlavorAuditReport;
+
+    #[pymodule_export]
+    use super::run_flavor_audit;
 }
