@@ -99,12 +99,9 @@ impl HudMetrics {
         // HUD-only channels not serialized in the v2 frame are derived
         // from the decoded epoch (same kernels as the encoder).
         let w_vis = crate::stinespring_w_vis(z);
-        // Loaded register = max(f_cosmo, f_debt): the backward
-        // light-cone debt carries the ledger while z > 0 (the forward
-        // capacity fraction underflows to 0 above z ~ 1e5 in f64), and
-        // the forward fraction takes over as z -> -1 where f_debt = 0.
-        let total_bits =
-            crate::telemetry::N_SAT_BITS * f_cosmo.max(f64_at(offsets::F_LOAD_DEBT));
+        // Loaded register is driven by the forward capacity loading fraction
+        // f_cosmo: ~0 at z=1e14, saturating to N_SAT as z -> -1.
+        let total_bits = crate::telemetry::N_SAT_BITS * f_cosmo;
         Some(Self {
             frame_index: u64_at(offsets::FRAME_INDEX),
             // The frame carries lookback; bulk cosmic age derives from z.
@@ -261,11 +258,7 @@ impl HorizonLedger {
         let f_load = crate::telemetry::loading_fraction(z);
 
         self.loaded_fraction = f_load;
-        // Same max(f_cosmo, f_debt) ledger blend as the MMIO decode path:
-        // the backward debt keeps the register populated while z > 0 and
-        // the forward capacity saturates it into the z -> -1 freeze.
-        self.total_bits_loaded =
-            f_load.max(crate::telemetry::debt_fraction(z)) * N_SAT;
+        self.total_bits_loaded = f_load * N_SAT;
 
         // Thermal Stinespring channel (shbt7 Thm 9.10): the visible overlap
         // w_vis(z) = (1-eta_D) + eta_D/(1+(z_N/z)^Delta_Bbar) with

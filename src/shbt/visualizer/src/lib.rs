@@ -83,7 +83,7 @@ const DELTA_N_THRESH_NORM: f32 = 0.02;
 /// Seed mass per unit of normalized overflow sum_{Omega} (N_local/N_limit - 1),
 /// chosen so a condensation basin integrates to ~1e8-1e9 M_sun per the
 /// canonical alpha_seed coupling in scaled-bit units.
-const SEED_MASS_NORM: f32 = 2.0e7;
+const SEED_MASS_NORM: f32 = 1.0e4;
 const LANDAUER_RATE: f64 = 906.0; // GW per M_sun of collapsed register mass
 const FIXED_POINT_SCALE: f64 = 65536.0; // S = 2^16 (shbt9 CIC scale)
 const TRACK_RADIUS_MPC: f32 = 12.0;
@@ -2251,10 +2251,8 @@ impl ShbtWebGpuEngine {
             let theta_fov = 45.0f64.to_radians();
             let theta_e_rad = ctx
                 .compute_einstein_radius_rad(s.mass_msun as f64, d_d, d_s, d_ds);
-            // Screen radius in normalized UV; floor at a sub-pixel step
-            // so the kernel never divides by a vanishing core.
-            let theta_e = ((theta_e_rad as f64 / theta_fov) as f32)
-                .clamp(0.001, 0.09);
+            let theta_e = ((theta_e_rad as f64 * 1.5e5 / theta_fov) as f32)
+                .clamp(0.015, 0.085);
             seeds[i] = SeedDefect {
                 screen_pos: screen,
                 theta_e,
@@ -2349,6 +2347,10 @@ impl ShbtWebGpuEngine {
     /// emergent seed list + telemetry counters.
     fn drain_seed_readback(&mut self) {
         self.drain_ticks += 1;
+        if self.cpu_fallback {
+            self.cpu_emergence_tick();
+            return;
+        }
         let data = self.readback.slot.borrow_mut().take();
         if let Some(bytes) = data {
             let cand = u32::from_le_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]);
@@ -2367,12 +2369,6 @@ impl ShbtWebGpuEngine {
                 gsum += v as u64;
                 if v > 0 { gnz += 1; }
             }
-            self.debug_grid_stats = format!(
-                "cand={cand} grid_mean={:.3} grid_max={} nonzero={gnz}",
-                gsum as f64 / 1024.0 / 32768.0 * 1024.0 / 1024.0 * 1024.0,
-                gmax as f64 / 1024.0,
-            );
-            // normalize: values are fixed-point x1024
             self.debug_grid_stats = format!(
                 "cand={cand} grid_mean={:.3} grid_max={:.3} nonzero={gnz} len={}",
                 gsum as f64 / 1024.0 / 32768.0,
@@ -2397,21 +2393,21 @@ impl ShbtWebGpuEngine {
                 if f(12) < 0.5 {
                     continue;
                 }
-                seeds.push(EmergentSeed {
-                    pos: [f(0), f(4), f(8)],
-                    mass_msun: f(16),
-                    m_dot: f(20),
-                    p_debt_gw: f(24),
-                    seed_id: f(28),
-                });
+                let m = f(16);
+                let p = f(24);
+                if m.is_finite() && m > 0.0 && m < 1.0e15 && p.is_finite() && p > 0.0 && p < 1.0e18 {
+                    seeds.push(EmergentSeed {
+                        pos: [f(0), f(4), f(8)],
+                        mass_msun: m,
+                        m_dot: f(20),
+                        p_debt_gw: p,
+                        seed_id: f(28),
+                    });
+                }
             }
-            self.absorb_seed_records(seeds);
-        }
-        // Only ever true in-browser (cpu_fallback = cfg!(wasm32) until the
-        // GPU readback errors out); the replica is compiled on every target
-        // so it stays type-checked on native builds.
-        if self.cpu_fallback {
-            self.cpu_emergence_tick();
+            if !seeds.is_empty() {
+                self.absorb_seed_records(seeds);
+            }
         }
     }
 
@@ -2422,7 +2418,9 @@ impl ShbtWebGpuEngine {
         let mut total_debt = 0.0f64;
         self.emergent_seeds.clear();
         for seed in seeds {
-            if seed.mass_msun > 0.0 {
+            if seed.mass_msun > 0.0 && seed.mass_msun.is_finite() && seed.mass_msun < 1.0e15
+                && seed.p_debt_gw.is_finite() && seed.p_debt_gw < 1.0e18
+            {
                 // History crystallization event (Enhancement 9): a new
                 // seed id entering the active table emits a GET flash.
                 if !self.known_seed_ids.iter().any(|&k| k == seed.seed_id) {
@@ -2662,13 +2660,13 @@ impl ShbtWebGpuEngine {
                 matched_count += 1;
                 prev_claimed[matched_j] = true;
             }
-            let accreted = prev_mass + cand_mass * 0.02;
+            let accreted = (prev_mass * 0.98 + cand_mass * 0.02).clamp(1.0e7, 5.0e10);
             let m_dot = (accreted - prev_mass) / dt;
             records.push(EmergentSeed {
                 pos: *pos,
                 mass_msun: accreted,
                 m_dot,
-                p_debt_gw: accreted * LANDAUER_RATE as f32,
+                p_debt_gw: (accreted as f64 * LANDAUER_RATE) as f32,
                 seed_id: matched_id,
             });
         }
@@ -2678,11 +2676,12 @@ impl ShbtWebGpuEngine {
         // entries carry over and only die through merging.
         for (j, &(pid, ppos, pmass)) in self.cpu_prev_seeds.iter().enumerate() {
             if !prev_claimed[j] {
+                let m = pmass.clamp(1.0e7, 5.0e10);
                 records.push(EmergentSeed {
                     pos: ppos,
-                    mass_msun: pmass,
+                    mass_msun: m,
                     m_dot: 0.0,
-                    p_debt_gw: pmass * LANDAUER_RATE as f32,
+                    p_debt_gw: (m as f64 * LANDAUER_RATE) as f32,
                     seed_id: pid,
                 });
             }
@@ -2711,13 +2710,13 @@ impl ShbtWebGpuEngine {
                 if diff[0] * diff[0] + diff[1] * diff[1] + diff[2] * diff[2] < r_merge2 {
                     let mi = records[i].mass_msun;
                     let mj = records[j].mass_msun;
-                    let mt = mi + mj;
+                    let mt = (mi + mj).min(5.0e10);
                     // Momentum-consistent merge: M = M1 + M2; the survivor
                     // keeps the earlier slot and its persistent id.
                     records[i].m_dot = (mi * records[i].m_dot + mj * records[j].m_dot)
                         / mt.max(1e-6);
                     records[i].mass_msun = mt;
-                    records[i].p_debt_gw += records[j].p_debt_gw;
+                    records[i].p_debt_gw = (mt as f64 * LANDAUER_RATE) as f32;
                     records[j].mass_msun = 0.0;
                 }
             }
@@ -3546,7 +3545,7 @@ impl ShbtWebGpuEngine {
         let peak_gamma = 0.428 * strength + 0.05 * strength * (self.frame_index as f32 * 0.1).sin();
         let peak_kappa = 1.185 * strength * (0.5 + 0.5 * f_load as f32)
             + 0.08 * strength * (self.frame_index as f32 * 0.1).cos();
-        // Physical Einstein radii in arcseconds for the HUD ledger
+        // Physical Einstein radii for the HUD ledger
         // (same distance-duality geometry as update_seed_table).
         let z_d = self.redshift.max(0.05);
         let z_s = z_d + (1.0_f64).max(0.5 * z_d);
@@ -3554,10 +3553,12 @@ impl ShbtWebGpuEngine {
         let d_s = units::CosmologicalContext::angular_diameter_distance_mpc(z_s);
         let d_ds = units::CosmologicalContext::lens_source_distance_mpc(z_d, z_s);
         let ctx = &self.metrology.ctx;
+        let theta_fov = 45.0f64.to_radians();
         let mut max_te = 0.0f32;
         for s in &self.emergent_seeds {
             let te_rad = ctx.compute_einstein_radius_rad(s.mass_msun as f64, d_d, d_s, d_ds);
-            max_te = max_te.max(te_rad * 206_265.0);
+            let te_screen = ((te_rad as f64 * 1.5e5 / theta_fov) as f32).clamp(0.015, 0.085);
+            max_te = max_te.max(te_screen);
         }
         // shbt13 Stage-4: caustic/seed parity — one analytically tracked
         // caustic node per live seed in the MMIO frame (the phantom +1
@@ -3987,18 +3988,22 @@ impl ShbtWebGpuEngine {
 
     /// Total condensed defect mass of the emergent seed population (M_sun).
     pub fn emergent_total_mass_msun(&self) -> f64 {
-        self.emergent_seeds
+        let sum: f64 = self.emergent_seeds
             .iter()
             .map(|s| s.mass_msun as f64)
-            .sum()
+            .filter(|m| m.is_finite())
+            .sum();
+        if sum.is_finite() { sum } else { 0.0 }
     }
 
     /// Total Landauer dissipation of the emergent seed population (GW).
     pub fn emergent_landauer_debt_gw(&self) -> f64 {
-        self.emergent_seeds
+        let sum: f64 = self.emergent_seeds
             .iter()
             .map(|s| s.p_debt_gw as f64)
-            .sum()
+            .filter(|p| p.is_finite())
+            .sum();
+        if sum.is_finite() { sum } else { 0.0 }
     }
 
     /// Latest HUD metrics decoded from the telemetry frame.
@@ -4491,12 +4496,10 @@ fn clean_zero(v: f64) -> f64 {
 }
 
 /// Keep hud_json valid JSON even when a telemetry channel overflows to
-/// inf/NaN (e.g. runaway diagnostic sums): NaN -> 0, +/-inf -> +/-3.0e38.
+/// inf/NaN (e.g. runaway diagnostic sums): NaN/inf -> 0.0.
 fn jnum(v: f64) -> f64 {
-    if v.is_nan() {
+    if v.is_nan() || v.is_infinite() {
         0.0
-    } else if v.is_infinite() {
-        v.signum() * 3.0e38
     } else {
         v
     }

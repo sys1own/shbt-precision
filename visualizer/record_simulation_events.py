@@ -250,11 +250,15 @@ async def verify_hud_telemetry_milestone(page, milestone_idx: int, z: float, res
         "landauerDebt": metrics.get("landauerDebt"),
         "active_caustics": metrics.get("active_caustics"),
         "peak_shear": metrics.get("peak_shear"),
+        "peak_convergence": metrics.get("peak_convergence"),
+        "max_einstein_radius": metrics.get("max_einstein_radius"),
         "horizon_frozen": metrics.get("horizon_frozen"),
     }
     if milestone_idx == 0:
         age = metrics.get("t_gyr") or 0.0
         f_load = metrics.get("f_load")
+        seeds = metrics.get("seedCount") or 0
+        te = metrics.get("max_einstein_radius") or 0.0
         note("cosmic age < 0.001 Gyr", age < 0.001, f"{age:.3e} Gyr")
         # shbt13: f_load is now the FORWARD boundary-capacity fraction
         # f_load_cosmo(z) = 1 - exp(-int_z^inf K) — virtually zero at the
@@ -262,15 +266,22 @@ async def verify_hud_telemetry_milestone(page, milestone_idx: int, z: float, res
         note("f_load_cosmo(1e14) < 0.01 (M1)",
              f_load is not None and f_load < 0.01,
              f"{f_load}")
+        note("seeds == 0 at primordial", seeds == 0, f"{seeds} seeds")
+        note("theta_E == 0 at primordial", te == 0.0, f"{te:.4f} rad")
     elif milestone_idx == 2:
         seeds = metrics.get("seedCount") or 0
         mass = metrics.get("totalMass") or 0.0
         debt = metrics.get("landauerDebt") or 0.0
+        te = metrics.get("max_einstein_radius") or 0.0
         note("active_seeds > 0", seeds > 0, f"{seeds} seeds")
-        note("M_seed > 0", mass > 0.0, f"{mass:.3e} M_sun")
-        note("P_debt > 0", debt > 0.0, f"{debt:.3e} GW")
+        note("M_seed > 0", 0 < mass < 3.0e14, f"{mass:.3e} M_sun")
+        note("P_debt > 0", 0 < debt < 3.0e16, f"{debt:.3e} GW")
+        note("theta_E in [0.01, 0.09] rad", 0.01 <= te <= 0.09, f"{te:.4f} rad")
     elif milestone_idx == 3:
         seeds = metrics.get("seedCount") or 0
+        mass = metrics.get("totalMass") or 0.0
+        debt = metrics.get("landauerDebt") or 0.0
+        te = metrics.get("max_einstein_radius") or 0.0
         # shbt13: the open nucleation floor + lifecycle merge pipeline
         # must break the legacy static 646-seed saturation ceiling.
         note("active_seeds > 646 (spec)", seeds > 646, f"{seeds} seeds",
@@ -279,14 +290,17 @@ async def verify_hud_telemetry_milestone(page, milestone_idx: int, z: float, res
         caustics = metrics.get("active_caustics") or 0
         note("caustic:seed 1:1 parity", caustics == seeds,
              f"{caustics} caustics vs {seeds} seeds")
+        note("theta_E in [0.01, 0.09] rad", 0.01 <= te <= 0.09, f"{te:.4f} rad")
     elif milestone_idx == 4:
         caustics = metrics.get("active_caustics") or 0
         seeds = metrics.get("seedCount") or 0
         gamma = metrics.get("peak_shear") or 0.0
+        te = metrics.get("max_einstein_radius") or 0.0
         note("caustics > 0", caustics > 0, f"{caustics}")
         note("caustic:seed 1:1 parity", caustics == seeds,
              f"{caustics} caustics vs {seeds} seeds")
         note("gamma_max > 0.1", gamma > 0.1, f"{gamma:.4f}")
+        note("theta_E in [0.01, 0.09] rad", 0.01 <= te <= 0.09, f"{te:.4f} rad")
     elif milestone_idx == 5:
         age = metrics.get("t_gyr") or 0.0
         f_load = metrics.get("f_load") or 0.0
@@ -502,7 +516,8 @@ def png_non_blank(path: Path) -> bool:
 
     with Image.open(path) as im:
         px = im.convert("L").resize((64, 64))
-        data = list(px.getdata())
+        getter = getattr(px, "get_flattened_data", None) or px.getdata
+        data = list(getter())
     mean = sum(data) / len(data)
     var = sum((v - mean) ** 2 for v in data) / len(data)
     return var > 1.0

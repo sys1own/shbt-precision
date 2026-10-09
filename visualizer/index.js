@@ -24,6 +24,12 @@ function sliderToZ(x) {
   return Math.pow(10, x) - 1;
 }
 
+function stinespring_w_vis(z) {
+  if (z <= 0.0) return 10.0 / 33.0;
+  const ratio = 7.356e10 / z;
+  return (10.0 / 33.0) + (23.0 / 33.0) / (1.0 + Math.pow(ratio, 26.0 / 3.0));
+}
+
 function refreshHud(m) {
   window.__lastHudMetrics = m;
   refreshHudTrack(m);
@@ -32,10 +38,13 @@ function refreshHud(m) {
   $("bar-time").style.width = `${Math.min(m.t_gyr / 13.8, 1) * 100}%`;
   $("hud-fload").textContent = fmt(m.f_load, 5);
   $("bar-fload").style.width = `${m.f_load * 100}%`;
-  $("hud-capacity").textContent = `N_sat = 3.312e122 bits\u00b7 loaded = ${fmt(m.n_vis + m.n_dark)}`;
+  const loadedBits = (m.f_load ?? 0) * 3.3119977e122;
+  $("hud-capacity").textContent = `N_sat = 3.312e122 bits \u00b7 loaded = ${fmt(loadedBits)}`;
   $("hud-hubble").textContent = `${fmt(m.hubble)} km/s/Mpc`;
   const totalBits = m.n_vis + m.n_dark;
-  const quenchPct = totalBits > 0 ? (100 * m.n_dark / totalBits).toFixed(1) : "0.0";
+  const wVis = totalBits > 0 ? (m.n_vis / totalBits) : stinespring_w_vis(m.z);
+  const qf = 1.0 - wVis;
+  const quenchPct = (qf * 100).toFixed(1);
   $("hud-ledger").textContent =
     `\u0394N = ${fmt(m.delta_n_bits)} bits\n` +
     `N_vis = ${fmt(m.n_vis)}  N_dark = ${fmt(m.n_dark)}\n` +
@@ -46,7 +55,6 @@ function refreshHud(m) {
   // (asserted by record_simulation_events.py milestone keyframes).
   if ($("hud-telemetry-overlay")) {
     $("hud-redshift-val").textContent = fmt(m.z, 4);
-    const qf = totalBits > 0 ? m.n_dark / totalBits : 0;
     $("hud-quench-fraction-val").textContent = (qf * 100).toFixed(2);
     const debt = m.landauerDebt ?? m.landauer_debt_gw ?? 0;
     $("hud-landauer-debt-val").textContent = fmt(debt, 4);
@@ -88,33 +96,32 @@ function refreshHud(m) {
     banner.innerHTML = "PHASE 5: ASYMPTOTIC DE SITTER OBSERVER FREEZE &nbsp;|&nbsp; <em>f</em><sub>load</sub> = " +
       fmt(m.f_load, 3) + " &nbsp;|&nbsp; <em>R</em><sub>adm</sub> = " + rAdm +
       " &nbsp;|&nbsp; <em>E</em><sub>&mu;&nu;</sub> = 0 &nbsp;|&nbsp; &Delta;<sub>fr</sub> = 0";
-  } else if (m.z > 1e12) {
+  } else if (m.z > 1e11) {
+    // Phase 1: Conformal screen bit loading (z > 1e11)
     banner.className = "ph-load";
     banner.innerHTML = "PHASE 1: CONFORMAL SCREEN BIT LOADING &nbsp;|&nbsp; Ṡ = <em>H</em>(<em>t</em>) &middot; <em>C</em><sub>max</sub> &nbsp;|&nbsp; <em>f</em><sub>load</sub> = " +
       fmt(m.f_load, 6) + " &nbsp;|&nbsp; <em>N</em><sub>sat</sub> = 3.312&times;10<sup>122</sup> bits";
-  } else if (m.z >= 1e9) {
+  } else if (m.z > 30.0) {
+    // Phase 2: Information saturation quench & baryogenesis (1e11 >= z > 30)
     banner.className = "ph-bary";
     banner.innerHTML = "PHASE 2: TOPOLOGICAL BARYOGENESIS &nbsp;|&nbsp; Stinespring De-Rendering &rarr; 23/33 &nbsp;|&nbsp; quench = " +
       quenchPct + "% &nbsp;|&nbsp; &eta;<sub>B</sub> = 6.1&times;10<sup>&minus;10</sup>";
-  } else if (m.z <= 30 && seeds > 0) {
+  } else if (m.z > 7.0) {
+    // Phase 3: Ghost seed condensation (30 >= z > 7.0)
     banner.className = "ph-seed";
-    banner.innerHTML = "PHASE 3: TOPOLOGICAL GHOST SEED CONDENSATION &nbsp;|&nbsp; <em>M</em><sub>seed</sub> = " +
-      fmt(m.totalMass ?? m.seed_mass_msun) + " <em>M</em><sub>&#9737;</sub> &nbsp;|&nbsp; " + seeds +
-      " seeds &nbsp;|&nbsp; &Delta;<em>N</em> = " + fmt(deltaN) + " bits";
-  } else if (m.z <= 30 && m.z >= 7) {
-    // Seed window but nothing nucleated yet: precursor incubation.
-    banner.className = "ph-seed";
-    banner.innerHTML = "PHASE 3: PRECURSOR CONGESTION INCUBATION &nbsp;|&nbsp; &Delta;<em>N</em> = " +
-      fmt(deltaN) + " bits &nbsp;|&nbsp; seeds = 0 &nbsp;|&nbsp; waiting for register overflow";
-  } else if (m.z > 30) {
-    // Between the baryogenesis boundary and the seed window the register is
-    // still congesting: same precursor incubation state, earlier epoch.
-    banner.className = "ph-seed";
-    banner.innerHTML = "PHASE 3: PRECURSOR CONGESTION INCUBATION &nbsp;|&nbsp; &Delta;<em>N</em> = " +
-      fmt(deltaN) + " bits &nbsp;|&nbsp; seeds = 0 &nbsp;|&nbsp; waiting for register overflow";
+    if (seeds > 0) {
+      banner.innerHTML = "PHASE 3: TOPOLOGICAL GHOST SEED CONDENSATION &nbsp;|&nbsp; <em>M</em><sub>seed</sub> = " +
+        fmt(m.totalMass ?? m.seed_mass_msun) + " <em>M</em><sub>&#9737;</sub> &nbsp;|&nbsp; " + seeds +
+        " seeds &nbsp;|&nbsp; &Delta;<em>N</em> = " + fmt(deltaN) + " bits";
+    } else {
+      banner.innerHTML = "PHASE 3: PRECURSOR CONGESTION INCUBATION &nbsp;|&nbsp; &Delta;<em>N</em> = " +
+        fmt(deltaN) + " bits &nbsp;|&nbsp; seeds = 0 &nbsp;|&nbsp; waiting for register overflow";
+    }
   } else {
+    // Phase 4: Causal-point GET clustering & lensing (7.0 >= z > 0.0)
     banner.className = "ph-get";
-    banner.innerHTML = "PHASE 4: CAUSAL POINT GET CLUSTERING &nbsp;|&nbsp; <strong>a</strong><sub>GET</sub> = &minus;&kappa;<sub>GET</sub> &nabla; ln &rho;<sub>proj</sub> &nbsp;|&nbsp; <em>R</em><sub>entropy</sub> &ge; 0";
+    banner.innerHTML = "PHASE 4: CAUSAL-POINT GET CLUSTERING & LENSING &nbsp;|&nbsp; &kappa;<sub>GET</sub> = 0.0435 &nbsp;|&nbsp; caustics = " +
+      (m.active_caustics ?? seeds) + " &nbsp;|&nbsp; <em>R</em><sub>adm</sub> = " + rAdm;
   }
   if (document.activeElement !== $("timeline")) {
     $("timeline").value = zToSlider(m.z);

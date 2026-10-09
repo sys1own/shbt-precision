@@ -234,6 +234,9 @@ impl CosmologicalContext {
         d_s_mpc: f64,
         d_ds_mpc: f64,
     ) -> f32 {
+        if m_solar <= 0.0 || d_d_mpc <= 0.0 || d_s_mpc <= 0.0 || d_ds_mpc <= 0.0 {
+            return 0.0;
+        }
         let m_kg = m_solar * MSUN_TO_KG;
         let d_d_m = d_d_mpc * MPC_TO_METER;
         let d_s_m = d_s_mpc * MPC_TO_METER;
@@ -241,7 +244,15 @@ impl CosmologicalContext {
 
         let numerator = 4.0 * G_SI * m_kg * d_ds_m;
         let denominator = (C_SI * C_SI) * (d_d_m * d_s_m);
-        (numerator / denominator).sqrt() as f32
+        if denominator <= 0.0 {
+            return 0.0;
+        }
+        let val = (numerator / denominator).sqrt();
+        if val.is_nan() || val.is_infinite() {
+            0.0
+        } else {
+            val as f32
+        }
     }
 }
 
