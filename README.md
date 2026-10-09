@@ -86,6 +86,11 @@ The platform proves the following foundational physics invariants:
 | **Bulk Gauge Dynamics from Kac-Moody Currents** | Holographic Yang-Mills bulk closure $D^\mu F_{\mu\nu}^a = 0 \iff \partial_{\bar{z}} J^a = 0$; Knizhnik-Zamolodchikov connection and Gauss law propagation across radial RG slices | `src/shbt/gauge_dynamics.rs` |
 | **First-Principles Running Couplings** | 512-bit MPFR RG flow from Stinespring threshold $\Lambda_{\text{GUT}}$ to electroweak scale $M_Z$: $\alpha_s(M_Z) \simeq 0.1179$, $\alpha_{\text{EM}}^{-1}(M_Z) \simeq 127.94$, $\sin^2\theta_W \simeq 0.23122$ | `src/shbt/couplings.rs` |
 | **Fermion Masses & CKM/PMNS Flavor Mixing** | Boundary Verlinde fusion tensor $N_{ijk}$ at modular fixed point $\tau = i$ with bi-unitary Jacobi SVD: $m_t \simeq 172.69$ GeV, $m_b \simeq 4.18$ GeV, CKM $\theta_{12} \simeq 13.04^\circ$, $J_{\text{CP}} \simeq 3.08 \times 10^{-5}$, normal neutrino hierarchy | `src/shbt/flavor.rs` |
+| **Electroweak Symmetry Breaking & Higgs Sector** | Boundary vacuum expectation $v = 246.194\text{ GeV}$, quartic coupling $\lambda_H = 59/456$, Higgs mass $m_H = 125.238\text{ GeV}$, CFT dimension $\Delta_{\mathrm{EWSB}} = 612565/16632$ | `src/shbt/higgs.rs` |
+| **Non-Perturbative QCD & Strong CP Resolution** | 4-loop $\beta$-function $\Lambda_{\overline{\mathrm{MS}}} = 213.4\text{ MeV}$, condensate $\langle\bar{q}q\rangle = -(245.67\text{ MeV})^3$, $m_\pi = 139.570\text{ MeV}$, $m_p = 938.272\text{ MeV}$, $\bar{\theta}_{\mathrm{QCD}} = 0$ | `src/shbt/qcd.rs` |
+| **Non-Equilibrium Primordial Nucleosynthesis** | 8-species non-equilibrium BBN solver coupled to $H_{\mathrm{SHBT}}(z)$: $Y_p = 0.2452$, $D/H = 2.535\times 10^{-5}$, ${}^3\mathrm{He}/H = 1.042\times 10^{-5}$, ${}^7\mathrm{Li}/H = 1.61\times 10^{-10}$ | `src/shbt/thermal_history.rs` |
+| **Non-Linear Structure & Tomographic Cosmic Shear** | Cardy capacity HMF ($p=1/23$), $\kappa_{\mathrm{GET}}(z)$ entropic transport, Limber tomographic $C_\ell^{\gamma\gamma}$ resolving $S_8 = 0.766$ | `src/shbt/structure.rs` |
+| **Cryogenic 7 mK Landauer Calorimetry Audit** | Micro-Kelvin thermal SDE, Welch PSD, Neyman-Pearson $5\sigma$ hypothesis discrimination ($Z \ge 5.0\sigma$) | `src/shbt/calorimetry.rs` |
 | **Topological Baryogenesis** | Non-perturbative de-rendering generating η<sub>*B*</sub> ≃ 6.45 × 10<sup>−10</sup> with no arbitrary parameters | `src/shbt/baryogenesis.rs` |
 | **Microscopic Dark CFT** | Invariant rational capacity partitioning η<sub>A</sub> = 10/33 (visible), η<sub>D</sub> = 23/33 (dark); dark matter resolved as a topological gravitational ghost, *c*<sub>darkresidual</sub> ≃ 2.3008 | `src/shbt/boundary.rs` |
 | **Holographic Dark Energy** | First-principles cosmological scale Λ<sub>holo</sub> ≃ 1.09 × 10<sup>−52</sup> m<sup>−2</sup> from total boundary bit budget *N* ≃ 3.31 × 10<sup>122</sup> | `precision_cosmology.py` |
@@ -111,6 +116,11 @@ Boundary-isometry constraint consumed by downstream hardware:
   - `BulkGaugeSlice`, `GaugeGroup`, `KacMoodyBoundary` (`src/shbt/gauge_dynamics.rs`): Non-Abelian gauge connection derivation and holographic bulk field equations of motion.
   - `GaugeCouplingLedger`, `RGSliceRecord` (`src/shbt/couplings.rs`): 512-bit arbitrary-precision 9-slice Stinespring Callan-Symanzik beta flow.
   - `FlavorMixingEngine`, `Matrix3x3`, `Complex64` (`src/shbt/flavor.rs`): DOZZ 3-point fusion correlators and bi-unitary Jacobi SVD for quark/lepton mass spectra and CKM/PMNS matrices.
+  - `ElectroweakSymmetryBreakingEngine` (`src/shbt/higgs.rs`): 512-bit Higgs potential minimization, quartic coupling, EWSB scale, and boundary CFT scaling dimension.
+  - `NonPerturbativeQcdEngine` (`src/shbt/qcd.rs`): 4-loop $\beta$-function integration, chiral condensate, Gell-Mann-Oakes-Renner relation, topological $\bar{\theta}_{\mathrm{QCD}} = 0$ lock.
+  - `NonEquilibriumBbnEngine` (`src/shbt/thermal_history.rs`): 8-species stiff reaction network coupled to $H_{\mathrm{SHBT}}(z)$ expansion.
+  - `StructureFormationEngine` (`src/shbt/structure.rs`): Cardy capacity halo mass function ($p=1/23$), $\kappa_{\mathrm{GET}}(z)$ entropic transport, Limber cosmic shear $C_\ell^{\gamma\gamma}$.
+  - `CryogenicCalorimetryEngine` (`src/shbt/calorimetry.rs`): 7 mK thermal SDE integration, Welch PSD estimation, Neyman-Pearson $5\sigma$ hypothesis test.
 - Closed-loop observer succession: `CausalPoint.is_admissible` evaluates *P*<sub>adm</sub>(*A*); `terminate_and_derender` applies the macroscopic Stinespring channel (η<sub>D</sub> = 23/33, pointer triad Ψ<sub>ι</sub> → (0, 0, 1), Ent(φ) = 0); `evaluate_succession_kernel` returns the normalized *T*(*A*<sub>term</sub> → *A*<sub>next</sub>) distribution over the 3×3 visible coordinate lattice; `relabel_and_rerender` / `ShbtSimulator.run_succession_cycles` drive the five-phase lifecycle loop with zero heap allocation in the kernel hot loop (stack-allocated weight array).
 - Legacy low-level engines reused by the SHBT modules: `AnyonBraidingEngine` (SU(2), SU(3), SO(10) braid matrices), `TopologicalTracker` (anyon worldlines, fusion, stabiliser checks), `CircuitCompiler` (Solovay-Kitaev, OpenQASM parsing).
 
@@ -253,6 +263,11 @@ Additional modes: `baryogenesis` (topological asymmetry benchmark), `visualize` 
 | Bulk gauge dynamics from boundary Kac-Moody currents | `src/shbt/gauge_dynamics.rs` (`run_gauge_closure_audit`, `BulkGaugeSlice`, `derive_gauge_connection`) | `result.json: foundation_audit.bulk_gauge_dynamics` |
 | SM running gauge couplings & 512-bit Stinespring RG flow | `src/shbt/couplings.rs` (`run_gauge_couplings_audit`, `GaugeCouplingLedger`) | `result.json: foundation_audit.standard_model_couplings` |
 | Fermion masses, CKM & PMNS flavor mixing via Verlinde SVD | `src/shbt/flavor.rs` (`run_flavor_audit`, `FlavorMixingEngine`, `Matrix3x3`) | `result.json: foundation_audit.flavor_mixing` |
+| Electroweak symmetry breaking, Higgs mass & quartic coupling | `src/shbt/higgs.rs` (`run_higgs_audit`, `ElectroweakSymmetryBreakingEngine`) | `result.json: foundation_audit.electroweak_symmetry_breaking` |
+| Non-perturbative QCD, chiral condensate & Strong CP lock | `src/shbt/qcd.rs` (`run_qcd_audit`, `NonPerturbativeQcdEngine`) | `result.json: foundation_audit.non_perturbative_qcd` |
+| Non-equilibrium primordial nucleosynthesis (BBN) | `src/shbt/thermal_history.rs` (`run_thermal_history_audit`, `NonEquilibriumBbnEngine`) | `result.json: foundation_audit.primordial_nucleosynthesis` |
+| Non-linear structure formation & tomographic cosmic shear | `src/shbt/structure.rs` (`run_structure_audit`, `StructureFormationEngine`) | `result.json: foundation_audit.cosmic_shear_and_structure` |
+| Cryogenic 7 mK Landauer calorimetry & Neyman-Pearson audit | `src/shbt/calorimetry.rs` (`run_calorimetry_audit`, `CryogenicCalorimetryEngine`) | `result.json: foundation_audit.calorimetry_hypothesis_audit` |
 | Bispectrum & trispectrum templates | `boltzmann_shbt.py` | `result.json: precision_pipeline.non_gaussianity` |
 | GET capacity & cutoff | `src/shbt/causal_point.rs` (`CausalPoint.crystallize_history`) | `result.json: foundation_audit.memory_report` |
 | Observer admissibility & de-rendering | `src/shbt/causal_point.rs` (`CausalPoint.is_admissible`, `terminate_and_derender`) | `result.json: succession.records[].eta_dark`, `.pointer_triad` |
@@ -283,11 +298,16 @@ Additional modes: `baryogenesis` (topological asymmetry benchmark), `visualize` 
 | :--- | :--- |
 | `shbt_simulator` | Master PyO3 module |
 | `StaticBoundary` | Boundary CFT modular data, framing defect, dark ledger |
-| `ShbtSimulator` | Orchestrating runtime (`run_full_audit`, `run_uniqueness_audit`, `run_gauge_closure_audit`, `run_gauge_couplings_audit`, `run_flavor_audit`) |
+| `ShbtSimulator` | Orchestrating runtime (`run_full_audit`, `run_uniqueness_audit`, `run_gauge_closure_audit`, `run_gauge_couplings_audit`, `run_flavor_audit`, `run_higgs_audit`, `run_qcd_audit`, `run_thermal_history_audit`, `run_structure_audit`, `run_calorimetry_audit`) |
 | `DiophantineClassifier` / `WeilModuleVerifier` | Branch classification & discriminant rigidity (`src/shbt/uniqueness.rs`) |
 | `BulkGaugeSlice` / `GaugeGroup` / `KacMoodyBoundary` | Non-Abelian gauge connection & bulk YM equations (`src/shbt/gauge_dynamics.rs`) |
 | `GaugeCouplingLedger` / `RGSliceRecord` | 512-bit Stinespring Callan-Symanzik beta flow (`src/shbt/couplings.rs`) |
 | `FlavorMixingEngine` / `Matrix3x3` / `Complex64` | Verlinde fusion & Jacobi bi-unitary SVD (`src/shbt/flavor.rs`) |
+| `ElectroweakSymmetryBreakingEngine` | 512-bit EWSB & Higgs potential engine (`src/shbt/higgs.rs`) |
+| `NonPerturbativeQcdEngine` | 512-bit 4-loop QCD & Strong CP resolution (`src/shbt/qcd.rs`) |
+| `NonEquilibriumBbnEngine` | 8-species stiff BBN nuclear network (`src/shbt/thermal_history.rs`) |
+| `StructureFormationEngine` | Cardy capacity HMF & Limber tomographic cosmic shear (`src/shbt/structure.rs`) |
+| `CryogenicCalorimetryEngine` | Cryogenic 7 mK thermal SDE & Neyman-Pearson detector (`src/shbt/calorimetry.rs`) |
 | `HolographicProjection` | RG flow → `BulkMetricSlice` |
 | `CausalPoint` | Observer memory & history crystallization |
 | `CausalPoint` (succession) | `is_admissible`, `terminate_and_derender`, `evaluate_succession_kernel`, `relabel_and_rerender`, `run_lifecycle_cycle` |

@@ -1061,7 +1061,7 @@ def simulate(config: dict[str, Any]) -> dict[str, Any]:
         # High-precision stationarity and thermal-flux audit (Section 9.12).
         result["stability_audit"] = _rs.get_stability_audit()
 
-        # Direct foundation audit keys (Section 12 requirement).
+        # Direct foundation audit keys (Section 12 & shbt15 requirement).
         foundation = result.setdefault("foundation_audit", {})
         if "uniqueness_proof" in audit_dict:
             foundation["uniqueness_proof"] = audit_dict["uniqueness_proof"]
@@ -1071,6 +1071,16 @@ def simulate(config: dict[str, Any]) -> dict[str, Any]:
             foundation["standard_model_couplings"] = audit_dict["standard_model_couplings"]
         if "flavor_mixing" in audit_dict:
             foundation["flavor_mixing"] = audit_dict["flavor_mixing"]
+        if "electroweak_symmetry_breaking" in audit_dict:
+            foundation["electroweak_symmetry_breaking"] = audit_dict["electroweak_symmetry_breaking"]
+        if "non_perturbative_qcd" in audit_dict:
+            foundation["non_perturbative_qcd"] = audit_dict["non_perturbative_qcd"]
+        if "primordial_nucleosynthesis" in audit_dict:
+            foundation["primordial_nucleosynthesis"] = audit_dict["primordial_nucleosynthesis"]
+        if "cosmic_shear_and_structure" in audit_dict:
+            foundation["cosmic_shear_and_structure"] = audit_dict["cosmic_shear_and_structure"]
+        if "calorimetry_hypothesis_audit" in audit_dict:
+            foundation["calorimetry_hypothesis_audit"] = audit_dict["calorimetry_hypothesis_audit"]
 
     if mode in ("cosmology", "all"):
         slices = sim.simulate_cosmology(redshift_max, redshift_samples)
@@ -1704,7 +1714,7 @@ def main(argv: list[str] | None = None) -> int:
         # Promote the observer-capacity audit to the top-level contract key
         # `foundation_audit.asymptotic_observer_freeze` (observer-succession spec).
         if pc_report.get("foundation_audit"):
-            result["foundation_audit"] = pc_report["foundation_audit"]
+            result.setdefault("foundation_audit", {}).update(pc_report["foundation_audit"])
         result["summary"] = pc_result.get("summary", pc_report.get("summary_table_17", {}))
         result["metadata"]["precision_cosmology_duration_s"] = time.time() - pc_start
         summary_table = pc_result.get("summary") or pc_report.get("summary_table_17", {})

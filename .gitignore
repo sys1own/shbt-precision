@@ -9,6 +9,8 @@ __pycache__/
 *.egg-info/
 main_text.txt
 venv/
+*.pyd
+*.so
 
 # LaTeX build artifacts
 *.aux

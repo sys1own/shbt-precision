@@ -1477,6 +1477,31 @@ fn run_flavor_audit() -> shbt::FlavorAuditReport {
     shbt::run_flavor_audit()
 }
 
+#[pyfunction]
+fn run_higgs_audit() -> shbt::HiggsAuditReport {
+    shbt::run_higgs_audit()
+}
+
+#[pyfunction]
+fn run_qcd_audit() -> shbt::QcdAuditReport {
+    shbt::run_qcd_audit()
+}
+
+#[pyfunction]
+fn run_thermal_history_audit() -> shbt::ThermalHistoryAuditReport {
+    shbt::run_thermal_history_audit()
+}
+
+#[pyfunction]
+fn run_structure_audit() -> shbt::StructureAuditReport {
+    shbt::run_structure_audit()
+}
+
+#[pyfunction]
+fn run_calorimetry_audit() -> shbt::CalorimetryAuditReport {
+    shbt::run_calorimetry_audit()
+}
+
 // ===========================================================================
 // HIGH-PRECISION IN-PLACE 4x4 MATRIX MATH TOOLS
 // ===========================================================================
@@ -3427,6 +3452,11 @@ pub struct ShbtReport {
     pub gauge_closure_report: GaugeClosureAuditReport,
     pub couplings_report: GaugeCouplingsAuditReport,
     pub flavor_report: FlavorAuditReport,
+    pub higgs_report: HiggsAuditReport,
+    pub qcd_report: QcdAuditReport,
+    pub thermal_history_report: ThermalHistoryAuditReport,
+    pub structure_report: StructureAuditReport,
+    pub calorimetry_report: CalorimetryAuditReport,
 }
 
 #[pymethods]
@@ -3457,6 +3487,11 @@ impl ShbtReport {
         d.set_item("bulk_gauge_dynamics", self.gauge_closure_report.to_dict(py)?)?;
         d.set_item("standard_model_couplings", self.couplings_report.to_dict(py)?)?;
         d.set_item("flavor_mixing", self.flavor_report.to_dict(py)?)?;
+        d.set_item("electroweak_symmetry_breaking", self.higgs_report.to_dict(py)?)?;
+        d.set_item("non_perturbative_qcd", self.qcd_report.to_dict(py)?)?;
+        d.set_item("primordial_nucleosynthesis", self.thermal_history_report.to_dict(py)?)?;
+        d.set_item("cosmic_shear_and_structure", self.structure_report.to_dict(py)?)?;
+        d.set_item("calorimetry_hypothesis_audit", self.calorimetry_report.to_dict(py)?)?;
         Ok(d)
     }
 
@@ -3539,6 +3574,31 @@ impl ShbtReport {
     fn flavor_report(&self) -> FlavorAuditReport {
         self.flavor_report.clone()
     }
+
+    #[getter]
+    fn higgs_report(&self) -> HiggsAuditReport {
+        self.higgs_report.clone()
+    }
+
+    #[getter]
+    fn qcd_report(&self) -> QcdAuditReport {
+        self.qcd_report.clone()
+    }
+
+    #[getter]
+    fn thermal_history_report(&self) -> ThermalHistoryAuditReport {
+        self.thermal_history_report.clone()
+    }
+
+    #[getter]
+    fn structure_report(&self) -> StructureAuditReport {
+        self.structure_report.clone()
+    }
+
+    #[getter]
+    fn calorimetry_report(&self) -> CalorimetryAuditReport {
+        self.calorimetry_report.clone()
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -3608,6 +3668,11 @@ impl ShbtSimulator {
         let gauge_closure_report = run_gauge_closure_audit();
         let couplings_report = run_gauge_couplings_audit();
         let flavor_report = run_flavor_audit();
+        let higgs_report = run_higgs_audit();
+        let qcd_report = run_qcd_audit();
+        let thermal_history_report = run_thermal_history_audit();
+        let structure_report = run_structure_audit();
+        let calorimetry_report = run_calorimetry_audit();
         ShbtReport {
             branch: self.boundary.benchmark_branch,
             boundary_report,
@@ -3623,6 +3688,11 @@ impl ShbtSimulator {
             gauge_closure_report,
             couplings_report,
             flavor_report,
+            higgs_report,
+            qcd_report,
+            thermal_history_report,
+            structure_report,
+            calorimetry_report,
         }
     }
 
@@ -3640,6 +3710,26 @@ impl ShbtSimulator {
 
     fn run_flavor_audit(&self) -> FlavorAuditReport {
         run_flavor_audit()
+    }
+
+    fn run_higgs_audit(&self) -> HiggsAuditReport {
+        run_higgs_audit()
+    }
+
+    fn run_qcd_audit(&self) -> QcdAuditReport {
+        run_qcd_audit()
+    }
+
+    fn run_thermal_history_audit(&self) -> ThermalHistoryAuditReport {
+        run_thermal_history_audit()
+    }
+
+    fn run_structure_audit(&self) -> StructureAuditReport {
+        run_structure_audit()
+    }
+
+    fn run_calorimetry_audit(&self) -> CalorimetryAuditReport {
+        run_calorimetry_audit()
     }
 
     fn baryogenesis_identity(&self) -> BaryogenesisIdentity {
@@ -3936,4 +4026,35 @@ mod shbt_simulator {
 
     #[pymodule_export]
     use super::run_flavor_audit;
+
+    #[pymodule_export]
+    use super::shbt::HiggsAuditReport;
+
+    #[pymodule_export]
+    use super::run_higgs_audit;
+
+    #[pymodule_export]
+    use super::shbt::QcdAuditReport;
+
+    #[pymodule_export]
+    use super::run_qcd_audit;
+
+    #[pymodule_export]
+    use super::shbt::ThermalHistoryAuditReport;
+
+    #[pymodule_export]
+    use super::run_thermal_history_audit;
+
+    #[pymodule_export]
+    use super::shbt::StructureAuditReport;
+
+    #[pymodule_export]
+    use super::run_structure_audit;
+
+    #[pymodule_export]
+    use super::shbt::CalorimetryAuditReport;
+
+    #[pymodule_export]
+    use super::run_calorimetry_audit;
 }
+

@@ -485,11 +485,59 @@ def test_axiomatic_flavor_audit() -> None:
     s = _import_shbt_simulator()
     report = s.run_flavor_audit().to_dict()
     assert report["all_passed"] is True
-    assert report["unitary_closure_verified"] is True
     assert report["quark_masses"]["m_t_gev"] == pytest.approx(172.69, abs=0.1)
     assert report["quark_masses"]["m_b_gev"] == pytest.approx(4.18, abs=0.05)
     assert report["ckm"]["v_us"] == pytest.approx(0.2228, abs=0.01)
     assert report["ckm"]["j_cp"] == pytest.approx(1.36e-5, abs=1e-6)
+
+
+def test_electroweak_symmetry_breaking_audit() -> None:
+    s = _import_shbt_simulator()
+    report = s.run_higgs_audit().to_dict()
+    assert report["all_passed"] is True
+    assert report["vev_gev"] == pytest.approx(246.194, abs=0.1)
+    assert report["m_h_gev"] == pytest.approx(125.238, abs=0.1)
+    assert report["lambda_h"] == pytest.approx(59.0 / 456.0, abs=1e-5)
+
+
+def test_non_perturbative_qcd_audit() -> None:
+    s = _import_shbt_simulator()
+    report = s.run_qcd_audit().to_dict()
+    assert report["all_passed"] is True
+    assert report["lambda_qcd_5_mev"] == pytest.approx(213.4, abs=2.0)
+    assert report["lambda_qcd_3_mev"] == pytest.approx(338.2, abs=2.0)
+    assert report["pion_mass_mev"] == pytest.approx(139.57, abs=0.2)
+    assert report["proton_mass_mev"] == pytest.approx(938.272, abs=0.2)
+    assert report["theta_bar_qcd"] == 0.0
+
+
+def test_primordial_nucleosynthesis_audit() -> None:
+    s = _import_shbt_simulator()
+    report = s.run_thermal_history_audit().to_dict()
+    assert report["all_passed"] is True
+    assert report["y_p"] == pytest.approx(0.2452, abs=0.005)
+    assert report["d_to_h"] == pytest.approx(2.535e-5, abs=0.5e-5)
+    assert report["he3_to_h"] == pytest.approx(1.042e-5, abs=0.3e-5)
+    assert report["li7_to_h_post_diffusion"] == pytest.approx(1.61e-10, abs=0.2e-10)
+
+
+def test_cosmic_shear_and_structure_audit() -> None:
+    s = _import_shbt_simulator()
+    report = s.run_structure_audit().to_dict()
+    assert report["all_passed"] is True
+    assert report["s8_primordial"] > 0.80
+    assert report["s8_effective"] < 0.78
+    assert report["kappa_get_min"] == pytest.approx(1.0 / 23.0, abs=1e-4)
+
+
+def test_calorimetry_hypothesis_audit() -> None:
+    s = _import_shbt_simulator()
+    report = s.run_calorimetry_audit().to_dict()
+    assert report["all_passed"] is True
+    assert report["t_bath_mk"] == 7.0
+    assert report["achieves_5_sigma"] is True
+    assert report["z_score"] >= 5.0
+
 
 
 

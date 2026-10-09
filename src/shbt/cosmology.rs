@@ -475,3 +475,94 @@ pub fn cosmic_age_today_gyr() -> f64 {
 pub fn lookback_gyr(z: f64) -> f64 {
     cosmic_age_today_gyr() - cosmic_age_gyr(z)
 }
+
+// ============================================================================
+// First-Principles Primordial Perturbation and Dynamic Expansion Invariants
+// ============================================================================
+
+pub const ETA_V_CANONICAL: f64 = 10.0 / 33.0;
+pub const C_VIS_CANONICAL: f64 = 9.0;
+pub const N_SAT_CANONICAL: f64 = 3.311998e122;
+pub const C_DARK_COMP_CANONICAL: f64 = 1.004378e-21;
+pub const GAMMA_T_CANONICAL: f64 = 0.01419128;
+pub const NORM_CONST_LOAD: f64 = 1358.58;
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct CosmologicalInvariants {
+    pub h0_cmb: f64,
+    pub a_s: f64,
+    pub n_s: f64,
+    pub r: f64,
+    pub n_t: f64,
+    pub tau_nl: f64,
+    pub eta_v: f64,
+}
+
+#[inline]
+pub fn compute_first_principles_as(c_vis: f64, c_dark_comp: f64, n_sat: f64) -> f64 {
+    let n_sat_fourth = n_sat.powf(0.25);
+    c_vis / (c_dark_comp * n_sat_fourth)
+}
+
+#[inline]
+pub fn compute_first_principles_ns(gamma_t: f64, delta_ln_prime: f64) -> f64 {
+    1.0 - (gamma_t / delta_ln_prime)
+}
+
+fn df_load_dz(z: f64, h0: f64, omega_b: f64, omega_cdm: f64) -> f64 {
+    let h = h0 / 100.0;
+    let omega_m = (omega_b + omega_cdm) / (h * h);
+    let omega_r = 8.6e-5 / (h * h);
+    let omega_de = 1.0 - omega_m - omega_r;
+
+    let zp1 = 1.0 + z;
+    let ez_sq = omega_r * zp1.powi(4) + omega_m * zp1.powi(3) + omega_de;
+    let ez = ez_sq.max(1e-12).sqrt();
+
+    (NORM_CONST_LOAD / (h0 * ez.powi(3))) / zp1
+}
+
+pub fn solve_first_principles_h0_cmb(
+    eta_v: f64,
+    omega_b: f64,
+    omega_cdm: f64,
+    tol: f64,
+    max_iter: usize,
+) -> Result<f64, String> {
+    let mut low = 50.0;
+    let mut high = 90.0;
+
+    let integrate_load = |h0: f64| -> f64 {
+        let n_steps = 2500;
+        let z_max: f64 = 5000.0;
+        let mut sum: f64 = 0.0;
+        for i in 0..n_steps {
+            let t0: f64 = i as f64 / n_steps as f64;
+            let t1: f64 = (i + 1) as f64 / n_steps as f64;
+            let z0: f64 = (1.0_f64 + z_max).powf(t0) - 1.0_f64;
+            let z1: f64 = (1.0_f64 + z_max).powf(t1) - 1.0_f64;
+            let zm = 0.5 * (z0 + z1);
+            let dz = z1 - z0;
+            sum += df_load_dz(zm, h0, omega_b, omega_cdm) * dz;
+        }
+        sum
+    };
+
+    for _ in 0..max_iter {
+        let mid = 0.5 * (low + high);
+        let deficit = integrate_load(mid) - eta_v;
+
+        if deficit.abs() < tol {
+            return Ok(mid);
+        }
+
+        if deficit > 0.0 {
+            low = mid;
+        } else {
+            high = mid;
+        }
+    }
+
+    Err("Convergence failure in solve_first_principles_h0_cmb".to_string())
+}
+
