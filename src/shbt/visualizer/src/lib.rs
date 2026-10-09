@@ -3322,16 +3322,14 @@ impl ShbtWebGpuEngine {
         // Wall-clock step feeds the Stinespring tether fade clock
         // (alpha *= exp(-wall_dt / 0.5 s)) independent of sim time.
         cosmo.wall_dt = dt_seconds as f32;
-        // shbt9 P-PM hydro channel: c_s^2(a) in code units times the
-        // sandbox sound-speed slider (clamped to [0, 3]).
+        // First-principles P-PM hydro channel: c_s^2(a) in code units (scale = 1.0)
         cosmo.cs_sq_scaled = self.metrology.ctx.cs_sq_code(
             self.redshift,
-            self.controls.sound_speed_scale.clamp(0.0, 3.0),
+            1.0_f32,
         );
-        // shbt10 thermodynamic hydro: k_B/(mu m_p)/V_0^2 normalizer and
-        // the mean fixed-point deposit for the n_local ratio.
+        // First-principles thermodynamic hydro: k_B/(mu m_p)/V_0^2 normalizer (scale = 1.0)
         cosmo.pressure_norm = self.metrology.ctx.pressure_norm_code(
-            self.controls.sound_speed_scale.clamp(0.0, 3.0),
+            1.0_f32,
         );
         cosmo.mean_cell_fixed = (self.mean_raw_total * 1048576.0
             / (GRID_DIM * GRID_DIM * GRID_DIM) as f64) as f32;
@@ -3361,10 +3359,7 @@ impl ShbtWebGpuEngine {
             r_filter_cells: (units::CosmologicalContext::r_filter_mpc(self.redshift)
                 / (BOX_SIZE as f64 / GRID_DIM as f64))
             .clamp(1.0, 4.0) as f32,
-            percolation_scale: self
-                .controls
-                .percolation_threshold_scale
-                .clamp(0.5, 2.0),
+            percolation_scale: 1.0_f32,
             // _pad2.x: incubation Laplacian diffusion coefficient (cell
             // units; < 1/6 keeps the explicit scheme stable).
             // _pad2.y: seed-core regularization radius in grid cells.

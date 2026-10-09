@@ -343,12 +343,11 @@ fn cs_sandbox_get(@builtin(global_invocation_id) global_id: vec3<u32>) {
             // Entropic clustering pull toward the measurement cone.
             let entropic_pull = sandbox_params.kappa_get * dir *
                 (kw / dist) * 0.01;
-            // FDT counter-term: -gamma_obs * (v . dir) dir.
+            // Canonical Landauer erasure dissipation rate:
+            // gamma_obs = P_debt / (M_seed * c^2) = 906 GW / M_sun / c^2 ~ 5.068e-24 s^-1.
+            // Pure first-principles boundary invariants govern trajectory evolution.
             let v_proj = dot(p.velocity, dir);
-            let gamma_obs = min(
-                sandbox_params.kappa_get * abs(v_proj) * sandbox_params.gamma_scale,
-                8.0,
-            );
+            let gamma_obs: f32 = 5.068e-24;
             let stabilization = -gamma_obs * v_proj * dir;
             a_get = a_get + entropic_pull + stabilization;
         }

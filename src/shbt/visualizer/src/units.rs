@@ -369,6 +369,7 @@ impl MetrologyPipeline {
     }
 
     /// Evaluates epsilon_holo(a) = (3*pi / (2 * Lambda_holo * N_sat))^(1/4) * a
+    #[allow(dead_code)]
     #[inline]
     pub fn calculate_epsilon_holo(&self, scale_factor: f64) -> f64 {
         const DEFAULT_LAMBDA_HOLO: f64 = 1.08913883e-52; // m^-2
@@ -411,6 +412,10 @@ impl MetrologyPipeline {
         // m_tilde for one solar mass — the shader multiplies per seed.
         let inv_m_box_msun = self.ctx.physical_to_code_mass(1.0);
 
+        let z = if a > 0.0 { ((1.0 / a) - 1.0).max(-0.999) as f64 } else { 0.0 };
+        let cs_sq_scaled = self.ctx.cs_sq_code(z, 1.0_f32);
+        let pressure_norm = self.ctx.pressure_norm_code(1.0_f32);
+
         GpuSimulationUniforms {
             a,
             a_next,
@@ -431,10 +436,10 @@ impl MetrologyPipeline {
             dt_legacy,
             inv_m_box_msun,
             wall_dt: 0.0,
-            cs_sq_scaled: 0.0,
+            cs_sq_scaled,
             t_cmb_0: 2.7255,
             z_dec: 137.0,
-            pressure_norm: 0.0,
+            pressure_norm,
             mean_cell_fixed: 0.0,
         }
     }
