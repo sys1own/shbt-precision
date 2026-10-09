@@ -59,8 +59,8 @@
       "totalMass": 0,
       "landauerDebt": 0,
       "active_caustics": 0,
-      "peak_shear": 0.410461,
-      "peak_convergence": 0.517583,
+      "peak_shear": 0.415223,
+      "peak_convergence": 0.515156,
       "max_einstein_radius": 0,
       "horizon_frozen": false
     }
@@ -95,8 +95,8 @@
       "totalMass": 0,
       "landauerDebt": 0,
       "active_caustics": 0,
-      "peak_shear": 0.378598,
-      "peak_convergence": 0.60484,
+      "peak_shear": 0.383084,
+      "peak_convergence": 0.627648,
       "max_einstein_radius": 0,
       "horizon_frozen": false
     }
@@ -107,31 +107,31 @@
     "z_target": 16.0,
     "z_hud": "16.00",
     "quench_pct": "69.70",
-    "landauer_gw": "1.5052e+16",
-    "fps": "59.9",
+    "landauer_gw": "1.1973e+16",
+    "fps": "59.8",
     "asserts": [
       {
         "name": "fps >= 55",
         "pass": true,
-        "detail": "59.9 FPS (software rasterizer budget; strict mode: False)",
+        "detail": "59.8 FPS (software rasterizer budget; strict mode: False)",
         "hard": false
       },
       {
         "name": "active_seeds > 0",
         "pass": true,
-        "detail": "915 seeds",
+        "detail": "990 seeds",
         "hard": true
       },
       {
         "name": "M_seed > 0",
         "pass": true,
-        "detail": "1.661e+13 M_sun",
+        "detail": "1.322e+13 M_sun",
         "hard": true
       },
       {
         "name": "P_debt > 0",
         "pass": true,
-        "detail": "1.505e+16 GW",
+        "detail": "1.197e+16 GW",
         "hard": true
       },
       {
@@ -145,12 +145,12 @@
       "t_gyr": 0.2441795,
       "lookback_gyr": 13.54673,
       "f_load": 0.00012681,
-      "seedCount": 915,
-      "totalMass": 16613610000000,
-      "landauerDebt": 15051930000000000,
-      "active_caustics": 915,
-      "peak_shear": 0.378019,
-      "peak_convergence": 0.590381,
+      "seedCount": 990,
+      "totalMass": 13215370000000,
+      "landauerDebt": 11973130000000000,
+      "active_caustics": 990,
+      "peak_shear": 0.392194,
+      "peak_convergence": 0.648413,
       "max_einstein_radius": 0.085,
       "horizon_frozen": false
     }
@@ -161,7 +161,7 @@
     "z_target": 3.0,
     "z_hud": "3.000",
     "quench_pct": "69.70",
-    "landauer_gw": "1.0556e+16",
+    "landauer_gw": "1.0315e+16",
     "fps": "60.0",
     "asserts": [
       {
@@ -173,7 +173,7 @@
       {
         "name": "landauer_debt > 5e11 GW",
         "pass": true,
-        "detail": "1.056e+16 GW",
+        "detail": "1.032e+16 GW",
         "hard": true
       },
       {
@@ -212,11 +212,11 @@
       "lookback_gyr": 11.65234,
       "f_load": 0.00464599,
       "seedCount": 1024,
-      "totalMass": 11651730000000,
-      "landauerDebt": 10556460000000000,
+      "totalMass": 11384850000000,
+      "landauerDebt": 10314670000000000,
       "active_caustics": 1024,
-      "peak_shear": 0.411919,
-      "peak_convergence": 0.519503,
+      "peak_shear": 0.379473,
+      "peak_convergence": 0.575976,
       "max_einstein_radius": 0.085,
       "horizon_frozen": false
     }
@@ -227,7 +227,7 @@
     "z_target": 1.0,
     "z_hud": "1.000",
     "quench_pct": "69.70",
-    "landauer_gw": "7.8816e+15",
+    "landauer_gw": "8.1652e+15",
     "fps": "60.0",
     "asserts": [
       {
@@ -251,7 +251,7 @@
       {
         "name": "gamma_max > 0.1",
         "pass": true,
-        "detail": "0.4683",
+        "detail": "0.4249",
         "hard": true
       },
       {
@@ -266,11 +266,11 @@
       "lookback_gyr": 7.94987,
       "f_load": 0.02449395,
       "seedCount": 1024,
-      "totalMass": 8699392000000,
-      "landauerDebt": 7881649000000000,
+      "totalMass": 9012403000000,
+      "landauerDebt": 8165237000000000,
       "active_caustics": 1024,
-      "peak_shear": 0.468346,
-      "peak_convergence": 0.55976,
+      "peak_shear": 0.424948,
+      "peak_convergence": 0.527162,
       "max_einstein_radius": 0.085,
       "horizon_frozen": false
     }
@@ -281,7 +281,7 @@
     "z_target": -0.999,
     "z_hud": "-0.9990",
     "quench_pct": "69.70",
-    "landauer_gw": "1.4926e+16",
+    "landauer_gw": "1.5240e+16",
     "fps": "60.0",
     "asserts": [
       {
@@ -320,11 +320,11 @@
       "lookback_gyr": -119.9317,
       "f_load": 0.99999978,
       "seedCount": 1024,
-      "totalMass": 16474380000000,
-      "landauerDebt": 14925780000000000,
+      "totalMass": 16821360000000,
+      "landauerDebt": 15240150000000000,
       "active_caustics": 1024,
-      "peak_shear": 0.386486,
-      "peak_convergence": 1.229586,
+      "peak_shear": 0.434004,
+      "peak_convergence": 1.264421,
       "max_einstein_radius": 0.085,
       "horizon_frozen": true
     }

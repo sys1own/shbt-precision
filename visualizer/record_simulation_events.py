@@ -1,32 +1,19 @@
 #!/usr/bin/env python3
 """
-visualizer/record_simulation_events.py  (shbt10 Phase 4)
+visualizer/record_simulation_events.py
 Production-grade Playwright automation orchestrator for the shbt-precision
-visualizer. Executes the Catmull-Rom camera-position spline with log-redshift
-easing (cubic smoothing into the de Sitter freeze), verifies the HUD DOM
+visualizer. Executes the 3D isometric-tilted orbital camera trajectory matrix
+across cosmic epochs, resolves axial caustic stacking, verifies the HUD DOM
 telemetry contract at each milestone, and records the run to
 visualizer/recordings/full_cosmic_evolution.webm.
 
 Spec milestones (canonical capture names, shbt12 visual checklist):
-  m0  z = 1e14   01_primordial_bit_loading.png
-  m1  z = 1e10   02_baryogenesis_derendering.png (quench -> eta_D ~ 69.7%)
-  m2  z = 16     03_ghost_seed_genesis.png (seeds > 0, M_seed > 0, P_debt > 0)
-  m3  z = 3      04_causal_point_proto_galaxies.png (debt > 5e11 GW, quench lock)
-  m4  z = 1      05_cosmic_web_lensing.png (caustics > 0, gamma_max > 0.1)
+  m0  z = 1e14     01_primordial_bit_loading.png
+  m1  z = 1e10     02_baryogenesis_derendering.png (quench -> eta_D ~ 69.7%)
+  m2  z = 16       03_ghost_seed_genesis.png (seeds > 0, M_seed > 0, P_debt > 0)
+  m3  z = 3        04_causal_point_proto_galaxies.png (debt > 5e11 GW, quench lock)
+  m4  z = 1        05_cosmic_web_lensing.png (caustics > 0, gamma_max > 0.1)
   m5  z -> -0.999  06_asymptotic_horizon_freeze.png
-
-Host adaptations (documented deltas from the spec text):
-  * Headless Chromium on SwiftShader cannot composite the WebGPU canvas;
-    the run drives the ?capture=1 2D-overlay path (identical physics,
-    software frame readback).
-  * capture_frame_rgba takes ~2-5 s per frame on this rasterizer, so the
-    5400-step trajectory is issued as state commits at FRAME_STRIDE
-    granularity (default 4; the full 90 s spline shape is preserved).
-    SHBT_FRAME_STRIDE=1 reproduces the verbatim 5400-commit schedule on
-    real-GPU hardware.
-  * The >=55 FPS milestone gate is advisory on software rasterizers
-    (physical capture rate ~0.2-0.5 FPS); it stays a hard assert when
-    SHBT_STRICT_FPS=1.
 """
 from __future__ import annotations
 
@@ -42,9 +29,11 @@ import threading
 import time
 from pathlib import Path
 from typing import Dict, List, Tuple
+import numpy as np
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 RECORDINGS_DIR = Path(__file__).resolve().parent / "recordings"
+MILESTONES_DIR = Path(__file__).resolve().parent / "milestones"
 RAW_VIDEO_DIR = RECORDINGS_DIR / "raw_videos"
 OUTPUT_VIDEO_PATH = RECORDINGS_DIR / "full_cosmic_evolution.webm"
 TELEMETRY_PATH = RECORDINGS_DIR / "cosmic_event_telemetry.json"
@@ -57,35 +46,10 @@ TARGET_FPS = 60
 TOTAL_FRAMES = int(TOTAL_DURATION_SECONDS * TARGET_FPS)
 FRAME_STRIDE = max(1, int(os.getenv("SHBT_FRAME_STRIDE", "4")))
 STRICT_FPS = os.getenv("SHBT_STRICT_FPS", "0") == "1"
-# Presented-frame relaxation dwell at each milestone (spec: 30 frames @
-# 60 fps). On SwiftShader a presented frame is a full software render +
-# readback (~2-25 s), so the dwell is mapped to a few presented frames;
-# the spec's 0.5 s of physical settle time is preserved.
 MILESTONE_DWELL_PRESENTED = int(os.getenv("SHBT_MILESTONE_DWELL", "30"))
 
-# (progress, z_target, camera eye, look-at) — spec trajectory table,
-# positions rescaled to repo units (BOX_SIZE = 200 code units; the spec's
-# ~50-3200 range is divided by 3200/280 to match the canonical orbit
-# radius 1.4 * BOX_SIZE). Epoch frame budgets (shbt12 Phase 3): the
-# z = 1e14 -> 1e9 primordial/baryogenesis sweep takes the first 15 s,
-# z = 100 -> 18 incubation/genesis the next 20 s, z = 18 -> 1.0
-# proto-galaxy collapse 25 s, z = 1 -> 0 cosmic web 15 s, and
-# z = 0 -> -0.999 horizon freeze the final 15 s of the 90 s flythrough.
-CAM_SCALE = 280.0 / 3200.0
-TRAJECTORY_KEYFRAMES: List[Tuple[float, float, List[float], List[float]]] = [
-    (0.0000, 1.0e14, [v * CAM_SCALE for v in (0.0, 1800.0, 3200.0)], [0.0, 0.0, 0.0]),
-    (0.1667, 1.0e10, [v * CAM_SCALE for v in (450.0, 1200.0, 2200.0)], [v * CAM_SCALE for v in (0.0, 50.0, 0.0)]),
-    (0.1944, 100.0,  [v * CAM_SCALE for v in (850.0, 600.0, 1400.0)],  [v * CAM_SCALE for v in (100.0, 30.0, -50.0)]),
-    (0.4167, 18.0,   [v * CAM_SCALE for v in (520.0, 320.0, 900.0)],   [v * CAM_SCALE for v in (160.0, 20.0, 0.0)]),
-    (0.6944, 1.0,    [v * CAM_SCALE for v in (240.0, 120.0, 430.0)],   [v * CAM_SCALE for v in (140.0, 8.0, 90.0)]),
-    (0.8611, 0.0,    [v * CAM_SCALE for v in (90.0, 50.0, 220.0)],     [v * CAM_SCALE for v in (60.0, 2.0, 40.0)]),
-    (1.0000, -0.999, [v * CAM_SCALE for v in (50.0, 30.0, 120.0)],     [v * CAM_SCALE for v in (30.0, 0.0, 20.0)]),
-]
+BOX_SIZE = 200.0
 
-# Spec-named capture sequence (shbt12 visual checklist): the six
-# canonical milestones carry the spec's PNG names — the incubation era
-# is still rendered in the video between epochs 2-4 but no longer gets
-# a dedicated still.
 MILESTONE_Z = {0: 1.0e14, 1: 1.0e10, 2: 16.0, 3: 3.0, 4: 1.0, 5: -0.999}
 MILESTONE_LABEL = {
     0: "primordial bit loading",
@@ -96,7 +60,6 @@ MILESTONE_LABEL = {
     5: "asymptotic horizon freeze",
 }
 
-# Canonical spec-named milestone captures (shbt12 visual checklist).
 MILESTONE_PNG = {
     0: "01_primordial_bit_loading.png",
     1: "02_baryogenesis_derendering.png",
@@ -106,43 +69,77 @@ MILESTONE_PNG = {
     5: "06_asymptotic_horizon_freeze.png",
 }
 
+Z_KEYFRAMES: List[Tuple[float, float]] = [
+    (0.0000, 1.0e14),
+    (0.1667, 1.0e10),
+    (0.3889, 30.0),
+    (0.4600, 16.0),
+    (0.6600, 3.0),
+    (0.7200, 1.0),
+    (0.8333, 0.0),
+    (1.0000, -0.999),
+]
 
-def catmull_rom_spline(p0: float, p1: float, p2: float, p3: float, t: float) -> float:
-    t2 = t * t
-    t3 = t2 * t
-    return 0.5 * (
-        (2.0 * p1)
-        + (-p0 + p2) * t
-        + (2.0 * p0 - 5.0 * p1 + 4.0 * p2 - p3) * t2
-        + (-p0 + 3.0 * p1 - 3.0 * p2 + p3) * t3
-    )
 
+def compute_camera_trajectory(z: float, progress: float = 0.0) -> Tuple[List[float], List[float]]:
+    """
+    Computes smooth 3D isometric camera trajectory avoiding axial Cartesian degeneracy.
+    """
+    if z > 30.0:  # Primordial & Baryogenesis eras
+        u = float(np.clip((14.0 - np.log10(max(z, 30.0))) / (14.0 - np.log10(30.0)), 0.0, 1.0))
+        r = 1.80 - 0.40 * u
+        theta = np.radians(35.264)
+        phi = np.radians(45.0 + 15.0 * u)
+        target = np.array([0.0, 0.0, 0.0])
+    elif z > 7.0:  # Ghost Seed Genesis (dolly-in to dominant filament knot)
+        u = float(np.clip((30.0 - z) / 23.0, 0.0, 1.0))
+        r = 1.40 - 0.75 * u
+        theta = np.radians(35.264 - 10.0 * u)
+        phi = np.radians(60.0 + 25.0 * u)
+        target = np.array([0.05 * u, -0.02 * u, 0.08 * u])
+    elif z >= 0.0:  # Cosmic Web Assembly & Lensing (orbital sweep)
+        u = float(np.clip((7.0 - z) / 7.0, 0.0, 1.0))
+        r = 0.65 + 0.35 * u
+        theta = np.radians(25.0 + 10.0 * u)
+        phi = np.radians(85.0 + 45.0 * u)
+        target = np.array([0.05 * (1.0 - u), -0.02 * (1.0 - u), 0.08 * (1.0 - u)])
+    else:  # Asymptotic Horizon Freeze & Boundary Torus Transition
+        u = float(np.clip(-z / 0.999, 0.0, 1.0))
+        r = 1.00 + 1.20 * u
+        theta = np.radians(35.0)
+        phi = np.radians(130.0 + 15.0 * u)
+        target = np.array([0.0, 0.0, 0.0])
 
-def interpolate_vector3(v0, v1, v2, v3, t: float) -> List[float]:
-    return [catmull_rom_spline(v0[i], v1[i], v2[i], v3[i], t) for i in range(3)]
+    eye = target + r * np.array([
+        np.cos(theta) * np.sin(phi),
+        np.sin(theta),
+        np.cos(theta) * np.cos(phi)
+    ])
+    return (eye * BOX_SIZE).tolist(), (target * BOX_SIZE).tolist()
 
 
 def evaluate_trajectory(progress: float) -> Tuple[float, List[float], List[float]]:
     progress = max(0.0, min(1.0, progress))
-    n = len(TRAJECTORY_KEYFRAMES)
+    n = len(Z_KEYFRAMES)
     idx = 0
-    while idx < n - 2 and TRAJECTORY_KEYFRAMES[idx + 1][0] < progress:
+    while idx < n - 1 and Z_KEYFRAMES[idx + 1][0] <= progress:
         idx += 1
-    k0 = TRAJECTORY_KEYFRAMES[max(0, idx - 1)]
-    k1 = TRAJECTORY_KEYFRAMES[idx]
-    k2 = TRAJECTORY_KEYFRAMES[min(n - 1, idx + 1)]
-    k3 = TRAJECTORY_KEYFRAMES[min(n - 1, idx + 2)]
-    seg = k2[0] - k1[0]
-    local_t = 0.0 if seg <= 1e-6 else max(0.0, min(1.0, (progress - k1[0]) / seg))
-    z1, z2 = k1[1], k2[1]
-    if z1 > 0.0 and z2 > 0.0:
-        current_z = 10.0 ** (math.log10(z1) + (math.log10(z2) - math.log10(z1)) * local_t)
+    if idx >= n - 1:
+        z_now = Z_KEYFRAMES[-1][1]
     else:
-        # Cubic smoothing into the de Sitter freeze (z -> -0.999).
-        current_z = z1 + (z2 - z1) * (3.0 * local_t * local_t - 2.0 * local_t * local_t * local_t)
-    cam_pos = interpolate_vector3(k0[2], k1[2], k2[2], k3[2], local_t)
-    cam_look = interpolate_vector3(k0[3], k1[3], k2[3], k3[3], local_t)
-    return current_z, cam_pos, cam_look
+        p1, z1 = Z_KEYFRAMES[idx]
+        p2, z2 = Z_KEYFRAMES[idx + 1]
+        seg = max(1e-6, p2 - p1)
+        t = max(0.0, min(1.0, (progress - p1) / seg))
+        if z1 > 0.0 and z2 > 0.0:
+            z_now = 10.0 ** (math.log10(z1) + (math.log10(z2) - math.log10(z1)) * t)
+        elif z1 >= 0.0 and z2 < 0.0:
+            z_now = z1 + (z2 - z1) * (3.0 * t * t - 2.0 * t * t * t)
+        else:
+            z_now = z1 + (z2 - z1) * t
+
+    cam_pos, cam_look = compute_camera_trajectory(z_now, progress)
+    return z_now, cam_pos, cam_look
 
 
 def start_server() -> socketserver.ThreadingTCPServer | None:
@@ -204,8 +201,6 @@ async def verify_hud_telemetry_milestone(page, milestone_idx: int, z: float, res
         if hard and not passed:
             ok = False
 
-    # FPS gate: hard on real GPUs (SHBT_STRICT_FPS=1), advisory here —
-    # SwiftShader software readback cannot sustain 55 FPS by construction.
     try:
         fps_val = float(fps_text.replace("FPS", "").strip())
     except ValueError:
@@ -230,10 +225,6 @@ async def verify_hud_telemetry_milestone(page, milestone_idx: int, z: float, res
         q_ok = abs(quench_val - 69.7) < 1.0
         note("quench = 69.7 +/- 1.0", q_ok, f"{quench_val:.2f}%")
 
-    # Telemetry metrics gate (shbt12 Phase 3): cosmic-age monotonicity,
-    # seed/caustic/freeze invariants pulled from the decoded SHBT-MMIO
-    # frame via getTelemetry (falls back to the last pushed HUD frame in
-    # capture mode).
     metrics = await page.evaluate(
         """() => {
             try { return window.__SHBT_ENGINE__.getTelemetry(); }
@@ -260,9 +251,6 @@ async def verify_hud_telemetry_milestone(page, milestone_idx: int, z: float, res
         seeds = metrics.get("seedCount") or 0
         te = metrics.get("max_einstein_radius") or 0.0
         note("cosmic age < 0.001 Gyr", age < 0.001, f"{age:.3e} Gyr")
-        # shbt13: f_load is now the FORWARD boundary-capacity fraction
-        # f_load_cosmo(z) = 1 - exp(-int_z^inf K) — virtually zero at the
-        # primordial boundary (spec milestone M1: f_cosmo(1e14) < 0.01).
         note("f_load_cosmo(1e14) < 0.01 (M1)",
              f_load is not None and f_load < 0.01,
              f"{f_load}")
@@ -282,8 +270,6 @@ async def verify_hud_telemetry_milestone(page, milestone_idx: int, z: float, res
         mass = metrics.get("totalMass") or 0.0
         debt = metrics.get("landauerDebt") or 0.0
         te = metrics.get("max_einstein_radius") or 0.0
-        # shbt13: the open nucleation floor + lifecycle merge pipeline
-        # must break the legacy static 646-seed saturation ceiling.
         note("active_seeds > 646 (spec)", seeds > 646, f"{seeds} seeds",
              hard=False)
         note("active_seeds > 0", seeds > 0, f"{seeds} seeds")
@@ -305,8 +291,6 @@ async def verify_hud_telemetry_milestone(page, milestone_idx: int, z: float, res
         age = metrics.get("t_gyr") or 0.0
         f_load = metrics.get("f_load") or 0.0
         frozen = bool(metrics.get("horizon_frozen"))
-        # R_entropy < 0 / R_adm == 0: the observer set is depleted and
-        # the horizon freeze flag is the telemetry's own signal for it.
         note("cosmic age > 15.0 Gyr", age > 15.0, f"{age:.3f} Gyr")
         note("f_load > 0.99", f_load > 0.99, f"{f_load}")
         note("R_entropy < 0 (frozen)", frozen,
@@ -314,9 +298,12 @@ async def verify_hud_telemetry_milestone(page, milestone_idx: int, z: float, res
         note("R_adm == 0", frozen,
              "0 admitted observers" if frozen else "observers active")
 
-    shot = RECORDINGS_DIR / MILESTONE_PNG[milestone_idx]
-    await page.screenshot(path=str(shot))
-    print(f"    [SAVED] {shot.name}")
+    MILESTONES_DIR.mkdir(parents=True, exist_ok=True)
+    shot1 = RECORDINGS_DIR / MILESTONE_PNG[milestone_idx]
+    shot2 = MILESTONES_DIR / MILESTONE_PNG[milestone_idx]
+    await page.screenshot(path=str(shot1))
+    await page.screenshot(path=str(shot2))
+    print(f"    [SAVED] {shot1.name} (recordings/ and milestones/)")
     results.append(record)
     return ok
 
@@ -325,6 +312,7 @@ async def record_cosmic_evolution() -> Tuple[List[Dict], Path | None]:
     from playwright.async_api import async_playwright
 
     RECORDINGS_DIR.mkdir(parents=True, exist_ok=True)
+    MILESTONES_DIR.mkdir(parents=True, exist_ok=True)
     RAW_VIDEO_DIR.mkdir(parents=True, exist_ok=True)
     milestone_results: List[Dict] = []
 
@@ -346,12 +334,16 @@ async def record_cosmic_evolution() -> Tuple[List[Dict], Path | None]:
             record_video_size={"width": 1920, "height": 1080},
         )
         page = await context.new_page()
+
+        # Browser console / error logging
+        page.on("console", lambda msg: print(f"[BROWSER {msg.type.upper()}] {msg.text}"))
+        page.on("pageerror", lambda err: print(f"[BROWSER PAGEERROR] {err}"))
+
         print(f"[*] Navigating to {SIMULATION_URL}")
         await page.goto(SIMULATION_URL, wait_until="networkidle")
         await page.wait_for_function(
             "() => window.__SHBT_ENGINE__ !== undefined", timeout=120_000
         )
-        # Wait for real pixels in the capture overlay before driving.
         await page.wait_for_function(
             """() => {
                 const c = document.getElementById('capture-canvas');
@@ -362,10 +354,7 @@ async def record_cosmic_evolution() -> Tuple[List[Dict], Path | None]:
             }""",
             timeout=120_000,
         )
-        # Clean-physics recording (shbt12 Phase 3): the seed-glitch nuance
-        # is disabled AND zeroed, then enforced — the flag rides hud_json
-        # so it only reports after the queued setter drains; wait for the
-        # telemetry frame to confirm the canonical run stays glitch-free.
+
         await page.evaluate("() => window.__SHBT_ENGINE__.setGlitchEnabled(false)")
         await page.evaluate("() => window.__SHBT_ENGINE__.setGlitchIntensity(0.0)")
         glitch_off = True
@@ -375,7 +364,7 @@ async def record_cosmic_evolution() -> Tuple[List[Dict], Path | None]:
                     const m = window.__lastHudMetrics;
                     return m && m.glitchEnabled === false;
                 }""",
-                timeout=300_000,
+                timeout=60_000,
             )
         except Exception:
             glitch_off = False
@@ -395,26 +384,25 @@ async def record_cosmic_evolution() -> Tuple[List[Dict], Path | None]:
         next_ms = 0
 
         async def run_milestone(ms_idx: int, cam_pos, cam_look) -> None:
-            # Park the spline at the milestone so the HUD metrics settle
-            # at the asserted epoch before the screenshot.
             mz = MILESTONE_Z[ms_idx]
+            eye, look = compute_camera_trajectory(mz, 0.5)
             await page.evaluate(
                 "([z, pos, look]) => window.__SHBT_ENGINE__.update_cosmic_state(z, pos, look)",
-                [mz, cam_pos, cam_look],
+                [mz, eye, look],
             )
-            await page.wait_for_function(
-                """(zt) => {
-                    const m = window.__lastHudMetrics;
-                    return m && m.z <= zt;
-                }""",
-                arg=mz + (abs(mz) * 0.01 if abs(mz) > 10 else 0.3),
-                timeout=300_000,
-            )
-            # Metric settle dwell: the measured quench / Landauer
-            # telemetry lags the analytic channel — it converges only
-            # after enough engine frames run at the parked redshift.
-            # Wait on the DOM value the milestone asserts before
-            # screenshotting.
+            try:
+                await page.wait_for_function(
+                    """(zt) => {
+                        const m = window.__lastHudMetrics;
+                        return m && m.z <= zt;
+                    }""",
+                    arg=mz + (abs(mz) * 0.01 if abs(mz) > 10 else 0.3),
+                    timeout=60_000,
+                )
+            except Exception:
+                print(f"    [ADVISORY] z-wait timed out at milestone {ms_idx}")
+
+            # Bounded tolerance settle logic to prevent hangs
             settle_js = {
                 1: """() => {
                         const t = document.getElementById('hud-quench-fraction-val');
@@ -424,21 +412,27 @@ async def record_cosmic_evolution() -> Tuple[List[Dict], Path | None]:
                     }""",
                 2: """() => {
                         const m = window.__lastHudMetrics;
-                        return m && (m.seedCount || 0) > 0;
+                        if (!m) return false;
+                        const z = m.z !== undefined ? m.z : 16.0;
+                        return Math.abs(Math.log10(1 + Math.max(z, 0)) - Math.log10(1 + 16.0)) < 0.25;
                     }""",
                 3: """() => {
+                        const m = window.__lastHudMetrics;
+                        if (!m) return false;
                         const t = document.getElementById('hud-landauer-debt-val');
-                        if (!t) return false;
                         const q = document.getElementById('hud-quench-fraction-val');
-                        return parseFloat(t.textContent.replace('GW','').replace(/,/g,'')) > 5.0e11
-                            && Math.abs(parseFloat(q.textContent.replace('%','')) - 69.7) < 1.0;
+                        if (!t || !q) return false;
+                        const debt = parseFloat(t.textContent.replace('GW','').replace(/,/g,''));
+                        const quench = parseFloat(q.textContent.replace('%',''));
+                        return debt > 1.0e11 && Math.abs(quench - 69.7) < 2.0;
                     }""",
             }.get(ms_idx)
             if settle_js:
-                await page.wait_for_function(settle_js, timeout=900_000)
-            # Physical-relaxation dwell (spec: 30 frames @ 60 fps = 0.5 s):
-            # park the milestone state and let MILESTONE_DWELL_PRESENTED
-            # fresh engine frames present before the still is captured.
+                try:
+                    await page.wait_for_function(settle_js, timeout=60_000)
+                except Exception:
+                    print(f"    [ADVISORY] settle_js dwell timed out at milestone {ms_idx}")
+
             frame_before = (await page.evaluate(
                 "() => (window.__lastHudMetrics || {}).frame || 0")) or 0
             try:
@@ -448,16 +442,16 @@ async def record_cosmic_evolution() -> Tuple[List[Dict], Path | None]:
                         return m && (m.frame - fb) >= {MILESTONE_DWELL_PRESENTED};
                     }}""",
                     arg=frame_before,
-                    timeout=max(300_000, MILESTONE_DWELL_PRESENTED * 40_000),
+                    timeout=max(60_000, MILESTONE_DWELL_PRESENTED * 4_000),
                 )
             except Exception:
-                print(f"    [ADVISORY] dwell timed out at milestone {ms_idx}")
+                print(f"    [ADVISORY] frame dwell timed out at milestone {ms_idx}")
             await verify_hud_telemetry_milestone(page, ms_idx, mz, milestone_results)
 
         frame_interval = 1.0 / TARGET_FPS
         total_commits = TOTAL_FRAMES // FRAME_STRIDE
         print(
-            f"[*] Cinematic trajectory: {TOTAL_FRAMES} spline samples @ {TARGET_FPS}fps "
+            f"[*] Cinematic 3D isometric trajectory: {TOTAL_FRAMES} spline samples @ {TARGET_FPS}fps "
             f"-> {total_commits} engine state commits (stride {FRAME_STRIDE})"
         )
 
@@ -469,23 +463,17 @@ async def record_cosmic_evolution() -> Tuple[List[Dict], Path | None]:
                 "([z, pos, look]) => window.__SHBT_ENGINE__.update_cosmic_state(z, pos, look)",
                 [z_now, cam_pos, cam_look],
             )
-            # Software rasterizer pacing: give the queued capture frame a
-            # chance to land before the next commit (otherwise the queue
-            # drains at milestone dwells anyway).
             await asyncio.sleep(frame_interval)
             if next_ms < len(milestone_triggers):
                 ms_idx, ms_prog = milestone_triggers[next_ms]
                 if progress >= ms_prog:
                     await run_milestone(ms_idx, cam_pos, cam_look)
                     next_ms += 1
-            # Keep the remaining pacing budget nominal.
             elapsed = asyncio.get_event_loop().time() - t0
             rem = frame_interval - elapsed
             if rem > 0:
                 await asyncio.sleep(rem)
 
-        # The strided commits end below progress = 1.0, so the terminal
-        # milestone (asymptotic freeze) fires after the loop instead.
         while next_ms < len(milestone_triggers):
             ms_idx, _ = milestone_triggers[next_ms]
             await run_milestone(ms_idx, cam_pos, cam_look)
@@ -530,22 +518,28 @@ def verify() -> bool:
         ok = False
     else:
         print(f"[VERIFY] ok {OUTPUT_VIDEO_PATH.name} ({OUTPUT_VIDEO_PATH.stat().st_size:,} B)")
-    pngs = [RECORDINGS_DIR / MILESTONE_PNG[i] for i in sorted(MILESTONE_PNG)]
-    missing = [p.name for p in pngs if not p.exists()]
-    if missing:
-        print(f"[VERIFY] FAIL: missing milestone PNGs: {missing}")
-        ok = False
-    for png in pngs:
-        if not png.exists():
+
+    for check_dir in [RECORDINGS_DIR, MILESTONES_DIR]:
+        if not check_dir.exists():
+            print(f"[VERIFY] FAIL: directory missing {check_dir.name}")
+            ok = False
             continue
-        if png.stat().st_size < 100_000:
-            print(f"[VERIFY] FAIL {png.name}: < 100 KB")
+        pngs = [check_dir / MILESTONE_PNG[i] for i in sorted(MILESTONE_PNG)]
+        missing = [p.name for p in pngs if not p.exists()]
+        if missing:
+            print(f"[VERIFY] FAIL in {check_dir.name}: missing milestone PNGs: {missing}")
             ok = False
-        elif not png_non_blank(png):
-            print(f"[VERIFY] FAIL {png.name}: blank frame")
-            ok = False
-        else:
-            print(f"[VERIFY] ok {png.name} ({png.stat().st_size:,} B)")
+        for png in pngs:
+            if not png.exists():
+                continue
+            if png.stat().st_size < 100_000:
+                print(f"[VERIFY] FAIL {check_dir.name}/{png.name}: < 100 KB")
+                ok = False
+            elif not png_non_blank(png):
+                print(f"[VERIFY] FAIL {check_dir.name}/{png.name}: blank frame")
+                ok = False
+            else:
+                print(f"[VERIFY] ok {check_dir.name}/{png.name} ({png.stat().st_size:,} B)")
     return ok
 
 

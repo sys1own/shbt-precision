@@ -243,6 +243,10 @@ wasm-bindgen --target web --out-dir visualizer/pkg \
     src/shbt/visualizer/target/wasm32-unknown-unknown/release/shbt_visualizer.wasm
 python -m http.server 8080 --directory visualizer   # open http://localhost:8080
 
+# Cinematic 3D isometric recording and automated milestone verification
+python visualizer/record_simulation_events.py             # records full_cosmic_evolution.webm & 01-06 PNGs
+python visualizer/record_simulation_events.py --verify    # verifies artifact size, non-blankness, and DOM asserts
+
 # Headless GPU benchmark (no browser): frames + particles
 cargo run --release --manifest-path src/shbt/visualizer/Cargo.toml \
     --bin headless -- 60 262144
@@ -254,6 +258,8 @@ python -c "import precision_cosmology as pc; pc.simulate_calorimetry_experiment(
 ```
 
 Additional modes: `baryogenesis` (topological asymmetry benchmark), `visualize` (SHBT-MMIO telemetry export + `cosmology_visualization` and `causal_point_simulation` records; flags `--particles`, `--export-webgpu-telemetry`, `--sim-speed`), `history` (Causal-Point observer crystallization; with `--enable-succession` runs the multi-cycle lifecycle engine and exports `succession` records to `result.json`), `cosmology-test`. Exports support `--format json|csv|hdf5`, `--plot`, `--sweep`, `--config` (YAML/JSON), `--seed`, and structured `--log-format json` logging.
+
+The 3D isometric orbital trajectory matrix traverses the five cosmic evolutionary epochs ($\theta \approx 35.264^\circ$, $\Delta\phi = 45^\circ$), preventing Cartesian line-of-sight caustic stacking (bullseyes) and rendering true filament structures. Zero-parameter first-principles mode locks all sandbox controls ($c_s$, $\eta_{\mathrm{perc}}$, $\gamma_{\mathrm{obs}}$) to unit gain.
 
 ---
 
