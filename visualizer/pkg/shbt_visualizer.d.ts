@@ -164,6 +164,13 @@ export class ShbtWebGpuEngine {
 * @returns {number}
 */
   particle_count(): number;
+/**
+* @param {boolean} show
+*/
+  set_show_observers(show: boolean): void;
+/**
+*/
+  show_observers: boolean;
 }
 /**
 * Zero-allocation lensing uniform / seed-table manager. Stages the
@@ -319,6 +326,8 @@ export type InitInput = RequestInfo | URL | Response | BufferSource | WebAssembl
 
 export interface InitOutput {
   readonly memory: WebAssembly.Memory;
+  readonly __wbg_get_shbtwebgpuengine_show_observers: (a: number) => number;
+  readonly __wbg_set_shbtwebgpuengine_show_observers: (a: number, b: number) => void;
   readonly __wbg_shbtwebgpuengine_free: (a: number) => void;
   readonly shbtwebgpuengine_capture_frame_rgba: (a: number, b: number) => number;
   readonly shbtwebgpuengine_clear_camera_override: (a: number) => void;
@@ -346,6 +355,7 @@ export interface InitOutput {
   readonly shbtwebgpuengine_unproject_and_dispatch_causal_point: (a: number, b: number, c: number, d: number, e: number) => number;
   readonly shbtwebgpuengine_update_cosmic_state: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number) => void;
   readonly shbtwebgpuengine_update_frame_telemetry: (a: number, b: number, c: number, d: number) => void;
+  readonly shbtwebgpuengine_set_show_observers: (a: number, b: number) => void;
   readonly __wbg_wasmshbtengine_free: (a: number) => void;
   readonly wasmshbtengine_causal_point_count: (a: number) => number;
   readonly wasmshbtengine_get_causal_point_buffer_byte_len: (a: number) => number;

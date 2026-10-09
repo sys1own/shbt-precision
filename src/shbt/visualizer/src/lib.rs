@@ -547,6 +547,7 @@ pub struct ShbtWebGpuEngine {
     glitch_enabled: bool,
     bloom_intensity: f32,
     fog_density: f32,
+    pub show_observers: bool,
     /// shbt9 sandbox control block (DOM sliders -> engine state).
     controls: hud::SimulationControls,
     /// User-dispatched causal-point observer pool (click-to-measure):
@@ -2116,6 +2117,7 @@ impl ShbtWebGpuEngine {
             glitch_enabled: true,
             bloom_intensity: 0.08,
             fog_density: 0.6,
+            show_observers: false,
             controls: hud::SimulationControls {
                 sound_speed_scale: 1.0,
                 percolation_threshold_scale: 1.0,
@@ -3766,16 +3768,16 @@ impl ShbtWebGpuEngine {
             rpass.set_bind_group(1, &tcbg, &[]);
             rpass.draw(0..6, 0..TRACER_COUNT);
 
-            // Past light cone wireframes (Enhancement 7): only the top
-            // most-active observers (mass-ordered in update_observer_table)
-            // get cone spokes; the rest keep their entropy shell.
-            rpass.set_pipeline(&self.cone_pipeline);
-            rpass.set_bind_group(0, &obg, &[]);
-            rpass.draw(0..32, 0..TOP_CONE_OBSERVERS);
+            // Past light cone wireframes (Enhancement 7) and Entropy budget spheres (Enhancement 8).
+            // Gated behind show_observers to eliminate unphysical concentric green shells.
+            if self.show_observers {
+                rpass.set_pipeline(&self.cone_pipeline);
+                rpass.set_bind_group(0, &obg, &[]);
+                rpass.draw(0..32, 0..TOP_CONE_OBSERVERS);
 
-            // Entropy budget spheres (Enhancement 8).
-            rpass.set_pipeline(&self.sphere_pipeline);
-            rpass.draw(0..6, 0..MAX_SEEDS as u32);
+                rpass.set_pipeline(&self.sphere_pipeline);
+                rpass.draw(0..6, 0..MAX_SEEDS as u32);
+            }
 
             // Stinespring transition tethers (Enhancement 4).
             rpass.set_pipeline(&self.tether_pipeline);
@@ -4563,6 +4565,11 @@ impl ShbtWebGpuEngine {
         self.num_particles
     }
 
+    #[wasm_bindgen]
+    pub fn set_show_observers(&mut self, show: bool) {
+        self.show_observers = show;
+    }
+
     /// Render one frame into an offscreen RGBA8 target and resolve the
     /// pixels to JS. Used when the WebGPU canvas cannot be composited
     /// (e.g. headless Chromium / SwiftShader): the page blits the bytes
@@ -4830,6 +4837,10 @@ impl ShbtWebGpuEngine {
         self.timeline.seek(z);
         self.redshift = z;
         self.timeline.playing = false;
+    }
+
+    pub fn set_show_observers(&mut self, show: bool) {
+        self.show_observers = show;
     }
 
     pub fn hud_json(&self) -> String {

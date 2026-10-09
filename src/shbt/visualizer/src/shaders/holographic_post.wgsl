@@ -482,69 +482,84 @@ fn fs_post(in: VertexOutput) -> @location(0) vec4<f32> {
         alpha_total = alpha_total * (0.2 / alpha_len);
     }
 
-    // Boundary chromatic dispersion (shbt8 Thm 9.12): the screen
-    // deflection for each optical band follows
-    //   delta_disp(lambda) = zeta_disp * [(lambda_0 / lambda)^2 - 1]
-    // with lambda_0 = 550 nm reference and canonical bands
-    // B = 436 nm, G = 546 nm, R = 700 nm ->
-    //   delta_B = +0.5917 zeta, delta_G = +0.0147 zeta, delta_R = -0.3820 zeta
-    // (zeta_disp ~ 0.04 at full slider -> delta_B ~ +0.0237, matching
-    // the boundary-dispersion table).
-    let zeta = params.post2.y;
-    let disp_b = zeta * 0.5917;   // (550/436)^2 - 1
-    let disp_g = zeta * 0.0147;   // (550/546)^2 - 1
-    let disp_r = zeta * -0.3820;  // (550/700)^2 - 1
-    let uv_r = clamp(warped_uv - alpha_total * (1.0 + disp_r), vec2<f32>(0.0), vec2<f32>(1.0));
-    let uv_g = clamp(warped_uv - alpha_total * (1.0 + disp_g), vec2<f32>(0.0), vec2<f32>(1.0));
-    let uv_b = clamp(warped_uv - alpha_total * (1.0 + disp_b), vec2<f32>(0.0), vec2<f32>(1.0));
+    // Evaluates composite projected surface mass density: 10/33 Baryons + 23/33 Dark Matter
+    let dx = vec2<f32>(texel.x, 0.0);
+    let dy = vec2<f32>(0.0, texel.y);
+
+    let sb_c = textureSampleLevel(channel_a_tex, tex_sampler, warped_uv, 0.0).a;
+    let sd_c = textureSampleLevel(channel_b_tex, tex_sampler, warped_uv, 0.0).z;
+    let m_c = (10.0 / 33.0) * sb_c + (23.0 / 33.0) * sd_c;
+
+    let sb_r = textureSampleLevel(channel_a_tex, tex_sampler, warped_uv + dx, 0.0).a;
+    let sd_r = textureSampleLevel(channel_b_tex, tex_sampler, warped_uv + dx, 0.0).z;
+    let m_r = (10.0 / 33.0) * sb_r + (23.0 / 33.0) * sd_r;
+
+    let sb_l = textureSampleLevel(channel_a_tex, tex_sampler, warped_uv - dx, 0.0).a;
+    let sd_l = textureSampleLevel(channel_b_tex, tex_sampler, warped_uv - dx, 0.0).z;
+    let m_l = (10.0 / 33.0) * sb_l + (23.0 / 33.0) * sd_l;
+
+    let sb_t = textureSampleLevel(channel_a_tex, tex_sampler, warped_uv + dy, 0.0).a;
+    let sd_t = textureSampleLevel(channel_b_tex, tex_sampler, warped_uv + dy, 0.0).z;
+    let m_t = (10.0 / 33.0) * sb_t + (23.0 / 33.0) * sd_t;
+
+    let sb_b = textureSampleLevel(channel_a_tex, tex_sampler, warped_uv - dy, 0.0).a;
+    let sd_b = textureSampleLevel(channel_b_tex, tex_sampler, warped_uv - dy, 0.0).z;
+    let m_b = (10.0 / 33.0) * sb_b + (23.0 / 33.0) * sd_b;
+
+    let sb_tr = textureSampleLevel(channel_a_tex, tex_sampler, warped_uv + dx + dy, 0.0).a;
+    let sd_tr = textureSampleLevel(channel_b_tex, tex_sampler, warped_uv + dx + dy, 0.0).z;
+    let m_tr = (10.0 / 33.0) * sb_tr + (23.0 / 33.0) * sd_tr;
+
+    let sb_tl = textureSampleLevel(channel_a_tex, tex_sampler, warped_uv - dx + dy, 0.0).a;
+    let sd_tl = textureSampleLevel(channel_b_tex, tex_sampler, warped_uv - dx + dy, 0.0).z;
+    let m_tl = (10.0 / 33.0) * sb_tl + (23.0 / 33.0) * sd_tl;
+
+    let sb_br = textureSampleLevel(channel_a_tex, tex_sampler, warped_uv + dx - dy, 0.0).a;
+    let sd_br = textureSampleLevel(channel_b_tex, tex_sampler, warped_uv + dx - dy, 0.0).z;
+    let m_br = (10.0 / 33.0) * sb_br + (23.0 / 33.0) * sd_br;
+
+    let sb_bl = textureSampleLevel(channel_a_tex, tex_sampler, warped_uv - dx - dy, 0.0).a;
+    let sd_bl = textureSampleLevel(channel_b_tex, tex_sampler, warped_uv - dx - dy, 0.0).z;
+    let m_bl = (10.0 / 33.0) * sb_bl + (23.0 / 33.0) * sd_bl;
+
+    // Deflection gradient alpha = grad(psi)
+    let dpsi_dx = (m_r - m_l) * 0.5;
+    let dpsi_dy = (m_t - m_b) * 0.5;
+    let k_lens = max(params.lensing_strength * 0.062, 0.001);
+    let alpha_base = vec2<f32>(dpsi_dx, dpsi_dy) * k_lens + alpha_total * 0.5;
+
+    // Second derivatives of potential (tidal shear tensor)
+    let psi_xx = (m_r - 2.0 * m_c + m_l) * k_lens;
+    let psi_yy = (m_t - 2.0 * m_c + m_b) * k_lens;
+    let psi_xy = (m_tr - m_tl - m_br + m_bl) * 0.25 * k_lens;
+
+    // Jacobian determinant: det(J) = (1 - psi_xx)(1 - psi_yy) - psi_xy^2
+    let det_j = (1.0 - psi_xx) * (1.0 - psi_yy) - (psi_xy * psi_xy);
+
+    // Theorem 25: epsilon-softened caustic magnification
+    let eps = 0.045;
+    let a_caustic = 1.0 / sqrt(det_j * det_j + eps * eps);
+    let clamped_caustic = clamp(a_caustic, 0.5, 6.5);
+
+    // Boundary chromatic dispersion (shbt17 Theorem 16):
+    let disp = select(0.035, params.dispersion_coeff, params.dispersion_coeff > 0.001);
+    let alpha_r = alpha_base * (1.0 - 0.3916 * disp);
+    let alpha_g = alpha_base;
+    let alpha_b = alpha_base * (1.0 + 0.5694 * disp);
+
+    let uv_r = clamp(warped_uv - alpha_r, vec2<f32>(0.0), vec2<f32>(1.0));
+    let uv_g = clamp(warped_uv - alpha_g, vec2<f32>(0.0), vec2<f32>(1.0));
+    let uv_b = clamp(warped_uv - alpha_b, vec2<f32>(0.0), vec2<f32>(1.0));
 
     var rad_r = textureSampleLevel(channel_a_tex, tex_sampler, uv_r, 0.0).r;
     var rad_g = textureSampleLevel(channel_a_tex, tex_sampler, uv_g, 0.0).g;
     var rad_b = textureSampleLevel(channel_a_tex, tex_sampler, uv_b, 0.0).b;
 
-    // Wide-scale optical pedestal (shbt12 deep-space pass): a uniform
-    // mass sheet is gravitationally invisible (mass-sheet degeneracy),
-    // so a diffuse field seen from inside the bulk must not glow. A
-    // 16-tap coarse ring estimates the local diffuse mean of the
-    // Channel-A luminance and the Channel-B convergence/shear fields;
-    // only CONTRAST above that pedestal emits — void floors collapse
-    // to black and genuine filaments/seeds keep full brightness.
-    var lum_wide = 0.0;
-    var conv_wide = 0.0;
-    var shear_wide = vec2<f32>(0.0);
-    for (var wi = 0u; wi < 16u; wi = wi + 1u) {
-        let wa = f32(wi) * 0.3926991; // 2*pi/16
-        let woff = vec2<f32>(cos(wa), sin(wa))
-            * vec2<f32>(0.055, 0.055) * (1.0 + 0.35 * f32(wi % 3u));
-        let ca_w = textureSampleLevel(channel_a_tex, tex_sampler,
-            clamp(warped_uv + woff, vec2<f32>(0.0), vec2<f32>(1.0)), 0.0);
-        let cb_w = textureSampleLevel(channel_b_tex, tex_sampler,
-            clamp(warped_uv + woff, vec2<f32>(0.0), vec2<f32>(1.0)), 0.0);
-        lum_wide = lum_wide + calculate_luminance(ca_w.rgb);
-        conv_wide = conv_wide + cb_w.z;
-        shear_wide = shear_wide + cb_w.xy;
-    }
-    lum_wide = lum_wide / 16.0;
-    conv_wide = conv_wide / 16.0;
-    shear_wide = shear_wide / 16.0;
+    var lensed_color = vec3<f32>(rad_r, rad_g, rad_b) * clamped_caustic * params.post0.x;
 
-    // Wave-optics caustic fringing regularizes det A = 0 into Airy
-    // patterns (Enhancement 10) applied on the deflected sample.
-    let fringe_col = evaluate_caustic_fringing(warped_uv, texel, vec3<f32>(rad_r, rad_g, rad_b));
-    rad_r = mix(rad_r, fringe_col.r, params.dispersion_coeff);
-    rad_g = mix(rad_g, fringe_col.g, params.dispersion_coeff);
-    rad_b = mix(rad_b, fringe_col.b, params.dispersion_coeff);
-
-    var lensed_color = vec3<f32>(rad_r, rad_g, rad_b) * params.post0.x;
-
-    // Mass-sheet gate on the direct emission: pixels at or below the
-    // wide-scale pedestal luminance fade to black, peaks above ~1.8x
-    // the diffuse mean keep full radiance. Hue-preserving (scalar
-    // gate, no per-channel shift).
-    let lum_local = calculate_luminance(lensed_color);
-    let sheet_gate = smoothstep(lum_wide * 0.95 + 1.0e-6,
-        lum_wide * 1.80 + 2.0e-6, lum_local);
-    lensed_color = lensed_color * sheet_gate;
+    // Void pedestal subtraction: isolates the true cosmic vacuum (Theorem 25)
+    let p_floor = 0.0035;
+    lensed_color = max(vec3<f32>(0.0), (lensed_color - vec3<f32>(p_floor)) / (1.0 - p_floor));
 
     // Emergent condensation glitch (Enhancement 11): pre-nucleation
     // register overflow tears the UV field around saturating cells.
@@ -568,34 +583,16 @@ fn fs_post(in: VertexOutput) -> @location(0) vec4<f32> {
     var dark_glow_emission = vec3<f32>(0.0);
     if (params.post0.y > 0.5) {
         let smooth_conv = sample_bilateral_convergence(warped_uv, texel, center_depth);
-        let dark_glow_palette = vec3<f32>(0.15, 0.35, 0.85);
-        // Convergence structure gate (shbt12): the diffuse pedestal is
-        // invisible, so emission follows only the locally overdense
-        // convergence — filaments glow, uniform sheets stay black.
-        let conv_gate = smoothstep(conv_wide * 1.05 + 1.0e-6,
-            conv_wide * 2.10 + 2.0e-6, smooth_conv);
-        // Soft-cap the summed convergence so stacked billboards can't
-        // push the palette into the tone-map's white saturation point.
+        let dark_glow_palette = vec3<f32>(0.015, 0.022, 0.055);
         dark_glow_emission = dark_glow_palette
-            * min(smooth_conv * params.dark_glow_intensity, 0.6)
-            * conv_gate;
+            * min(smooth_conv * params.dark_glow_intensity, 0.12);
 
-        // Precursor congestion field (shbt10): the 13-tap depth-aware
-        // bilateral over Channel B synthesizes continuous precursor
-        // halos — indigo dark-metric potential (shear .y) and teal
-        // congestion (shear .x) — without a volumetric Poisson solve.
+        // Precursor congestion field: deep indigo potential
         let precursor_filtered = sample_bilateral_channel_b(warped_uv, texel, center_depth);
-        let shear_gate = smoothstep(length(shear_wide) * 1.05 + 1.0e-6,
-            length(shear_wide) * 2.20 + 2.0e-6, length(precursor_filtered));
-        let dm_potential_color = vec3<f32>(0.12, 0.05, 0.28)
-            * min(precursor_filtered.y * 3.5, 0.35) * shear_gate;
-        let precursor_congestion_color = vec3<f32>(0.02, 0.22, 0.35)
-            * min(precursor_filtered.x * 2.8, 0.30) * shear_gate;
+        let dm_potential_color = vec3<f32>(0.015, 0.022, 0.055)
+            * min(precursor_filtered.y * 1.5, 0.12);
 
-        // Multi-tier seed radiance (shbt10): amber-white Planckian cubic
-        // core inside the Einstein radius plus a blue Landauer thermal
-        // corona whose extent scales with P_debt = M_seed x 906 GW
-        // (theta_e^2 proxies the condensed mass).
+        // Multi-tier seed radiance: amber-white Planckian core + Landauer corona
         var seed_radiance = vec3<f32>(0.0);
         for (var i = 0u; i < num_seeds; i = i + 1u) {
             let s = seeds[i];
@@ -606,39 +603,22 @@ fn fs_post(in: VertexOutput) -> @location(0) vec4<f32> {
             let core_col = vec3<f32>(1.0, 0.96, 0.88) * core_falloff * 0.30;
             let corona_radius = 0.045;
             let debt_scale = clamp(s.theta_e * s.theta_e * 40.0, 0.0, 0.45);
-            let corona_col = vec3<f32>(0.25, 0.65, 1.0)
+            let corona_col = vec3<f32>(0.58, 0.71, 1.0)
                 * exp(-dist / corona_radius) * debt_scale;
             seed_radiance = seed_radiance + core_col + corona_col;
         }
         seed_radiance = min(seed_radiance, vec3<f32>(1.0));
-        dark_glow_emission = dark_glow_emission
-            + dm_potential_color + precursor_congestion_color + seed_radiance;
+        dark_glow_emission = dark_glow_emission + dm_potential_color + seed_radiance;
     }
 
-    // Sharp caustic rings around dominant Einstein radii.
-    var caustic_ring_accent = 0.0;
-    for (var i = 0u; i < num_seeds; i = i + 1u) {
-        let s = seeds[i];
-        let d = warped_uv - s.screen_pos;
-        let dist = sqrt(d.x * d.x * aspect * aspect + d.y * d.y);
-        let ring_diff = abs(dist - s.theta_e);
-        caustic_ring_accent = caustic_ring_accent + exp(-ring_diff * ring_diff * 4000.0) * 0.15;
-    }
-    let caustic_rgb = vec3<f32>(caustic_ring_accent * 0.4, caustic_ring_accent * 0.8, caustic_ring_accent)
-        * params.lensing_strength * params.post0.y;
+    let caustic_rgb = vec3<f32>(0.0);
 
     // Observer causal-entropy shimmer: Channel-B alpha carries the causal
-    // entropy budget; modulate a faint Fresnel ripple at observer nodes.
+    // entropy budget; modulate a faint ripple at observer nodes.
     let entropy = b_center.a;
     let ripple_phase = params.time * 2.0 - entropy * 40.0;
-    // Observer shimmer is gated by local convergence structure as well —
-    // an ungated uniform ripple is the same ambient blue lift the
-    // deep-space pass removes.
-    let conv_gate_shim = smoothstep(conv_wide * 1.05 + 1.0e-6,
-        conv_wide * 2.10 + 2.0e-6, b_center.z);
-    let causal_ripple = (sin(ripple_phase) * 0.5 + 0.5) * entropy * 0.12
-        * params.post0.y * conv_gate_shim;
-    let causal_rgb = vec3<f32>(0.4, 0.75, 1.0) * causal_ripple;
+    let causal_ripple = (sin(ripple_phase) * 0.5 + 0.5) * entropy * 0.05 * params.post0.y;
+    let causal_rgb = vec3<f32>(0.2, 0.4, 0.7) * causal_ripple;
 
     // Holographic horizon boundary overlay: the loaded screen fraction
     // brightens toward the canvas edge as f_load -> 1 (de Sitter freeze).

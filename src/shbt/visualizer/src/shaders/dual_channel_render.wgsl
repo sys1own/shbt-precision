@@ -93,71 +93,44 @@ fn evaluate_stinespring_channel(z: f32) -> vec2<f32> {
     return vec2<f32>(w_vis, dw_dz);
 }
 
-// Branchless blackbody color temperature mapping (shbt11): a single
-// rational polynomial evaluation in the inverse-temperature coordinate
-// u = 1000/T over u in [0.040, 0.400] maps T in [2500, 25000] K onto
-// linear RGB with zero SIMD divergence (Thm 9.17).
-// Branchless degree-(2,2) rational Planckian palette (canonical
-// `evaluate_blackbody_simd`): u = 1000/T_eff in [0.040, 0.400] maps to
-// linear RGB through three clamped rational polynomials — the Padé
-// denominators track the Wein tail curvature far better than plain
-// polynomials, so no divergent control flow or piecewise branches are
-// needed anywhere in T in [2500, 25000] K. Bounded to [0, 1.05] on the
-// domain (see tests/first_principles_kernels.rs).
-fn blackbody_to_linear_rgb(t_kelvin: f32) -> vec3<f32> {
-    let t = clamp(t_kelvin, 2500.0, 25000.0);
-    let u = 1000.0 / t;
-    let u2 = u * u;
+// Padé rational blackbody transfer function (Theorem 17)
+fn pade_blackbody_rgb(temp_kelvin: f32) -> vec3<f32> {
+    let theta = clamp(temp_kelvin / 1000.0, 2.5, 25.0);
+    let theta2 = theta * theta;
 
-    let r = (0.657842 - 15.067116 * u + 144.948029 * u2)
-        / (1.0 - 19.160428 * u + 155.930970 * u2);
-    let g = (0.540874 - 1.770797 * u + 12.417570 * u2)
-        / (1.0 - 9.751228 * u + 48.259277 * u2);
-    let b = (0.855655 - 3.605022 * u + 4.930827 * u2)
-        / (1.0 - 8.226975 * u + 39.334862 * u2);
+    let r_num = 1.0254 + 0.18021 * theta + 0.0012541 * theta2;
+    let r_den = 1.0 + 0.21140 * theta + 0.0012850 * theta2;
+    let r = clamp(r_num / r_den, 0.0, 1.25);
+
+    let g_num = -0.41205 + 0.35822 * theta + 0.0082410 * theta2;
+    let g_den = 1.0 + 0.22415 * theta + 0.0115200 * theta2;
+    let g = clamp(g_num / g_den, 0.0, 1.10);
+
+    let b_num = -1.21500 + 0.31250 * theta + 0.0241800 * theta2;
+    let b_den = 1.0 + 0.18210 * theta + 0.0240500 * theta2;
+    let b = clamp(b_num / b_den, 0.0, 1.35);
 
     return max(vec3<f32>(r, g, b), vec3<f32>(0.0));
 }
 
-// Multi-tier thermodynamic and boundary-capacity transfer model
-// (shbt11 / Thm 9.16): maps the normalized baryon density rho_b
-// (mean = 1.0) and the boundary capacity ratio sigma = N_local/N_limit
-// onto a C-infinity effective temperature and surface radiance.
-// Returns (t_eff, surface_brightness, debt_activation, softplus_sigma):
-//   t_vir      = 2500 + 6500 * tanh(max(0, rho_b - 1) / 4)
-//   debt_act   = sigma^3 / (1 + exp(-12 (sigma - 1)))
-//   t_eff      = t_vir + 16000 * debt_act                [2500, 25000 K]
-//   I_vis      = rho_b (1 - exp(-0.45 rho_b))
-//                * (1 + 0.08 rho_b^2 + 4.5 sigma^2 softplus(sigma) (1 + 0.1 m))
-// with softplus(sigma) = log(1 + exp(12 (sigma - 1))) / 12.
+fn blackbody_to_linear_rgb(t_kelvin: f32) -> vec3<f32> {
+    return pade_blackbody_rgb(t_kelvin);
+}
+
+// Thermodynamic mapping (Theorem 23)
+fn compute_effective_temperature(rho_b: f32, sigma: f32) -> f32 {
+    let t_floor = 2500.0;
+    let t_peak = 25000.0;
+    let activation = tanh(0.075 * rho_b + 0.420 * sigma);
+    return t_floor + (t_peak - t_floor) * activation;
+}
+
 fn compute_thermodynamic_state(rho_b: f32, sigma: f32, mass_seed: f32) -> vec4<f32> {
-    let t_min = 2500.0;
-    let delta_t_vir = 6500.0;
-    let rho_shock = 4.0;
-    let t_corona_max = 16000.0;
-    let kappa_sigma = 12.0;
-
-    let t_vir = t_min + delta_t_vir * tanh(max(0.0, rho_b - 1.0) / rho_shock);
-    let debt_activation = (sigma * sigma * sigma) / (1.0 + exp(-kappa_sigma * (sigma - 1.0)));
-    let t_eff = t_vir + t_corona_max * debt_activation;
-
-    let tau_0 = 0.45;
-    let opt_depth_factor = 1.0 - exp(-tau_0 * rho_b);
-    let shock_bremsstrahlung = 0.08 * rho_b * rho_b;
-
-    // Overflow-safe softplus: log(1+e^y) = max(y,0) + log(1+e^{-|y|}).
-    // The naive exp(kappa * (sigma-1)) overflows f32 for sigma >~ 8,
-    // which happens once cardy_limit_norm(z) collapses at low z — inf
-    // radiance then propagates as NaN through the tone map and the
-    // bilateral post filter, producing black splat-shaped regions.
-    let softplus_arg = kappa_sigma * (sigma - 1.0);
-    let softplus_sigma = (max(softplus_arg, 0.0)
-        + log(1.0 + exp(-abs(softplus_arg)))) / kappa_sigma;
-    let landauer_debt_lum = 4.50 * sigma * sigma * softplus_sigma * (1.0 + 0.10 * mass_seed);
-
-    let surface_brightness = rho_b * opt_depth_factor * (1.0 + shock_bremsstrahlung + landauer_debt_lum);
-
-    return vec4<f32>(t_eff, surface_brightness, debt_activation, softplus_sigma);
+    let t_eff = compute_effective_temperature(rho_b, sigma);
+    let void_weight = smoothstep(0.05, 0.15, rho_b);
+    let surface_brightness = void_weight * (0.65 * rho_b + 2.2 * sigma * sigma);
+    let debt_activation = clamp(sigma - 0.8, 0.0, 1.0);
+    return vec4<f32>(t_eff, surface_brightness, debt_activation, sigma);
 }
 
 // Blackbody thermal color mapping (Tanner Helland approximation):
@@ -371,7 +344,7 @@ fn vs_particle_billboard(
     let min_px = max(camera.params2.z, 0.5);
     let max_px = max(camera.params2.w, min_px);
     let density_term = pow(1.0 + 0.45 * max(0.0, rho_b - 1.0), -0.3333333);
-    let topo_contract = 1.0 / (1.0 + 7.5 * sigma * sigma);
+    let topo_contract = 1.0 / sqrt(1.0 + 0.65 * sigma * sigma);
     // Nominal orbit distance (1.4 * BOX_SIZE): at the default camera
     // distance the splat range resolves to roughly min_px..max_px,
     // matching the pre-dynamic footprint; zooming in grows the splats
@@ -505,19 +478,29 @@ fn fs_render_dual_channel(in: VertexOutput) -> GBufferOutput {
         in.linear_depth * 0.001,
         z
     );
-    // Thermodynamic spectral radiance I_vis weighted by the blackbody
-    // locus color at T_eff; ambient filaments sit warm-amber, shocked
-    // cores run gold-white, capacity-saturated nodes bleach cyan-white.
-    // I_vis spans ~0.5 in the field to ~1e5 inside over-capacity cores
-    // (the 4.5*sigma^2*softplus Landauer term), far beyond what additive
-    // splats plus the tone map can resolve — cores would fuse into
-    // frame-scale white blowout. A display-domain soft knee
-    // (x -> x*K/(x+K), K=6) preserves the field regime nearly
-    // 1:1 while rolling the top end off at K: dense cores stay hot
-    // and ranked brightest, but ~6x — not ~1e5x — the ambient floor,
-    // so the anti-blowout ACES knee can hold chromaticity.
-    let thermo_vis = thermo.y * 6.0 / (thermo.y + 6.0);
-    var emit = spectral_rgb * max(thermo_vis, 0.15) * 1.25;
+
+    // Void pedestal cutoff: strictly non-emissive for rho_b < 0.05
+    let void_weight = smoothstep(0.05, 0.15, rho_b);
+    if (void_weight <= 0.0001 && !is_dark_branch) {
+        discard;
+    }
+
+    let t_eff = compute_effective_temperature(rho_b, sigma);
+    let blackbody_rgb = pade_blackbody_rgb(t_eff);
+
+    // Core emission intensity scales with mass concentration (Theorem 23)
+    let core_luminosity = void_weight * (0.65 * rho_b + 2.2 * sigma * sigma);
+    var emission = blackbody_rgb * (core_luminosity * core_intensity);
+
+    // Radiant Landauer corona: extended high-temperature envelope for sigma > 0.8
+    if (sigma > 0.8 && !is_dark_branch) {
+        let corona_t = t_eff * 1.18;
+        let corona_rgb = pade_blackbody_rgb(corona_t);
+        let corona_profile = pow(max(0.0, 1.0 - dist_sq), 1.5) * 0.45;
+        let landauer_power = 0.693147 * sigma * 1.35;
+        emission += corona_rgb * (landauer_power * corona_profile);
+    }
+
     let dark_ghost_weight = (1.0 - in.vis_factor) * in.mass;
 
     // Stinespring carrying fractions: eta_v ramps down while the
@@ -528,48 +511,23 @@ fn fs_render_dual_channel(in: VertexOutput) -> GBufferOutput {
     let eta_d = quench_frac;
 
     if (is_dark_branch) {
-        // Passive dark-completion flux carried by the quenched sector.
-        emit = vec3<f32>(0.15, 0.08, 0.35)
-            * max(dark_ghost_weight, 0.35) * (1.0 + eta_d * 0.75);
+        // Channel B is strictly non-emissive by default
+        emission = vec3<f32>(0.0);
     } else if ((in.charge_flags & 1u) != 0u) {
         // charge_col.a carries the w_vis->0 cooling gate below z=1e9.
-        emit = charge_col.rgb * 2.2 * (charge_col.a / 0.95) * max(thermo.y, 0.4);
+        emission = charge_col.rgb * 2.2 * (charge_col.a / 0.95) * max(thermo.y, 0.4);
     }
     let pulse = 0.75 + 0.25 * sin(in.branch_hash * 40.0 + z * 0.7);
 
-    // Channel-A emission scales strictly by the thermal Stinespring
-    // overlap w_vis(z); Channel B is the independent dark sector and
-    // keeps its quadratic ghost dimming (shbt7 5.3).
-    let w_vis = w_vis_pre;
-    var emit_w = in.vis_factor * eta_v;
-    if (is_dark_branch) {
-        emit_w = in.vis_factor * in.vis_factor;
-    }
     // Apply relativistic beaming: thermal tint keyed to the Doppler-
     // shifted effective temperature plus the cubic intensity boost.
     let doppler_boost = max(in.doppler_rgb, vec3<f32>(0.0));
-    let emission = emit * doppler_boost * core_intensity * emit_w;
-    // Ionization halo tinted by the branch color so the two populations
-    // stay chromatically distinct (gold baryons vs violet anti-baryons).
-    let ionization_halo = emit * vec3<f32>(0.35, 0.45, 0.7) * doppler_boost * pow(core_intensity, 2.0) * in.vis_factor;
-    var glow_rgb = emission + ionization_halo;
-    var glow_a = in.vis_factor * core_intensity;
+    var glow_rgb = emission * doppler_boost;
+    var glow_a = in.vis_factor * core_intensity * void_weight;
 
     // Landauer heat map (Enhancement 2): Channel-B quenched particles
-    // glow along the blackbody debt curve.
     if (is_dark_branch && in.landauer_debt > 0.0) {
-        glow_rgb += compute_landauer_emission(in.landauer_debt) * core_intensity * 0.35;
-    }
-
-    // Precursor incubation glow (Thm 9.13): cyan emission ramps in as
-    // the local congestion approaches the Cardy ceiling
-    // (n_local/n_limit -> 1) before defects condense. n_limit is the
-    // unscaled Cardy ceiling (percolation_scale is a sandbox knob, not
-    // a physics parameter of the ceiling itself).
-    let incubation_weight = smoothstep(0.4 * n_limit_cardy, n_limit_cardy, in.n_local);
-    if (!is_dark_branch && incubation_weight > 0.0) {
-        glow_rgb += vec3<f32>(0.10, 0.95, 0.95)
-            * incubation_weight * core_intensity * 0.55;
+        glow_rgb += compute_landauer_emission(in.landauer_debt) * core_intensity * 0.05;
     }
 
     // History crystallization shockwave (Enhancement 9).
@@ -603,13 +561,8 @@ fn fs_render_dual_channel(in: VertexOutput) -> GBufferOutput {
     // mid/far particles at 1-4 px still carry the resolved structure.
     let near_fade = smoothstep(10.0, 35.0, in.linear_depth);
 
-    // Deep-field density gate (shbt12 Phase 2): particles below the
-    // rho_b = 0.02 local-density floor contribute no splat at all —
-    // hundreds of sub-threshold background particles otherwise sum into
-    // a chalky low-density fog that lifts the void black point. Sharp
-    // knee over [0.016, 0.02] keeps the cutoff from popping frame to
-    // frame while behaving as a hard threshold visually.
-    let bg_gate = smoothstep(0.016, 0.02, rho_b);
+    // Deep-field density gate: particles below the rho_b = 0.05 floor contribute zero.
+    let bg_gate = smoothstep(0.05, 0.15, rho_b);
     glow_rgb = glow_rgb * bg_gate;
     glow_a = glow_a * bg_gate;
 
@@ -653,7 +606,7 @@ fn fs_render_dual_channel(in: VertexOutput) -> GBufferOutput {
     // structure instead of saturating the dark-glow palette.
     let kappa = (in.mass * 0.05 + dark_ghost_weight * 0.2) * core_intensity
         + in.causal_env * 0.35 + in.seed_glow * 1.2 * core_intensity
-        + debt_heat * 0.2 + incubation_weight * 0.30 * core_intensity;
+        + debt_heat * 0.2;
     let causal_entropy = in.vis_factor;
     output.passive_metric_distortion = vec4<f32>(
         gravitational_shear.x + in.causal_env * 0.02,
