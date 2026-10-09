@@ -3,16 +3,160 @@
 //! High-Performance Non-Linear Structure and Cosmic Shear Module for SHBT
 //! Implements Cardy capacity HMF, entropic transport P_NL, and Limber C_ell.
 
+use bytemuck::{Pod, Zeroable};
 use pyo3::prelude::*;
 use pyo3::types::PyDict;
 use serde::{Deserialize, Serialize};
 use std::f64::consts::PI;
 
+/// Canonical Kac-Moody boundary affine level k_l (critical string dimension)
+pub const K_L: u32 = 26;
+/// Canonical transverse gauge symmetry rank k_q
+pub const K_Q_U32: u32 = 8;
+/// Total holographic saturation capacity K
+pub const K_TOTAL_U32: u32 = 312;
+/// Boundary composite Kac-Moody denominator (k_l + k_q)
+pub const K_SUM: u32 = 34;
+/// Effective Virasoro central charge c_eff = k_l - k_q (coset capacity)
+pub const C_EFF_NUMERATOR: f32 = 1325.0;
+pub const C_EFF_DENOMINATOR: f32 = 154.0;
+pub const C_EFF_RATIO: f32 = 1325.0 / 154.0; // ≈ 8.603896
+/// One-loop determinant prefactor: sqrt(1325 / (308 * PI))
+pub const A0_PREFACTOR_COEFF: f32 = 1.170_193_4;
+/// Base linear overdensity threshold floor: sqrt(154) / (3 * sqrt(1325)) ≈ 0.065602
+pub const DELTA_C0: f32 = 0.065_602_05;
+/// First-principles holographic diffusion coefficient: 2 / (17 * PI)
+pub const KAPPA_DIFF: f32 = 2.0 / (17.0 * std::f32::consts::PI); // ≈ 0.037447463
+/// Exact 2D site percolation threshold on the square lattice
+pub const P_C_2D_SITE: f32 = 0.59274621;
+/// Canonical incubation onset redshift z_start = 30.000000
+pub const Z_START_CANONICAL: f32 = 30.0;
+/// Canonical incubation lower boundary z_end = 17.782386
+pub const Z_END_CANONICAL: f32 = 17.782386;
+/// D5 root lattice cell measure
+pub const KAPPA_STAR_D5: f64 = 0.988725345719;
+/// D5 agglomerative merge radius factor: sqrt(2) * kappa_*^D5 ≈ 1.398249068038
+pub const D5_MERGE_COEFFICIENT: f64 = 1.398249068038;
+/// SPH topological contraction factor: 38643 / 1540 = 3513 / 140 ≈ 25.092857
+pub const SPH_TOPO_WEIGHT: f32 = 38643.0 / 1540.0;
+/// Stinespring visible partition fraction: 10 / 33
+pub const ETA_V: f32 = 10.0 / 33.0;
+
 pub const KAPPA_GET_BASE: f64 = 1.0 / 23.0;
 pub const KAPPA_GET_LOAD_COEFF: f64 = 1325.0 / 4004.0;
-pub const C_EFF: f64 = 1.0;
+pub const C_EFF: f64 = 1325.0 / 154.0;
 const K_Q: f64 = 8.0;
 const SPEED_OF_LIGHT: f64 = 299792.458; // km/s
+
+/// WebGPU emergence parameters matching std140 16-byte alignment.
+#[repr(C)]
+#[derive(Copy, Clone, Debug, Pod, Zeroable)]
+pub struct EmergenceParams {
+    pub h_z: f32,
+    pub dt: f32,
+    pub a0_prefactor: f32,
+    pub delta_c0: f32,
+    pub c_eff: f32,
+    pub growth_factor_d: f32,
+    pub delta_th: f32,
+    pub cell_volume: f32,
+    pub a_0: f32,
+    pub delta_crit: f32,
+    pub sigma_8_z: f32,
+    pub kappa_diff: f32,
+    pub z_start: f32,
+    pub z_end: f32,
+    pub r_merge_factor: f32,
+    pub sph_topo_weight: f32,
+}
+
+impl EmergenceParams {
+    pub fn new(z: f32, dt: f32, cell_volume: f32) -> Self {
+        let zp1 = 1.0 + z;
+        let e_z = (0.3153 * zp1.powi(3) + 0.6847).sqrt();
+        let h_z = 67.36 * e_z;
+        let a_0 = h_z * A0_PREFACTOR_COEFF;
+        let d_z = compute_linear_growth_factor(z);
+        let linear_barrier = 1.68647 / d_z;
+        let delta_th = linear_barrier.max(DELTA_C0);
+        let sigma_8_z = 0.8111 * d_z;
+
+        Self {
+            h_z,
+            dt,
+            a0_prefactor: A0_PREFACTOR_COEFF,
+            delta_c0: DELTA_C0,
+            c_eff: C_EFF_RATIO,
+            growth_factor_d: d_z,
+            delta_th,
+            cell_volume,
+            a_0,
+            delta_crit: 1.68647,
+            sigma_8_z,
+            kappa_diff: KAPPA_DIFF,
+            z_start: Z_START_CANONICAL,
+            z_end: Z_END_CANONICAL,
+            r_merge_factor: D5_MERGE_COEFFICIENT as f32,
+            sph_topo_weight: SPH_TOPO_WEIGHT,
+        }
+    }
+
+    #[inline]
+    pub fn compute_gamma_nuc(&self, local_overdensity: f32) -> f32 {
+        let sigma = self.sigma_8_z.max(1.0e-5);
+        let effective_barrier = self.delta_th.max(self.delta_c0);
+        let remaining_barrier = (effective_barrier - local_overdensity).max(0.0);
+        let nu = remaining_barrier / sigma;
+        let s_inst = 0.5 * nu * nu;
+        self.a_0 * (-s_inst).exp()
+    }
+
+    #[inline]
+    pub fn compute_p_nuc(&self, local_overdensity: f32) -> f32 {
+        const KM_S_MPC_TO_MYR_INV: f32 = 1.022_712_2e-6;
+        let gamma = self.compute_gamma_nuc(local_overdensity);
+        let lambda = gamma * KM_S_MPC_TO_MYR_INV * self.cell_volume * self.dt;
+        if lambda < 1.0e-7 {
+            lambda
+        } else {
+            1.0 - (-lambda).exp()
+        }
+    }
+}
+
+/// Computes the exact incubation onset redshift z_start from boundary coset capacity.
+pub fn derive_z_start(ln_n_sat: f32) -> f32 {
+    let prefactor = (18.0 * 34.0) / (18.0 * 312.0); // 17.0 / 156.0
+    prefactor * ln_n_sat - 1.0
+}
+
+/// Computes the lower incubation boundary z_end via 2D site percolation.
+pub fn derive_z_end(z_start: f32) -> f32 {
+    z_start * P_C_2D_SITE
+}
+
+/// Computes the quintic incubation partition of unity Psi_nuc(z).
+pub fn quintic_incubation_psi(z: f32, z_start: f32, z_end: f32) -> f32 {
+    if z >= z_start {
+        return 0.0;
+    }
+    if z <= z_end {
+        return 1.0;
+    }
+    let u = (z_start - z) / (z_start - z_end);
+    u * u * u * (u * (u * 6.0 - 15.0) + 10.0)
+}
+
+/// Computes linear growth factor D(z) via Carroll-Press-Turner fitting.
+pub fn compute_linear_growth_factor(z: f32) -> f32 {
+    let zp1 = 1.0 + z;
+    let omega_z = (0.3153 * zp1.powi(3)) / (0.3153 * zp1.powi(3) + 0.6847);
+    let num = (1.0 / zp1) * (
+        omega_z.powf(4.0 / 7.0) - 0.6847 + (1.0 + 0.5 * omega_z) * (1.0 + 0.6847 / 70.0)
+    );
+    let den = 0.3153_f32.powf(4.0 / 7.0) - 0.6847 + (1.0 + 0.5 * 0.3153) * (1.0 + 0.6847 / 70.0);
+    num / den
+}
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct ShbtCosmology {

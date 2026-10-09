@@ -14,12 +14,14 @@
 //! into the `active_seeds` buffer that `nbody_pm.wgsl`,
 //! `dual_channel_render.wgsl`, and `holographic_post.wgsl` all read.
 
+mod emergence;
 mod engine;
 mod hud;
 mod particle;
 mod telemetry;
 mod units;
 
+pub use emergence::{EmergenceUniforms, HaloMerger, D5_MERGE_COEFFICIENT, KAPPA_STAR_D5};
 pub use engine::{CausalPointRecord, ParticleRecord, SeedDefectRecord, WasmShbtEngine};
 pub use units::{GpuLensUniforms, GpuSeedLensBuffer, GpuSimulationUniforms};
 pub use hud::{

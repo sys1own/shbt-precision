@@ -447,11 +447,16 @@ fn cs_detect_condensation(@builtin(global_invocation_id) id: vec3<u32>) {
 // Psi_nuc-weighted precursor mass grid.
 const ETA_D: f32 = 0.6969696970;      // 23/33
 const Z_NUC_START: f32 = 30.0;        // precursor incubation window open
-const Z_NUC_END: f32 = 18.0;          // condensation onset handoff
+const Z_NUC_END: f32 = 17.782386;     // condensation onset handoff (30.0 * 0.59274621)
 
-// C^2 quintic nucleation weight Psi_nuc(z): vanishes with zero slope and
-// curvature at z = 30, reaches 1 with zero slope/curvature at z = 18.
+// C^2 quintic nucleation weight Psi_nuc(z) with open floor Psi_nuc(z <= 17.782386) = 1.0:
 fn compute_nucleation_weight(z: f32, z_start: f32, z_end: f32) -> f32 {
+    if (z >= z_start) {
+        return 0.0;
+    }
+    if (z <= z_end) {
+        return 1.0;
+    }
     let u = clamp((z_start - z) / (z_start - z_end), 0.0, 1.0);
     return u * u * u * (10.0 + u * (-15.0 + 6.0 * u));
 }
@@ -474,7 +479,8 @@ fn step_incubation_transport(@builtin(global_invocation_id) id: vec3<u32>) {
     let cell = vec3<i32>(id);
     let idx = get_linear_index(id.x, id.y, id.z);
     let n_limit = cardy_limit_norm(params.redshift) * params.percolation_scale;
-    let diffusion_coeff = params._pad2.x;
+    // KSS holographic diffusion coefficient kappa_diff = 2 / (17 * pi) ≈ 0.037447463
+    let diffusion_coeff = 2.0 / (17.0 * 3.141592653589793);
 
     // Periodic 6-neighbor Laplacian over the fresh CIC ratio field.
     let n_center = fresh_density_ratio(cell);
@@ -494,7 +500,7 @@ fn step_incubation_transport(@builtin(global_invocation_id) id: vec3<u32>) {
     dark_ledger[idx] = min(dark_ledger[idx] + s_dil * params.delta_t, n_updated);
 
     // Psi_nuc-weighted precursor mass: proto-seed mass only condenses
-    // inside the C^2 quintic window z in [18, 30].
+    // inside the C^2 quintic window z in [17.782, 30.0].
     let psi = compute_nucleation_weight(params.redshift, Z_NUC_START, Z_NUC_END);
     let overflow = max(n_updated - n_limit, 0.0);
     seed_mass_grid[idx] = params.alpha_mass * psi * overflow;
@@ -614,13 +620,13 @@ fn cs_seed_carry(@builtin(global_invocation_id) global_id: vec3<u32>) {
 // ----------------------------------------------------------------------------
 // PASS 3c: Agglomerative defect merging (shbt13 Stage-3 Stage-C)
 // ----------------------------------------------------------------------------
-// Momentum-consistent agglomerative merging at r_merge = 1.25 dx_cell.
+// Momentum-consistent agglomerative merging at r_merge = sqrt(2) * kappa_*^D5 * dx_cell ≈ 1.398249 * dx_cell.
 // For each live slot, scan backward for the lowest-index live neighbor
 // inside the merge radius; the earliest slot absorbs mass, a
 // mass-weighted m_dot, and the Landauer power of the child. Runs in a
 // single workgroup serial pass — O(N^2) over 1024 slots is cheaper than
 // cross-workgroup atomic arbitration and conserves mass exactly.
-const MERGE_RADIUS_CELLS: f32 = 1.25;
+const MERGE_RADIUS_CELLS: f32 = 1.398249068038;
 
 @compute @workgroup_size(1)
 fn cs_seed_merge() {

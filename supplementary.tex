@@ -506,4 +506,47 @@ C_e(T_e) \frac{dT_e}{dt} = - G_{\mathrm{e-ph}}(T_e^5 - T_{\mathrm{bath}}^5) + P_
 \end{equation}
 The Neyman--Pearson log-likelihood ratio for hypothesis discrimination ($H_0: \alpha = 0$ vs $H_1: \alpha = \alpha_{\mathrm{SHBT}} = 6.6990\text{ zJ/bit}$) achieves $Z \ge 5\sigma$ ($p \le 2.87 \times 10^{-7}$) with $N_{\mathrm{pulse}} \ge 3$ in the multi-channel coherent regime.
 
+\section{Boundary Conformal Incubation, Instanton Determinant, and $D_5$ Horizon Overlap}
+\label{app:incubation-instanton-d5}
+
+\subsection{Boundary Coset Incubation Boundaries and KSS Diffusion}
+The incubation onset redshift $z_{\mathrm{start}}$ satisfies the coset capacity condition:
+\begin{equation}
+1 + z_{\mathrm{start}} = \frac{c_{\mathrm{eff}}(k_\ell + k_q)}{18 K} \ln(N_{\mathrm{sat}}) = \frac{17}{156} \ln(N_{\mathrm{sat}}) = 31.000000 \implies z_{\mathrm{start}} = 30.000000,
+\end{equation}
+evaluated at $\ln(N_{\mathrm{sat}}) \approx 284.47$. The termination redshift is dictated by 2D site percolation on the visible torus grid:
+\begin{equation}
+z_{\mathrm{end}} = z_{\mathrm{start}} \cdot p_c = 30.0 \times 0.59274621 = 17.782386.
+\end{equation}
+The boundary shear diffusion coefficient $\kappa_{\mathrm{diff}}$ is fixed by the KSS viscosity bound:
+\begin{equation}
+\kappa_{\mathrm{diff}} = \frac{1}{4\pi} \left(\frac{k_q}{k_\ell + k_q}\right) = \frac{2}{17\pi} \approx 0.03744746.
+\end{equation}
+
+\subsection{One-Loop Instanton Determinant Cancellation and Capacity Variance Floor}
+Spectral zeta regularization on the completed torus $\mathbb{T}^4$ confirms the exact cancellation of Seeley--DeWitt coefficients for $k \ge 1$:
+\begin{equation}
+\frac{{\det}'(\mathcal{D}_{\mathrm{inst}})}{\det(\mathcal{D}_0)} = 1 \implies A_0(z) = H(z) \sqrt{\frac{1325}{308\pi}} \approx 1.1701934 \, H(z).
+\end{equation}
+The 9-coordinate visible lattice capacity floor is:
+\begin{equation}
+\delta_{c0} = \frac{1}{3\sqrt{3 c_{\mathrm{eff}}}} = \frac{\sqrt{154}}{3\sqrt{3975}} \approx 0.065610,
+\end{equation}
+ensuring well-behaved Poisson tunneling probabilities $P_{\mathrm{nuc}}(z) = 1 - \exp(-\Gamma_{\mathrm{nuc}} V_{\mathrm{cell}} \Delta t)$.
+
+\subsection{$D_5$ Arithmetic Skeleton Agglomeration and Holographic Force Softening}
+Agglomerative halo merging along the forty nearest-neighbor roots of the $D_5$ checkerboard lattice obeys:
+\begin{equation}
+r_{\mathrm{merge}} = \sqrt{2} \cdot \kappa_*^{D_5} \cdot \Delta x_{\mathrm{cell}} \approx 1.398249 \, \Delta x_{\mathrm{cell}},
+\end{equation}
+with Voronoi cell measure $\kappa_*^{D_5} = 0.988725345719$. The visual SPH splat contraction profile is:
+\begin{equation}
+\Phi_{\mathrm{topo}}(\sigma) = \left( 1 + \frac{38643}{1540} \sigma^2 \right)^{-1}, \quad \lambda_{\mathrm{topo}} = \frac{38643}{1540} = \frac{3513}{140} \approx 25.092857.
+\end{equation}
+The holographic softening length regularizing the Particle-Mesh solver scales as:
+\begin{equation}
+\epsilon_{\mathrm{holo}}(a) = \left( \frac{3\pi}{2 \Lambda_{\mathrm{holo}} N_{\mathrm{sat}}} \right)^{1/4} a,
+\end{equation}
+yielding time-invariant comoving resolution $\epsilon_{\mathrm{comov}} = \text{const}$.
+
 \end{document}

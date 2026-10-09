@@ -4,12 +4,75 @@ from __future__ import annotations
 import csv
 import math
 from pathlib import Path
+import numpy as np
 
 H0_CMB = 67.4
 A_S = 2.1e-9
 K_PIVOT = 0.05
 R_CANONICAL = 0.0032
 N_T_CANONICAL = -0.0004
+N_WEIL_MODULES = 2901360
+
+
+def generate_weil_modular_phases(
+    grid_shape: tuple[int, int, int] | tuple[int, ...], box_size: float = 200.0
+) -> np.ndarray:
+    """Evaluates exact deterministic perturbation phases and modular amplitudes
+    from the 2,901,360-module Weil representation at the fixed point tau = i.
+    """
+    if len(grid_shape) == 1:
+        nx = ny = nz = int(grid_shape[0])
+    elif len(grid_shape) == 3:
+        nx, ny, nz = grid_shape
+    else:
+        nx = ny = nz = 32
+
+    ix = np.fft.fftfreq(nx, d=1.0 / nx).astype(np.int64)
+    iy = np.fft.fftfreq(ny, d=1.0 / ny).astype(np.int64)
+    iz = np.fft.fftfreq(nz, d=1.0 / nz).astype(np.int64)
+
+    IX, IY, IZ = np.meshgrid(ix, iy, iz, indexing="ij")
+
+    w1, w2, w3, w4, w5 = 1, 1373, 1884959, 43921, 391141
+
+    idx = (
+        w1 * IX
+        + w2 * IY
+        + w3 * IZ
+        + w4 * (IX**3 + IY**3 + IZ**3)
+        + w5 * (IX * IY * IZ)
+    ) % N_WEIL_MODULES
+
+    u = idx.astype(np.float64) / float(N_WEIL_MODULES)
+
+    q_nome = np.exp(-np.pi)
+    theta3_real = (
+        1.0
+        + 2.0 * q_nome * np.cos(2.0 * np.pi * u)
+        + 2.0 * (q_nome**4) * np.cos(4.0 * np.pi * u)
+    )
+
+    modular_phase = (
+        2.0 * np.pi * ((idx * (idx + 1)) % N_WEIL_MODULES) / float(N_WEIL_MODULES)
+    )
+
+    phase_field = modular_phase.copy()
+    phase_field[IX < 0] = -phase_field[IX < 0]
+
+    zero_x = IX == 0
+    phase_field[zero_x & (IY < 0)] = -phase_field[zero_x & (IY < 0)]
+
+    zero_xy = (IX == 0) & (IY == 0)
+    phase_field[zero_xy & (IZ < 0)] = -phase_field[zero_xy & (IZ < 0)]
+
+    phase_field[IX == 0, IY == 0, IZ == 0] = 0.0
+
+    phases = np.cos(phase_field) + 1j * np.sin(phase_field)
+    amplitude = np.sqrt(np.maximum(theta3_real, 0.0))
+    amplitude[IX == 0, IY == 0, IZ == 0] = 0.0
+
+    return phases * amplitude
+
 
 
 def _write_csv(filename: str, fieldnames: list[str], rows: list[dict[str, float | int]]) -> str:
@@ -444,7 +507,10 @@ if __name__ == "__main__":
 
         fn_telem = export_webgpu_telemetry("data/test_telemetry.bin", redshift=15.0)
         assert Path(fn_telem).stat().st_size > 128
-        print(f"[PASS] Telemetry frame exported ({Path(fn_telem).stat().st_size} bytes).")
+        phases = generate_weil_modular_phases((16, 16, 16), 200.0)
+        assert phases.shape == (16, 16, 16)
+        assert abs(phases[0, 0, 0]) == 0.0
+        print(f"[PASS] Weil modular phases verified ({phases.shape}).")
 
         # Cleanup test artifacts
         for p in [fn_tensor, fn_matter, fn_telem]:

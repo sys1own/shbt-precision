@@ -266,6 +266,20 @@ pub fn kappa_get(f_load: f32) -> f32 {
     (1.0 / D_EFF_0) * (1.0 + C_EFF_OVER_D1 * f_load)
 }
 
+/// WebGPU StepUniforms layout matching the holographic softening contract.
+#[repr(C)]
+#[derive(Copy, Clone, Debug, Pod, Zeroable)]
+pub struct StepUniforms {
+    pub scale_factor: f32,
+    pub dt: f32,
+    pub epsilon_holo: f32,
+    pub epsilon_holo_sq: f32,
+    pub box_size: f32,
+    pub lambda_holo: f32,
+    pub n_sat: f32,
+    pub grid_dim: u32,
+}
+
 /// Simulation uniforms layout matching std430 alignment in WGSL
 /// (SimulationUniforms in nbody_pm.wgsl).
 #[repr(C)]
@@ -352,6 +366,15 @@ pub struct MetrologyPipeline {
 impl MetrologyPipeline {
     pub fn new(ctx: CosmologicalContext) -> Self {
         Self { ctx }
+    }
+
+    /// Evaluates epsilon_holo(a) = (3*pi / (2 * Lambda_holo * N_sat))^(1/4) * a
+    #[inline]
+    pub fn calculate_epsilon_holo(&self, scale_factor: f64) -> f64 {
+        const DEFAULT_LAMBDA_HOLO: f64 = 1.08913883e-52; // m^-2
+        const DEFAULT_N_SAT: f64 = 3.312593327986e122;
+        let base = (3.0 * std::f64::consts::PI) / (2.0 * DEFAULT_LAMBDA_HOLO * DEFAULT_N_SAT);
+        base.powf(0.25) * scale_factor
     }
 
     /// Assemble the KDK uniform block. `a`/`a_next` bracket the current

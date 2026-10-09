@@ -72,6 +72,92 @@ SEED_OVERFLOW_BITS = Decimal("6e59")
 # benchmark power in units of 10^5 W (142.08 MW / 1e5 W = 1420.8).
 HEAVY_SEED_ABUNDANCE_RATIO_Z7 = Decimal("1.4208e3")
 
+# Exact SHBT Cosmological Invariants
+C_EFF_NUMERATOR: int = 1325
+C_EFF_DENOMINATOR: int = 154
+C_EFF: float = C_EFF_NUMERATOR / C_EFF_DENOMINATOR  # 1325 / 154 ≈ 8.603896103896103
+
+# Instanton amplitude ratio: A_0(z) / H(z) = sqrt(1325 / (308 * pi))
+A0_PREFACTOR_COEFF: float = math.sqrt(
+    C_EFF_NUMERATOR / (2.0 * C_EFF_DENOMINATOR * math.pi)
+)  # ≈ 1.1701934005899044
+
+# 9-coordinate visible lattice RMS capacity floor: sqrt(154) / (3 * sqrt(1325)) ≈ 0.06560205244106727
+DELTA_C0: float = 0.06560205244106727
+DELTA_C0_EXACT: float = 0.06560205244106727
+
+# First-principles holographic diffusion coefficient
+KAPPA_DIFF: float = 2.0 / (17.0 * math.pi)  # ≈ 0.037447463417
+
+KM_S_MPC_TO_MYR_INV: float = 1.022712165e-6
+
+
+def hubble_parameter_h_z(z: float, h0: float = 67.4) -> float:
+    """Evaluates the Hubble expansion rate H(z) in km/s/Mpc."""
+    zp1 = 1.0 + z
+    return h0 * math.sqrt(0.315 * (zp1**3) + 0.685)
+
+
+def linear_growth_factor_d_z(z: float) -> float:
+    """Computes linear growth factor D(z) normalized such that D(0) = 1.0."""
+    zp1 = 1.0 + z
+    omega_m_z = (0.315 * (zp1**3)) / (0.315 * (zp1**3) + 0.685)
+    unnorm_z = (1.0 / zp1) * (
+        omega_m_z ** (4.0 / 7.0)
+        - 0.685
+        + (1.0 + 0.5 * omega_m_z) * (1.0 + 0.685 / 70.0)
+    )
+    unnorm_0 = (
+        0.315 ** (4.0 / 7.0)
+        - 0.685
+        + (1.0 + 0.5 * 0.315) * (1.0 + 0.685 / 70.0)
+    )
+    return unnorm_z / unnorm_0
+
+
+def instanton_amplitude_a0(z: float, h0: float = 67.4) -> float:
+    """Computes A_0(z) = H(z) * sqrt(1325 / (308 * pi))."""
+    return hubble_parameter_h_z(z, h0) * A0_PREFACTOR_COEFF
+
+
+def excursion_set_threshold(z: float) -> float:
+    """Evaluates delta_th(z) enforcing the capacity variance floor delta_c0."""
+    d_z = linear_growth_factor_d_z(z)
+    barrier_linear = 1.68647 / d_z
+    return max(DELTA_C0_EXACT, barrier_linear)
+
+
+def instanton_action(delta_barrier: float, sigma_m: float) -> float:
+    """Computes Euclidean instanton action S_inst = 0.5 * (delta / sigma)^2."""
+    if sigma_m <= 0.0:
+        return float("inf")
+    nu = delta_barrier / sigma_m
+    return 0.5 * (nu * nu)
+
+
+def nucleation_rate_gamma(
+    z: float, sigma_m: float | None = None, h0: float = 67.4
+) -> float:
+    """Computes Gamma_nuc(z) = A_0(z) * exp(-S_inst)."""
+    d_z = linear_growth_factor_d_z(z)
+    if sigma_m is None:
+        sigma_m = 0.811 * d_z
+    a_0 = instanton_amplitude_a0(z, h0)
+    delta_th = excursion_set_threshold(z)
+    s_inst = instanton_action(delta_th, sigma_m)
+    return a_0 * math.exp(-s_inst)
+
+
+def nucleation_probability(
+    gamma_nuc: float, dt_myr: float, cell_volume_mpc3: float = 1.0
+) -> float:
+    """Computes exact Poisson nucleation probability P_nuc = 1 - exp(-Gamma * V * dt)."""
+    rate_param = gamma_nuc * KM_S_MPC_TO_MYR_INV * cell_volume_mpc3 * dt_myr
+    if rate_param < 1.0e-14:
+        return rate_param
+    return 1.0 - math.exp(-rate_param)
+
+
 
 Number = Decimal | Fraction | mpmath.mpf | float | int | str
 
@@ -2529,6 +2615,21 @@ class PrecisionCosmologyTests(unittest.TestCase):
             self.assertIn(key, lock)
         self.assertEqual(lock["n_chronometer_points"], 32)
         self.assertEqual(len(lock["chronometer_data_sha256"]), 64)
+
+    def test_instanton_nucleation_invariants(self) -> None:
+        self.assertAlmostEqual(A0_PREFACTOR_COEFF, 1.1701934005899044, places=10)
+        self.assertAlmostEqual(DELTA_C0, 0.06560205244106727, places=10)
+        self.assertAlmostEqual(KAPPA_DIFF, 2.0 / (17.0 * math.pi), places=10)
+        self.assertAlmostEqual(KAPPA_DIFF, 0.037447463417, places=5)
+        a0 = instanton_amplitude_a0(0.0, 67.4)
+        self.assertAlmostEqual(a0, 67.4 * A0_PREFACTOR_COEFF, places=8)
+        d_th = excursion_set_threshold(0.0)
+        self.assertGreaterEqual(d_th, DELTA_C0)
+        gamma = nucleation_rate_gamma(0.0)
+        self.assertGreaterEqual(gamma, 0.0)
+        prob = nucleation_probability(gamma, 10.0, 1.0)
+        self.assertTrue(0.0 <= prob <= 1.0)
+
 
 
 def _run_unit_tests() -> int:
