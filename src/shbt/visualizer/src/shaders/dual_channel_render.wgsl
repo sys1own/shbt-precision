@@ -68,7 +68,7 @@ const Z_REF_CARDY: f32 = 17.0;     // condensation onset reference
 // Cardy capacity ceiling in normalized units (mirror of the
 // seed_emergence kernel): n_limit ~ gamma_CFT ((1+z)/18)^7.5.
 fn cardy_limit_norm(z: f32) -> f32 {
-    let rel = max(1.0 + z, 1.0e-3) / (1.0 + Z_REF_CARDY);
+    let rel = clamp((1.0 + z) / (1.0 + Z_REF_CARDY), 1.0e-3, 50.0);
     return GAMMA_CFT * pow(rel, 7.5);
 }
 
@@ -82,11 +82,15 @@ fn chi_redshift(z: f32) -> f32 {
 // Returns (w_vis(z), d w_vis / d z) — the thermal isometric overlap and
 // its cooling rate across the modular crossover (shbt8 spec signature).
 fn evaluate_stinespring_channel(z: f32) -> vec2<f32> {
-    if (z <= 0.0) {
+    if (z <= 0.0 || z < 1.0e8) {
         return vec2<f32>(1.0 - ETA_D, 0.0);
     }
+    if (z > 1.0e13) {
+        return vec2<f32>(1.0, 0.0);
+    }
     let zz = max(z, 1.0e-3);
-    let power = pow(Z_N / zz, DELTA_BBAR);
+    let ratio = clamp(Z_N / zz, 1.0e-4, 1.0e4);
+    let power = pow(ratio, DELTA_BBAR);
     let denom = 1.0 + power;
     let w_vis = (1.0 - ETA_D) + ETA_D / denom;
     let dw_dz = ETA_D * power * DELTA_BBAR / (zz * denom * denom);
@@ -127,7 +131,7 @@ fn compute_effective_temperature(rho_b: f32, sigma: f32) -> f32 {
 
 fn compute_thermodynamic_state(rho_b: f32, sigma: f32, mass_seed: f32) -> vec4<f32> {
     let t_eff = compute_effective_temperature(rho_b, sigma);
-    let void_weight = smoothstep(0.05, 0.15, rho_b);
+    let void_weight = smoothstep(0.08, 0.25, rho_b);
     let surface_brightness = void_weight * (0.65 * rho_b + 2.2 * sigma * sigma);
     let debt_activation = clamp(sigma - 0.8, 0.0, 1.0);
     return vec4<f32>(t_eff, surface_brightness, debt_activation, sigma);
@@ -185,9 +189,10 @@ fn resolve_charge_color(p: Particle, time: f32, z: f32) -> vec4<f32> {
     let has_unquenched_charge = (p.charge_flags & 1u) != 0u;
 
     if (p.channel == 0u) {
-        if (has_unquenched_charge) {
+        if (has_unquenched_charge && z < 1.0e13 && z > 1.0e9) {
+            // Topological baryogenesis de-rendering window [1e12, 1e9]
             let osc = sin(time * 28.0 + dot(p.position, vec3<f32>(12.0)));
-            let electric_violet = vec3<f32>(0.8, 0.2, 1.0);
+            let electric_violet = vec3<f32>(0.75, 0.25, 0.95);
             // Thermal cooling gradient: effective temperature slides
             // 40000 K -> 2500 K as z sweeps 1e12 -> 1e9.
             let cool = clamp((1.0e12 - z) / (1.0e12 - 1.0e9), 0.0, 1.0);
@@ -336,15 +341,21 @@ fn vs_particle_billboard(
     // rho_b is the normalized incubation density carried on pad.x.
     let cam_pos_w = camera.aux.xyz;
     let cam_dist = max(1.0e-3, length(world - cam_pos_w));
-    let rho_b = max(p.pad.x, 0.0);
+    // Incubation density carried on pad.x. Before incubation ignites (z > 30)
+    // or before grid deposit, default to mean density rho_b = 1.0.
+    var rho_b = p.pad.x;
+    if (rho_b <= 0.0001 || z_cam > 30.0) {
+        rho_b = 1.0;
+    }
     // Same unity floor as the fragment-stage capacity ratio: once
     // cardy_limit_norm(z) collapses below 1 the over-capacity regime is
     // universal and rho_b is the discriminative coordinate.
     let sigma = min(rho_b / max(cardy_limit_norm(z_cam), 1.0), 8.0);
     let min_px = max(camera.params2.z, 0.5);
     let max_px = max(camera.params2.w, min_px);
-    let density_term = pow(1.0 + 0.45 * max(0.0, rho_b - 1.0), -0.3333333);
-    let topo_contract = 1.0 / sqrt(1.0 + 0.65 * sigma * sigma);
+    let density_term = pow(1.0 + 0.45 * max(0.0, rho_b - 1.0), -0.33333333);
+    // Topological SPH compaction (Thm 22 / Eq. 63): lambda_topo = 38643/1540.
+    let topo_contract = 1.0 / (1.0 + 25.092857 * sigma * sigma);
     // Nominal orbit distance (1.4 * BOX_SIZE): at the default camera
     // distance the splat range resolves to roughly min_px..max_px,
     // matching the pre-dynamic footprint; zooming in grows the splats
@@ -352,13 +363,18 @@ fn vs_particle_billboard(
     let ref_dist = 280.0;
     var splat_px = (min_px + (max_px - min_px) * density_term)
         * topo_contract * (ref_dist / cam_dist);
+    // Early-universe fluid smoothing: for z > 15 low-density gas splats are
+    // enlarged so Cartesian lattice points merge into a continuous medium.
+    let early_fluid = smoothstep(15.0, 40.0, z_cam)
+        * (1.0 - smoothstep(1.0, 3.0, rho_b));
+    splat_px = splat_px * (1.0 + 0.5 * early_fluid);
 
     // Seed condensation window z in [2, 30]: particles co-moving with an
     // emergent basin render as oversized pulsing attractor markers.
     var seed_glow = 0.0;
     if (z_cam <= 30.0 && z_cam >= 2.0 && d_min < 0.025) {
         seed_glow = 1.0 - d_min / 0.025;
-        splat_px = splat_px * 2.5;
+        splat_px = splat_px * 1.6;
     }
     // Active-baryon branch renders slightly larger so the 10/33 share stays
     // legible against the 23/33 anti-baryon population.
@@ -400,7 +416,7 @@ fn vs_particle_billboard(
     out.seed_debt = seed_debt;
     out.channel = p.channel;
     out.charge_flags = p.charge_flags;
-    out.n_local = p.pad.x;
+    out.n_local = rho_b;
 
     // Relativistic Doppler beaming: line-of-sight velocity beta_los,
     // Doppler factor D = sqrt(1 - beta^2) / (1 - beta_los), cubic
@@ -455,7 +471,7 @@ fn fs_render_dual_channel(in: VertexOutput) -> GBufferOutput {
     let sigma = rho_b / max(n_limit_cardy, 1.0);
     let radial_falloff = (1.0 - dist_sq) * (1.0 - dist_sq);
     let core_sharpen = exp(-3.5 * dist_sq * (1.0 + 2.0 * smoothstep(0.8, 1.2, sigma)));
-    let core_intensity = mix(radial_falloff, core_sharpen, 0.45);
+    let core_intensity = mix(radial_falloff, core_sharpen, 0.75);
 
     // Multi-tier thermodynamic transfer (shbt11 / Thm 9.16): the C-infty
     // state (rho_b, sigma) -> (T_eff, I_vis). mass_seed is the
@@ -479,24 +495,26 @@ fn fs_render_dual_channel(in: VertexOutput) -> GBufferOutput {
         z
     );
 
-    // Void pedestal cutoff: strictly non-emissive for rho_b < 0.05
-    let void_weight = smoothstep(0.05, 0.15, rho_b);
-    if (void_weight <= 0.0001 && !is_dark_branch) {
+    // Void pedestal cutoff: strictly non-emissive in underdense voids
+    let void_weight = smoothstep(0.08, 0.25, rho_b);
+    if (void_weight <= 0.0005 && !is_dark_branch) {
         discard;
     }
 
     let t_eff = compute_effective_temperature(rho_b, sigma);
     let blackbody_rgb = pade_blackbody_rgb(t_eff);
 
-    // Core emission intensity scales with mass concentration (Theorem 23)
-    let core_luminosity = void_weight * (0.65 * rho_b + 2.2 * sigma * sigma);
-    var emission = blackbody_rgb * (core_luminosity * core_intensity);
+    // Core emission with soft highlight knee: preserves blackbody hue in
+    // dense cores instead of clipping to flat white discs.
+    let raw_lum = void_weight * (0.65 * rho_b + 2.2 * sigma * sigma) * core_intensity;
+    let compressed_lum = raw_lum / (1.0 + 0.12 * raw_lum);
+    var emission = blackbody_rgb * compressed_lum;
 
-    // Radiant Landauer corona: extended high-temperature envelope for sigma > 0.8
+    // Radiant Landauer corona: delicate high-temperature glow for sigma > 0.8
     if (sigma > 0.8 && !is_dark_branch) {
         let corona_t = t_eff * 1.18;
         let corona_rgb = pade_blackbody_rgb(corona_t);
-        let corona_profile = pow(max(0.0, 1.0 - dist_sq), 1.5) * 0.45;
+        let corona_profile = pow(max(0.0, 1.0 - dist_sq), 2.5) * 0.25;
         let landauer_power = 0.693147 * sigma * 1.35;
         emission += corona_rgb * (landauer_power * corona_profile);
     }
@@ -544,12 +562,13 @@ fn fs_render_dual_channel(in: VertexOutput) -> GBufferOutput {
         // at these seed masses; normalize into [0, 1] on the debt curve.
         let debt_lum = clamp(log(max(in.seed_debt, 1.0)) / 27.63, 0.0, 1.0);
         let core_gain = 0.6 + 1.8 * debt_lum;
-        let seed_core = vec3<f32>(1.0, 0.98, 0.85) * exp(-dist_from_center * 12.0) * pulse * core_gain;
-        let seed_ring = vec3<f32>(1.0, 0.85, 0.35) * caustic_fringe * pulse * 1.5 + vec3<f32>(0.3, 0.8, 1.0) * caustic_fringe * 1.0;
-        // Radiant thermal corona beyond the core: wide gaussian shoulder
-        // in the Landauer blackbody palette, gain capped against fusion.
+        let seed_core = vec3<f32>(1.0, 0.98, 0.85) * exp(-4.5 * dist_sq * 4.0) * pulse * core_gain;
+        let seed_ring = (vec3<f32>(1.0, 0.85, 0.35) * pulse * 1.5 + vec3<f32>(0.3, 0.8, 1.0)) * caustic_fringe * 0.3;
+        // Compact Landauer corona: w*w*exp(-4.5 r^2) falloff keeps the halo a
+        // delicate glow tight around the star-like core.
+        let corona_w = max(0.0, 1.0 - dist_sq);
         let corona = compute_landauer_emission(in.seed_debt)
-            * exp(-dist_from_center * 5.0) * 0.45;
+            * (corona_w * corona_w * exp(-4.5 * dist_sq)) * 0.25;
         glow_rgb += (seed_core + seed_ring + corona) * in.seed_glow;
         glow_a = max(glow_a, in.seed_glow * (core_intensity + caustic_fringe));
     }
@@ -561,18 +580,17 @@ fn fs_render_dual_channel(in: VertexOutput) -> GBufferOutput {
     // mid/far particles at 1-4 px still carry the resolved structure.
     let near_fade = smoothstep(10.0, 35.0, in.linear_depth);
 
-    // Deep-field density gate: particles below the rho_b = 0.05 floor contribute zero.
-    let bg_gate = smoothstep(0.05, 0.15, rho_b);
-    glow_rgb = glow_rgb * bg_gate;
-    glow_a = glow_a * bg_gate;
+    // Linear-epoch attenuation: for z > 15 the register is sub-critical
+    // (sigma ~ 0, delta rho/rho << 1), so radiance is a faint primordial
+    // plasma.
+    let linear_epoch = smoothstep(15.0, 40.0, z) * (1.0 - smoothstep(0.5, 1.0, sigma));
+    let epoch_gain = mix(1.0, 0.20, linear_epoch);
+    glow_rgb = glow_rgb * epoch_gain;
 
     // Channel A: spectral radiance in RGB, normalized line-of-sight
     // depth in A for the depth-aware bilateral post pass.
     let depth_norm = clamp(in.linear_depth / 4000.0, 0.0, 1.0);
-    // Emission budget: ~10+ billboards overlap per pixel at these particle
-    // counts; keep per-particle radiance low so the post tone map resolves
-    // the emergent structure instead of saturating the whole frame.
-    output.visible_gauge_glow = vec4<f32>(glow_rgb * 0.07 * near_fade, depth_norm * max(glow_a, 0.001));
+    output.visible_gauge_glow = vec4<f32>(glow_rgb * near_fade, depth_norm * max(glow_a, 0.001));
 
     // Channel B: Passive Gravitational Ghost Distortion
     // Persists regardless of vis_factor, tracking total stress-energy

@@ -445,6 +445,7 @@ fn fs_post(in: VertexOutput) -> @location(0) vec4<f32> {
     let uv = in.uv;
 
     let texel = vec2<f32>(1.0 / params.screen_size.x, 1.0 / params.screen_size.y);
+    let aspect = params.screen_size.x / max(params.screen_size.y, 1.0);
     let warped_uv = unwrap_torus_projection(uv);
 
     let b_center = textureSampleLevel(channel_b_tex, tex_sampler, warped_uv, 0.0);
@@ -536,16 +537,21 @@ fn fs_post(in: VertexOutput) -> @location(0) vec4<f32> {
     // Jacobian determinant: det(J) = (1 - psi_xx)(1 - psi_yy) - psi_xy^2
     let det_j = (1.0 - psi_xx) * (1.0 - psi_yy) - (psi_xy * psi_xy);
 
-    // Theorem 25: epsilon-softened caustic magnification
+    // Theorem 25: epsilon-softened caustic magnification, gated by baryonic
+    // structure so empty voids are never amplified.
     let eps = 0.045;
     let a_caustic = 1.0 / sqrt(det_j * det_j + eps * eps);
-    let clamped_caustic = clamp(a_caustic, 0.5, 6.5);
+    let structure_mask = smoothstep(0.15, 0.30, sb_c);
+    let clamped_caustic = mix(1.0, clamp(a_caustic, 0.75, 4.5), structure_mask);
 
-    // Boundary chromatic dispersion (shbt17 Theorem 16):
-    let disp = select(0.035, params.dispersion_coeff, params.dispersion_coeff > 0.001);
-    let alpha_r = alpha_base * (1.0 - 0.3916 * disp);
+    // Shear-gated boundary chromatic dispersion (shbt17 Theorem 16): fringing
+    // appears only around genuine lensing arcs, never in the background.
+    let shear_mag = sqrt(psi_xy * psi_xy + 0.25 * (psi_xx - psi_yy) * (psi_xx - psi_yy));
+    let base_disp = select(0.035, params.dispersion_coeff, params.dispersion_coeff > 0.001);
+    let active_disp = base_disp * smoothstep(0.06, 0.20, shear_mag);
+    let alpha_r = alpha_base * (1.0 - 0.3916 * active_disp);
     let alpha_g = alpha_base;
-    let alpha_b = alpha_base * (1.0 + 0.5694 * disp);
+    let alpha_b = alpha_base * (1.0 + 0.5694 * active_disp);
 
     let uv_r = clamp(warped_uv - alpha_r, vec2<f32>(0.0), vec2<f32>(1.0));
     let uv_g = clamp(warped_uv - alpha_g, vec2<f32>(0.0), vec2<f32>(1.0));
@@ -558,7 +564,7 @@ fn fs_post(in: VertexOutput) -> @location(0) vec4<f32> {
     var lensed_color = vec3<f32>(rad_r, rad_g, rad_b) * clamped_caustic * params.post0.x;
 
     // Void pedestal subtraction: isolates the true cosmic vacuum (Theorem 25)
-    let p_floor = 0.0035;
+    let p_floor = 0.002;
     lensed_color = max(vec3<f32>(0.0), (lensed_color - vec3<f32>(p_floor)) / (1.0 - p_floor));
 
     // Emergent condensation glitch (Enhancement 11): pre-nucleation
@@ -578,37 +584,19 @@ fn fs_post(in: VertexOutput) -> @location(0) vec4<f32> {
     lensed_color = mix(lensed_color, lensed_color * (0.5 + 0.9 * shap_rgb), delay_intensity * 0.5);
 
     // Depth-aware bilateral convergence -> volumetric dark-matter halo glow.
-    let aspect = params.screen_size.x / params.screen_size.y;
-    let num_seeds = min(params.seed_count, 1024u);
+    // In canonical SHBT mode, Channel B is non-emissive (dark_glow_intensity = 0.0).
     var dark_glow_emission = vec3<f32>(0.0);
-    if (params.post0.y > 0.5) {
+    if (params.dark_glow_intensity > 0.001 && params.post0.y > 0.5) {
         let smooth_conv = sample_bilateral_convergence(warped_uv, texel, center_depth);
         let dark_glow_palette = vec3<f32>(0.015, 0.022, 0.055);
-        dark_glow_emission = dark_glow_palette
-            * min(smooth_conv * params.dark_glow_intensity, 0.12);
+        let conv_glow = dark_glow_palette * min(smooth_conv * params.dark_glow_intensity, 0.12);
 
         // Precursor congestion field: deep indigo potential
         let precursor_filtered = sample_bilateral_channel_b(warped_uv, texel, center_depth);
         let dm_potential_color = vec3<f32>(0.015, 0.022, 0.055)
-            * min(precursor_filtered.y * 1.5, 0.12);
+            * min(precursor_filtered.y * params.dark_glow_intensity * 1.5, 0.12);
 
-        // Multi-tier seed radiance: amber-white Planckian core + Landauer corona
-        var seed_radiance = vec3<f32>(0.0);
-        for (var i = 0u; i < num_seeds; i = i + 1u) {
-            let s = seeds[i];
-            let d = warped_uv - s.screen_pos;
-            let dist = sqrt(d.x * d.x * aspect * aspect + d.y * d.y);
-            let core_radius = max(s.core_radius * 0.6, 0.0008);
-            let core_falloff = 1.0 / (1.0 + pow(dist / core_radius, 3.0));
-            let core_col = vec3<f32>(1.0, 0.96, 0.88) * core_falloff * 0.30;
-            let corona_radius = 0.045;
-            let debt_scale = clamp(s.theta_e * s.theta_e * 40.0, 0.0, 0.45);
-            let corona_col = vec3<f32>(0.58, 0.71, 1.0)
-                * exp(-dist / corona_radius) * debt_scale;
-            seed_radiance = seed_radiance + core_col + corona_col;
-        }
-        seed_radiance = min(seed_radiance, vec3<f32>(1.0));
-        dark_glow_emission = dark_glow_emission + dm_potential_color + seed_radiance;
+        dark_glow_emission = conv_glow + dm_potential_color;
     }
 
     let caustic_rgb = vec3<f32>(0.0);
@@ -626,12 +614,12 @@ fn fs_post(in: VertexOutput) -> @location(0) vec4<f32> {
     let horizon = pow(edge, 8.0) * params.post0.z;
     let horizon_rgb = vec3<f32>(0.05, 0.18, 0.35) * horizon;
 
-    // Boundary screen grid: CFT torus lattice overlay fades in with the
-    // unwrap transition, plus a faint permanent lattice.
+    // Boundary screen grid: CFT torus lattice overlay appears only during the
+    // unwrap transition (no permanent lattice bleeding into black voids).
     let grid_uv = warped_uv * vec2<f32>(80.0 * aspect, 80.0);
     let grid_line = aa_lattice_line(grid_uv.x) + aa_lattice_line(grid_uv.y);
     let grid_rgb = vec3<f32>(0.02, 0.05, 0.08) * clamp(grid_line, 0.0, 1.0)
-        * (0.35 + 0.65 * params.post1.x);
+        * params.post1.x;
 
     // Caustic halo accentuation (shbt11 / Thm 9.18): the high-frequency
     // luminance Laplacian nabla^2 Y — extracted as the residual between

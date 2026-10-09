@@ -357,6 +357,8 @@ async def record_cosmic_evolution() -> Tuple[List[Dict], Path | None]:
 
         await page.evaluate("() => window.__SHBT_ENGINE__.setGlitchEnabled(false)")
         await page.evaluate("() => window.__SHBT_ENGINE__.setGlitchIntensity(0.0)")
+        await page.evaluate("() => window.__SHBT_ENGINE__.setDarkGlow(0.0)")
+        await page.evaluate("() => window.__SHBT_ENGINE__.setViewportMode(0)")
         glitch_off = True
         try:
             await page.wait_for_function(

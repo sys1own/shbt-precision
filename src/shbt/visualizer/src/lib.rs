@@ -2110,12 +2110,12 @@ impl ShbtWebGpuEngine {
             unwrap_transition: 0.0,
             lensing_strength: 1.0,
             dispersion_coeff: 0.25,
-            dark_glow_intensity: 0.8,
+            dark_glow_intensity: 0.0,
             dark_glow_radius: 4.0,
             doppler_enabled: true,
             glitch_intensity: 0.1,
             glitch_enabled: true,
-            bloom_intensity: 0.08,
+            bloom_intensity: 0.02,
             fog_density: 0.6,
             show_observers: false,
             controls: hud::SimulationControls {
@@ -3515,7 +3515,7 @@ impl ShbtWebGpuEngine {
                 self.telemetry.peak_shear,
                 self.telemetry.peak_convergence,
                 14.0, // Landauer desaturation knee Y_desat
-                0.55, // tone exposure for the luminance-preserving ACES curve
+                0.60, // tone exposure for the luminance-preserving ACES curve
             ],
         };
         self.queue

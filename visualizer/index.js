@@ -227,6 +227,7 @@ async function boot() {
     // cannot race capture_frame_rgba's &mut borrow.
     setGlitchEnabled: (b) => engine.set_glitch_enabled(b),
     setGlitchIntensity: (v) => engine.set_glitch_intensity(v),
+    setDarkGlow: (v) => engine.set_dark_glow(v),
     setPlaying: (b) => engine.set_playing(b),
     // shbt9 sandbox controls + click-to-measure dispatch.
     setSimulationControls: (cs, pt, ls, cd, tz, split) =>

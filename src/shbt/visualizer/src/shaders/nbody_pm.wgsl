@@ -133,15 +133,19 @@ const Z_REF: f32 = 17.0;           // condensation onset reference
 // Cardy boundary capacity ceiling in normalized units (mirror of the
 // seed_emergence kernel): n_limit ~ gamma_CFT * ((1+z)/(1+z_ref))^7.5.
 fn cardy_limit_norm(z: f32) -> f32 {
-    let rel = max(1.0 + z, 1.0e-3) / (1.0 + Z_REF);
+    let rel = clamp((1.0 + z) / (1.0 + Z_REF), 1.0e-3, 50.0);
     return GAMMA_CFT * pow(rel, 7.5);
 }
 
 fn evaluate_stinespring_channel(z: f32) -> f32 {
-    if (z <= 0.0) {
+    if (z <= 0.0 || z < 1.0e8) {
         return 1.0 - ETA_D;
     }
-    let power = pow(Z_N / max(z, 1.0e-3), DELTA_BBAR);
+    if (z > 1.0e13) {
+        return 1.0;
+    }
+    let ratio = clamp(Z_N / max(z, 1.0e-3), 1.0e-4, 1.0e4);
+    let power = pow(ratio, DELTA_BBAR);
     return (1.0 - ETA_D) + ETA_D / (1.0 + power);
 }
 
