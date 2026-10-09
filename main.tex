@@ -1,8 +1,8 @@
-\documentclass[11pt]{article}
+\documentclass[11pt,letterpaper]{article}
 \usepackage[T1]{fontenc}
 \usepackage{lmodern}
 \usepackage{microtype}
-\usepackage[margin=1in]{geometry}
+\usepackage[letterpaper,margin=1in]{geometry}
 
 % Core packages
 \usepackage{amsmath,amssymb,amsfonts,mathtools,bm,amsthm}
@@ -6787,10 +6787,10 @@ B(u) &= \frac{0.855655 - 3.605022\,u + 4.930827\,u^{2}}
 clamped below at zero, satisfies (i) $C^{\infty}$ smoothness on the
 open domain and global $C^0$ continuity, since every denominator is
 strictly positive on $u\in[0.040,0.400]$; (ii) channel values confined
-to $[0,1.05]$ — the rational denominators track the Wien-tail
+to $[0,1.05]$ --- the rational denominators track the Wien-tail
 curvature, so no piecewise hinge or clamp ladder is needed to keep the
 Planckian hue ordering; and (iii) evaluation with zero data-dependent
-control flow — three straight-line rational evaluations — so every
+control flow --- three straight-line rational evaluations --- so every
 SIMD lane retires in a single uniform cycle, eliminating the
 warp-divergence penalty of temperature-binned \pyvar{if} ladders.
 \pyvar{blackbody\_to\_linear\_rgb} in
@@ -6808,7 +6808,7 @@ three ratios on $u\in[0.040,0.400]$ (enumerated by
 \pyvar{tests/first\_principles\_kernels.rs}) bounds each channel in
 $[0,1.05]$, giving (ii). (iii) is immediate: the shader body contains
 no branch, loop, or lane-varying \pyvar{select} on divergent
-conditions — the entire palette is a straight-line rational
+conditions --- the entire palette is a straight-line rational
 evaluation closed by a single $\max(\cdot,0)$.
 \end{proof}
 
@@ -6853,7 +6853,7 @@ inherits the clamp, and the desaturation mix is a convex combination
 capped at $0.85$ of two $[0,1]$-valued operands.
 (iii) As $Y\to\infty$ the knee factor tends to $0.85$, so the limit
 color is the Planckian corona tint $(0.85,0.95,1.0)\,Y_{\mathrm{map}}$
-— a hue-preserving highlight, not a flat $\mathrm{RGB}=(1,1,1)$ clip.
+--- a hue-preserving highlight, not a flat $\mathrm{RGB}=(1,1,1)$ clip.
 The bilateral range kernel
 $\exp(-(\Delta Y)^2/2\sigma_r^2)$ decouples the filter's smoothing
 from luminance edges, leaving the caustic Laplacian
@@ -6888,7 +6888,7 @@ $\mathcal{A}_{\mathrm{caustic}} \le 1/\varepsilon$
 ($\varepsilon = 0.08$ in the implementation), removing the
 critical-curve divergence without the sign-asymmetric bias of a linear
 $1/(\det J+\varepsilon)$ regularization; (ii) exact critical
-enhancement — on the fold set $\det J=0$ the accent reaches its
+enhancement --- on the fold set $\det J=0$ the accent reaches its
 softened maximum $1/\varepsilon$, so Einstein rings and caustic
 fringes are amplified precisely where the Jacobian vanishes; and
 (iii) chromatic consistency, since the deflected samples
@@ -7027,9 +7027,10 @@ generates the complete fermion mass spectrum and flavor mixing matrices:
 
 \paragraph{Quark Sector \& CKM Matrix:}
 The derived physical quark masses are:
-\begin{equation}
-(m_u, m_c, m_t) = (2.16\,\mathrm{MeV}, 1.27\,\mathrm{GeV}, 172.69\,\mathrm{GeV}), \quad (m_d, m_s, m_b) = (4.67\,\mathrm{MeV}, 93.4\,\mathrm{MeV}, 4.18\,\mathrm{GeV}).
-\end{equation}
+\begin{align}
+(m_u, m_c, m_t) &= (2.16\,\mathrm{MeV}, 1.27\,\mathrm{GeV}, 172.69\,\mathrm{GeV}), \nonumber \\
+(m_d, m_s, m_b) &= (4.67\,\mathrm{MeV}, 93.4\,\mathrm{MeV}, 4.18\,\mathrm{GeV}).
+\end{align}
 The Cabibbo--Kobayashi--Maskawa (CKM) matrix $V_{\mathrm{CKM}} = U_L^{(u)\dagger} U_L^{(d)}$ evaluates to:
 \begin{equation}
 |V_{\mathrm{CKM}}| = \begin{pmatrix}
@@ -8046,7 +8047,7 @@ and serialized record to agree simultaneously.
 \begin{table}[htbp]
 \centering
 \scriptsize
-\begin{tabularx}{\linewidth}{@{}L{0.24\linewidth}L{0.27\linewidth}L{0.25\linewidth}Y@{}}
+\begin{tabularx}{\linewidth}{@{}L{0.22\linewidth}L{0.25\linewidth}L{0.24\linewidth}Y@{}}
 \toprule
 Paper identity & Python or Rust module & Principal accessor & Serialized record \\
 \midrule

@@ -37,3 +37,5 @@ sim_results.tex
 .xwin-cache/
 visualizer/recordings/raw_videos/
 tests/browser/node_modules/
+tectonic_bin/
+*.zip
