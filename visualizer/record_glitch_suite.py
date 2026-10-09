@@ -100,8 +100,10 @@ async def record_segment(pw, name, legs, glitch_enabled, glitch_intensity):
 
     args = [
         "--enable-unsafe-webgpu",
-        "--use-angle=vulkan",
-        "--enable-features=Vulkan",
+        "--use-angle=d3d11",
+        "--disable-dawn-features=use_dxc",
+        "--ignore-gpu-blocklist",
+        "--no-sandbox",
     ]
     browser, ctx, page = await open_capture(pw, args)
     try:

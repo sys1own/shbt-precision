@@ -386,12 +386,12 @@ export interface InitOutput {
   readonly __wbindgen_malloc: (a: number, b: number) => number;
   readonly __wbindgen_realloc: (a: number, b: number, c: number, d: number) => number;
   readonly __wbindgen_export_2: WebAssembly.Table;
-  readonly _dyn_core_608f92abc48d28da___ops__function__FnMut_______Output______as_wasm_bindgen_c04f4cf843a15bdf___closure__WasmClosure___describe__invoke___wgpu_a1de0f0a97155907___backend__webgpu__webgpu_sys__gen_GpuUncapturedErrorEvent__GpuUncapturedErrorEvent_____: (a: number, b: number, c: number) => void;
-  readonly _dyn_core_608f92abc48d28da___ops__function__FnMut_______Output______as_wasm_bindgen_c04f4cf843a15bdf___closure__WasmClosure___describe__invoke___wasm_bindgen_c04f4cf843a15bdf___JsValue_____: (a: number, b: number, c: number) => void;
+  readonly _dyn_core_608f92abc48d28da___ops__function__FnMut_______Output______as_wasm_bindgen_551d08d34b350dd1___closure__WasmClosure___describe__invoke___wgpu_ee9b15b627933c05___backend__webgpu__webgpu_sys__gen_GpuUncapturedErrorEvent__GpuUncapturedErrorEvent_____: (a: number, b: number, c: number) => void;
+  readonly _dyn_core_608f92abc48d28da___ops__function__FnMut_______Output______as_wasm_bindgen_551d08d34b350dd1___closure__WasmClosure___describe__invoke___wasm_bindgen_551d08d34b350dd1___JsValue_____: (a: number, b: number, c: number) => void;
   readonly __wbindgen_add_to_stack_pointer: (a: number) => number;
   readonly __wbindgen_free: (a: number, b: number, c: number) => void;
   readonly __wbindgen_exn_store: (a: number) => void;
-  readonly wasm_bindgen_c04f4cf843a15bdf___convert__closures__invoke2_mut___wasm_bindgen_c04f4cf843a15bdf___JsValue__wasm_bindgen_c04f4cf843a15bdf___JsValue_____: (a: number, b: number, c: number, d: number) => void;
+  readonly wasm_bindgen_551d08d34b350dd1___convert__closures__invoke2_mut___wasm_bindgen_551d08d34b350dd1___JsValue__wasm_bindgen_551d08d34b350dd1___JsValue_____: (a: number, b: number, c: number, d: number) => void;
 }
 
 export type SyncInitInput = BufferSource | WebAssembly.Module;

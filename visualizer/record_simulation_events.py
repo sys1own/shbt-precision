@@ -320,8 +320,8 @@ async def record_cosmic_evolution() -> Tuple[List[Dict], Path | None]:
             headless=True,
             args=[
                 "--enable-unsafe-webgpu",
-                "--use-angle=vulkan",
-                "--enable-features=Vulkan",
+                "--use-angle=d3d11",
+                "--disable-dawn-features=use_dxc",
                 "--ignore-gpu-blocklist",
                 "--no-sandbox",
             ],

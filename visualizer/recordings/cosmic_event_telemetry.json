@@ -47,7 +47,7 @@
       "totalMass": 0,
       "landauerDebt": 0,
       "active_caustics": 0,
-      "peak_shear": 0.415223,
+      "peak_shear": 0.410461,
       "horizon_frozen": false
     }
   },
@@ -58,12 +58,12 @@
     "z_hud": "1.0000e+10",
     "quench_pct": "69.70",
     "landauer_gw": "0.000",
-    "fps": "33.5",
+    "fps": "60.0",
     "asserts": [
       {
         "name": "fps >= 55",
-        "pass": false,
-        "detail": "33.5 FPS (software rasterizer budget; strict mode: False)",
+        "pass": true,
+        "detail": "60.0 FPS (software rasterizer budget; strict mode: False)",
         "hard": false
       },
       {
@@ -81,7 +81,7 @@
       "totalMass": 0,
       "landauerDebt": 0,
       "active_caustics": 0,
-      "peak_shear": 0.389901,
+      "peak_shear": 0.378075,
       "horizon_frozen": false
     }
   },
@@ -103,7 +103,7 @@
       {
         "name": "active_seeds > 0",
         "pass": true,
-        "detail": "755 seeds",
+        "detail": "915 seeds",
         "hard": true
       },
       {
@@ -123,11 +123,11 @@
       "t_gyr": 0.2441795,
       "lookback_gyr": 13.54673,
       "f_load": 0.00012681,
-      "seedCount": 755,
+      "seedCount": 915,
       "totalMass": 3e+38,
       "landauerDebt": 3e+38,
-      "active_caustics": 755,
-      "peak_shear": 0.402605,
+      "active_caustics": 915,
+      "peak_shear": 0.384795,
       "horizon_frozen": false
     }
   },
@@ -185,7 +185,7 @@
       "totalMass": 3e+38,
       "landauerDebt": 3e+38,
       "active_caustics": 1024,
-      "peak_shear": 0.465811,
+      "peak_shear": 0.436585,
       "horizon_frozen": false
     }
   },
@@ -219,7 +219,7 @@
       {
         "name": "gamma_max > 0.1",
         "pass": true,
-        "detail": "0.4475",
+        "detail": "0.4776",
         "hard": true
       }
     ],
@@ -231,7 +231,7 @@
       "totalMass": 3e+38,
       "landauerDebt": 3e+38,
       "active_caustics": 1024,
-      "peak_shear": 0.447512,
+      "peak_shear": 0.477566,
       "horizon_frozen": false
     }
   },
@@ -283,7 +283,7 @@
       "totalMass": 3e+38,
       "landauerDebt": 3e+38,
       "active_caustics": 1024,
-      "peak_shear": 0.414881,
+      "peak_shear": 0.378911,
       "horizon_frozen": true
     }
   }
