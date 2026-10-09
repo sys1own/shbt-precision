@@ -29,6 +29,9 @@
 % Theorem-like environments used in the appendices
 \theoremstyle{plain}
 \newtheorem{theorem}{Theorem}
+\newtheorem{corollary}{Corollary}
+\newtheorem{proposition}{Proposition}
+\newtheorem{lemma}{Lemma}
 \newtheorem{definition}{Definition}
 
 \DeclareMathOperator{\Tr}{Tr}
@@ -5564,10 +5567,7 @@ Posterior parameter & Mean \(\pm\) \(1\sigma\) \\
 \(\eta_B\) & \(6.449923\times10^{-10}\) (locked) \\
 \bottomrule
 \end{tabular}
-\caption{MCMC posterior over the joint parameter space
-\(\theta=\{\hcmb,\omega_b,\omega_c,\ln(10^{10}A_s),n_s,\tau_{\text{reio}},
-\sum m_\nu\}\) with \(N_{\text{data}}=2489\), \(\nu=2482\), and
-\(\chi^2/\nu=1.004\).}
+\caption[MCMC posterior over joint parameter space]{MCMC posterior over the joint parameter space $\theta=\{\hcmb,\allowbreak\omega_b,\allowbreak\omega_c,\allowbreak\ln(10^{10}A_s),\allowbreak n_s,\allowbreak\tau_{\text{reio}},\allowbreak\sum m_\nu\}$ with $N_{\text{data}}=2489$, $\nu=2482$, and $\chi^2/\nu=1.004$.}
 \label{tab:mcmc-posterior}
 \end{table}
 
@@ -6094,6 +6094,8 @@ $d\fload/dz=3\AH/[(1+z)^2H_{\mathrm{SHBT}}(z)]$.
 \end{theorem}
 
 \begin{proof}[Implementation statement]
+\begingroup
+\raggedright
 \pyvar{precision_cosmology.py::shbt_hubble_rate} and
 \pyvar{src/shbt/cosmology.rs::ShbtUniverse.evaluate_hubble_index_rate}
 evaluate the two sides of
@@ -6101,6 +6103,8 @@ Eq.~\eqref{eq:dynamic-bit-loading-equivalence} on the canonical branch
 $(26,8,312)$ at the report's precision; the invariant test
 \pyvar{tests/cosmological_invariants.rs} fixes the equality to better than
 $10^{-30}$ relative error.
+\par
+\endgroup
 \end{proof}
 
 \begin{theorem}[Passive Ghost Dark Matter]
@@ -6221,6 +6225,8 @@ $1/23$ and $\kappa_{\mathrm{GET}}^{\max}=(1/23)(1+1325/4004)$.
 \end{theorem}
 
 \begin{proof}[Implementation statement]
+\begingroup
+\raggedright
 \pyvar{src/shbt/visualizer/src/shaders/causal_point_get.wgsl}
 (\pyvar{compute_kappa_get}) evaluates
 Eq.~\eqref{eq:kappa-get-first-principles} from a \pyvar{TheoryInvariants}
@@ -6229,6 +6235,8 @@ uniform carrying $(\kell,\kq,\Kpar,c_{\mathrm{eff}},d_1,h^\vee,\Nsat)$;
 and center-of-mass kick.  The invariant gate
 \pyvar{tests/first_principles_kernels.rs} verifies the closed form at the
 endpoints $\fload\in\{0,1\}$.
+\par
+\endgroup
 \end{proof}
 
 \begin{theorem}[Instanton-Gated Seed Nucleation]
@@ -8265,13 +8273,24 @@ identities to their implementation boundaries.  A row denotes an interface
 contract: exact reproduction requires the displayed equation, module, accessor,
 and serialized record to agree simultaneously.
 
-\begin{table}[htbp]
-\centering
+\begingroup
 \scriptsize
-\begin{tabularx}{\linewidth}{@{}L{0.22\linewidth}L{0.25\linewidth}L{0.24\linewidth}Y@{}}
+\begin{longtable}{@{}L{0.20\linewidth}L{0.24\linewidth}L{0.24\linewidth}L{0.21\linewidth}@{}}
+\caption{Code and equation traceability matrix (Table~28 verification ledger).}
+\label{tab:master-code-traceability-28}\\
 \toprule
 Paper identity & Python or Rust module & Principal accessor & Serialized record \\
 \midrule
+\endfirsthead
+\toprule
+Paper identity & Python or Rust module & Principal accessor & Serialized record \\
+\midrule
+\endhead
+\midrule
+\multicolumn{4}{r}{Continued on the next page}\\
+\endfoot
+\bottomrule
+\endlastfoot
 Modular closure, Eq.~\eqref{eq:section-nine-closure-chain} & \pyvar{src/shbt/boundary.rs} & \pyvar{StaticBoundary.s_boundary}, \pyvar{t_boundary} & \pyvar{result.json:foundation_audit} \\
 Boundary loading, Eqs.~\eqref{eq:inflation-loading-ode}--\eqref{eq:derived-hubble-loading-law} & \pyvar{precision_cosmology.py} & \pyvar{loading_fraction_ode}, \pyvar{h0_redshift_dependent} & \pyvar{result.json:redshift_ladder} \\
 Finite screen and neutrino floor, Eqs.~\eqref{eq:cosmology-finite-register} and \eqref{eq:native-neutrino-normalization-check} & \pyvar{precision_cosmology.py} & \pyvar{subleading_d5_correction}, \pyvar{neutrino_hierarchy_masses} & \pyvar{result.json:neutrino_hierarchy} \\
@@ -8305,12 +8324,8 @@ Rational Planckian palette and topological SPH, Thms.~\ref{thm:shading_multi_tie
 $\varepsilon$-softened caustics and dispersion fringes, Thm.~\ref{thm:caustic_eps_soft} & \pyvar{holographic_post.wgsl} & \pyvar{fs_post} deflection + caustic accent & $\mathcal{A}=1/\sqrt{\det J^{2}+\varepsilon^{2}}$, 3-tap $(436,546,700)$ nm \\
 First-principles kernel gates, Thms.~\ref{thm:kappa-get-first-principles} and \ref{thm:caustic_eps_soft} & \pyvar{tests/first_principles_kernels.rs}, \pyvar{tests/test_harness_metrology.py} & \pyvar{test_symplectic_energy_drift_static_background}, \pyvar{test_branchless_blackbody_simd_rational_monotonicity}, shbt12 metrology gates & 512-bit bit conservation, KDK drift $<10^{-4}$, palette bounds \\
 Monotonic cosmic-age clock, Sec.~\ref{sec:boundary-visualizer} & \pyvar{cosmology.rs}, \pyvar{telemetry.rs}, \pyvar{visualizer/index.js} & \pyvar{cosmic_age_gyr}, \pyvar{lookback_gyr}, live phase banner & $t(z)=\frac{1}{H_0}\int_{\ln(1+z)}^{40}du/E(u)$, lookback field \\
-\bottomrule
-\end{tabularx}
-\caption{Code and equation traceability matrix (Table~28 verification
-ledger).}
-\label{tab:master-code-traceability-28}
-\end{table}
+\end{longtable}
+\endgroup
 
 \subsection{Generated-Artifact and Column Crosswalk}
 
@@ -8345,13 +8360,24 @@ physical roles are summarized in Table~\ref{tab:code-availability}.  This
 section provides the implementation bridge for the theory developed in
 Sections~\ref{sec:introduction}--\ref{sec:closure-synthesis-conclusions}.
 
-\begin{table}[htbp]
-\centering
+\begingroup
 \scriptsize
-\begin{tabular}{@{}L{0.34\linewidth}L{0.56\linewidth}@{}}
+\begin{longtable}{@{}L{0.34\linewidth}L{0.58\linewidth}@{}}
+\caption{Explicit physics-to-software bridge required to reproduce the paper-level closure tables.}
+\label{tab:code-availability}\\
 \toprule
 Software interface & Physical role and principal accessors \\
 \midrule
+\endfirsthead
+\toprule
+Software interface & Physical role and principal accessors \\
+\midrule
+\endhead
+\midrule
+\multicolumn{2}{r}{Continued on the next page}\\
+\endfoot
+\bottomrule
+\endlastfoot
 \pyvar{shbt_simulator} & PyO3 module exposing the foundation simulator, report getters, and record classes \\
 \pyvar{StaticBoundary} & branch arithmetic, visible and dark modular blocks, \(2901360\)-module dark pairing, RG charge trajectories, C-ABI export, partition evaluation, entropy densities, dominant sequence, and self-resolution \\
 \pyvar{ShbtSimulator} & full audit orchestration through \pyvar{ShbtSimulator.run_full_audit()} \\
@@ -8382,11 +8408,8 @@ Software interface & Physical role and principal accessors \\
 \pyvar{tests/invariant_gates.rs} & Tier-2 invariant gates: bit conservation across epochs, exact $10/33$--$23/33$ partition, de~Sitter observer freeze, and stress-energy residual \\
 \pyvar{scripts/verify_cosmology.py} & Seed-coupling audit ($\alpha_{\mathrm{seed}}$), $\eta_B$ evaluation, and 60 FPS frame-budget benchmark \\
 \pyvar{visualizer/index.html} & browser harness: horizon HUD, capacity gauge, seed ledger, Landauer monitor, timeline scrub, speed and channel controls \\
-\bottomrule
-\end{tabular}
-\caption{Explicit physics-to-software bridge required to reproduce the paper-level closure tables.}
-\label{tab:code-availability}
-\end{table}
+\end{longtable}
+\endgroup
 
 \subsection{Reported Run Provenance and Output Crosswalk}
 \label{sec:reported-run-provenance}
@@ -8414,6 +8437,8 @@ independent rerun of the native build during manuscript compilation.
 \par
 \endgroup
 
+\begingroup
+\raggedright
 For comparison, the historical \pyvar{simulator_output.txt} records fourteen
 \pyvar{PrecisionCosmologyTests} tests in \(49.830\,\mathrm{s}\), with an
 \texttt{OK} summary.  That earlier artifact has SHA-256 digest
@@ -8430,6 +8455,8 @@ fourteen-test native transcript.  Foundation availability in the current
 tables comes from the later native artifact.  The interfaces in
 Table~\ref{tab:code-availability} remain the implementation contract;
 the summary flags are not a complete per-method execution trace.
+\par
+\endgroup
 
 The native foundation summary reports the branch \((26,8,312)\),
 \pyvar{framing_defect (delta_fr)=0.0},
