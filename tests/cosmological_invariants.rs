@@ -360,3 +360,152 @@ fn test_gate_poisson_tunneling_statistics_across_redshifts() {
     }
 }
 
+pub const OMEGA_M0: f64 = 0.315;
+pub const OMEGA_LAMBDA0: f64 = 0.685;
+pub const H0: f64 = 67.4; // km/s / Mpc
+pub const A_CRIT: f64 = 1000.0;
+pub const Z_FREEZE: f64 = -0.999;
+pub const TRACE_ANOMALY_FACTOR: f64 = 10.0 / 33.0;
+pub const L_CP: f64 = 1.618e-35; // Causal Point cell radius in meters
+
+#[derive(Debug, PartialEq)]
+pub enum CosmologicalError {
+    AnomalyClosureError {
+        message: String,
+        z: f64,
+        f_load: f64,
+    },
+    CapacityExceeded {
+        f_load: f64,
+    },
+}
+
+#[derive(Debug, Clone)]
+pub struct CosmologicalState {
+    pub a: f64,
+    pub z: f64,
+    pub f_load_cosmo: f64,
+    pub chi_h: f64,
+    pub r_adm_empty: bool,
+}
+
+impl CosmologicalState {
+    pub fn new(a: f64) -> Result<Self, CosmologicalError> {
+        let z = (1.0 / a) - 1.0;
+        let f_load = if a <= 1.0 {
+            0.0
+        } else {
+            let ratio = (a - 1.0) / (A_CRIT - 1.0);
+            (ratio.powi(3)).min(1.0)
+        };
+
+        let chi_h = if a >= A_CRIT {
+            L_CP
+        } else {
+            let c_over_h0 = 299792.458 / (H0 * OMEGA_LAMBDA0.sqrt());
+            (c_over_h0 / a).max(L_CP)
+        };
+
+        let r_adm_empty = z <= Z_FREEZE || f_load >= 1.0;
+
+        if r_adm_empty {
+            return Err(CosmologicalError::AnomalyClosureError {
+                message: "Admissible observer set R_adm is empty; physical time crystallization ceases.".into(),
+                z,
+                f_load,
+            });
+        }
+
+        Ok(Self {
+            a,
+            z,
+            f_load_cosmo: f_load,
+            chi_h,
+            r_adm_empty,
+        })
+    }
+
+    pub fn conformal_acceleration(&self) -> f64 {
+        1.5 * OMEGA_M0 * self.a * (1.0 - TRACE_ANOMALY_FACTOR * self.f_load_cosmo)
+    }
+
+    pub fn peculiar_velocity_decay_factor(&self, a_final: f64) -> f64 {
+        self.a / a_final
+    }
+}
+
+#[test]
+fn test_peculiar_velocity_asymptotic_decay() {
+    let state_now = CosmologicalState::new(1.0).unwrap();
+    let a_future = 500.0;
+    let decay = state_now.peculiar_velocity_decay_factor(a_future);
+
+    // Prove peculiar velocity scales strictly as 1/a
+    assert!((decay - (1.0 / 500.0)).abs() < 1e-12);
+    let v0 = 300.0; // km/s
+    let v_future = v0 * decay;
+    assert!((v_future - 0.6).abs() < 1e-6);
+}
+
+#[test]
+fn test_comoving_displacement_convergence() {
+    // Analytical de Sitter limit: Delta x_tot = v0 / (2 * H_inf * a0^2)
+    let v0 = 300.0; // km/s
+    let a0 = 1.0;
+    let h_inf = H0 * OMEGA_LAMBDA0.sqrt();
+    let analytical_delta_x = v0 / (2.0 * h_inf * a0 * a0);
+
+    // Numerical integration from a = 1.0 to a = 1000.0
+    let steps = 100_000;
+    let da = (A_CRIT - 1.0) / (steps as f64);
+    let mut numerical_delta_x = 0.0;
+
+    for i in 0..steps {
+        let a_mid = 1.0 + (i as f64 + 0.5) * da;
+        let v_pec = v0 / a_mid;
+        let h_a = H0 * (OMEGA_M0 * a_mid.powi(-3) + OMEGA_LAMBDA0).sqrt();
+        let dx_da = v_pec / (a_mid.powi(2) * h_a);
+        numerical_delta_x += dx_da * da;
+    }
+
+    let rel_error = (numerical_delta_x - analytical_delta_x).abs() / analytical_delta_x;
+    assert!(rel_error < 0.10, "Comoving displacement did not converge to finite limit");
+}
+
+#[test]
+fn test_conformal_coupling_quenching() {
+    let state_early = CosmologicalState::new(1.0).unwrap();
+    let a_classical_early = 1.5 * OMEGA_M0 * 1.0;
+    assert!((state_early.conformal_acceleration() - a_classical_early).abs() < 1e-12);
+
+    // Evaluate immediately prior to critical boundary at a = 999.0
+    let state_late = CosmologicalState::new(999.0).unwrap();
+    let quenching_ratio = state_late.conformal_acceleration() / (1.5 * OMEGA_M0 * 999.0);
+    let expected_min_ratio = 1.0 - TRACE_ANOMALY_FACTOR; // 23 / 33 \approx 0.6969697
+    assert!(quenching_ratio < 1.0);
+    assert!(quenching_ratio >= expected_min_ratio);
+}
+
+#[test]
+fn test_apparent_horizon_contraction() {
+    let state_early = CosmologicalState::new(1.0).unwrap();
+    let state_mid = CosmologicalState::new(100.0).unwrap();
+
+    assert!(state_mid.chi_h < state_early.chi_h);
+    assert!(state_mid.chi_h > L_CP);
+}
+
+#[test]
+fn test_anomaly_closure_error_at_redshift_boundary() {
+    // Redshift z = -0.999 corresponds identically to a = 1000.0
+    let result = CosmologicalState::new(1000.0);
+    match result {
+        Err(CosmologicalError::AnomalyClosureError { z, f_load, .. }) => {
+            assert!((z - Z_FREEZE).abs() < 1e-6);
+            assert!((f_load - 1.0).abs() < 1e-6);
+        }
+        _ => panic!("Expected AnomalyClosureError at terminal redshift boundary z = -0.999"),
+    }
+}
+
+

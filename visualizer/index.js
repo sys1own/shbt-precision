@@ -228,6 +228,8 @@ async function boot() {
     setGlitchEnabled: (b) => engine.set_glitch_enabled(b),
     setGlitchIntensity: (v) => engine.set_glitch_intensity(v),
     setDarkGlow: (v) => engine.set_dark_glow(v),
+    setLensingScale: (v) => engine.set_lensing_scale(v),
+    set_lensing_scale: (v) => engine.set_lensing_scale(v),
     setShowObservers: (b) => engine.set_show_observers(b),
     setPlaying: (b) => engine.set_playing(b),
     // shbt9 sandbox controls + click-to-measure dispatch.

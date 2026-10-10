@@ -268,12 +268,12 @@ pub fn kappa_get(f_load: f32) -> f32 {
 
 /// Default Tier-2 WebGPU visualizer architectural defaults.
 #[allow(dead_code)]
-pub const DEFAULT_BASE_SPLAT_RADIUS: f32 = 0.95;
+pub const DEFAULT_BASE_SPLAT_RADIUS: f32 = 0.85;
 #[allow(dead_code)]
-pub const DEFAULT_LENSING_STRENGTH: f32 = 0.022;
-pub const DEFAULT_EXPOSURE: f32 = 0.95;
+pub const DEFAULT_LENSING_STRENGTH: f32 = 0.025;
+pub const DEFAULT_EXPOSURE: f32 = 0.60;
 #[allow(dead_code)]
-pub const DEFAULT_BLACK_PEDESTAL: f32 = 0.020;
+pub const DEFAULT_BLACK_PEDESTAL: f32 = 0.024;
 pub const DEFAULT_DARK_MATTER_OPACITY: f32 = 0.0;
 #[allow(dead_code)]
 pub const DEFAULT_SHOW_OBSERVERS: u32 = 0;
@@ -475,5 +475,46 @@ impl MetrologyPipeline {
             pressure_norm,
             mean_cell_fixed: 0.0,
         }
+    }
+}
+
+pub struct UnitConverter {
+    pub box_size_mpc: f32,
+    pub h_hubble: f32,
+    pub r_merge_mpc: f32,
+    pub kappa_absorption: f32,
+    pub i_blackbody: f32,
+}
+
+impl UnitConverter {
+    pub fn new(h_hubble: f32) -> Self {
+        let box_size_mpc = (150.0 / h_hubble) as f32;
+        let n_grid = 256.0_f32;
+        let dx_mpc = box_size_mpc / n_grid;
+        let r_merge_mpc = dx_mpc;
+
+        Self {
+            box_size_mpc,
+            h_hubble,
+            r_merge_mpc,
+            // Calibrated baryonic opacity saturating cores with delta >= 1e4
+            kappa_absorption: 0.045,
+            i_blackbody: 1.0,
+        }
+    }
+
+    #[inline]
+    pub fn mpc_to_webgpu(&self, x_mpc: f32) -> f32 {
+        (x_mpc / self.box_size_mpc) - 0.5
+    }
+
+    #[inline]
+    pub fn webgpu_to_mpc(&self, x_gpu: f32) -> f32 {
+        (x_gpu + 0.5) * self.box_size_mpc
+    }
+
+    #[inline]
+    pub fn normalized_r_merge(&self) -> f32 {
+        self.r_merge_mpc / self.box_size_mpc
     }
 }

@@ -14,8 +14,36 @@ N_T_CANONICAL = -0.0004
 N_WEIL_MODULES = 2901360
 
 
+def generate_isotropic_weil_phases(kx: np.ndarray, ky: np.ndarray, kz: np.ndarray) -> np.ndarray:
+    """Evaluates deterministic, SO(3)-invariant primordial phases on the boundary CFT.
+    Eliminates linear directional vectors and strictly enforces Hermiticity phi(-k) = -phi(k).
+    """
+    kx2 = (kx.astype(np.int64)) ** 2
+    ky2 = (ky.astype(np.int64)) ** 2
+    kz2 = (kz.astype(np.int64)) ** 2
+
+    # Elementary symmetric polynomials under the octahedral group O_h
+    sigma1 = kx2 + ky2 + kz2
+    sigma2 = kx2 * ky2 + ky2 * kz2 + kz2 * kx2
+    sigma3 = kx2 * ky2 * kz2
+
+    # Canonical hemisphere orientation operator
+    sgn_h = np.where(
+        kz > 0, 1.0,
+        np.where(
+            (kz == 0) & (ky > 0), 1.0,
+            np.where((kz == 0) & (ky == 0) & (kx > 0), 1.0, -1.0)
+        )
+    )
+    sgn_h[sigma1 == 0] = 0.0
+
+    # Invariant Weil arithmetic polynomial evaluated on Z / N_mod Z
+    w_poly = (sigma1 * 157 + sigma2 * 11 + sigma3 * 7 + (sigma1 * sigma2) * 3 + 1) % N_WEIL_MODULES
+    return sgn_h * (2.0 * np.pi) * (w_poly.astype(np.float64) / float(N_WEIL_MODULES))
+
+
 def generate_weil_modular_phases(
-    grid_shape: tuple[int, int, int] | tuple[int, ...], box_size: float = 200.0
+    grid_shape: tuple[int, int, int] | tuple[int, ...], box_size: float = 222.55
 ) -> np.ndarray:
     """Evaluates exact deterministic perturbation phases and modular amplitudes
     from the 2,901,360-module Weil representation at the fixed point tau = i.
@@ -33,17 +61,10 @@ def generate_weil_modular_phases(
 
     IX, IY, IZ = np.meshgrid(ix, iy, iz, indexing="ij")
 
-    w1, w2, w3, w4, w5 = 1, 1373, 1884959, 43921, 391141
+    phase_field = generate_isotropic_weil_phases(IX, IY, IZ)
 
-    idx = (
-        w1 * IX
-        + w2 * IY
-        + w3 * IZ
-        + w4 * (IX**3 + IY**3 + IZ**3)
-        + w5 * (IX * IY * IZ)
-    ) % N_WEIL_MODULES
-
-    u = idx.astype(np.float64) / float(N_WEIL_MODULES)
+    sigma1 = (IX.astype(np.int64))**2 + (IY.astype(np.int64))**2 + (IZ.astype(np.int64))**2
+    u = ((sigma1 * 157 + 1) % N_WEIL_MODULES).astype(np.float64) / float(N_WEIL_MODULES)
 
     q_nome = np.exp(-np.pi)
     theta3_real = (
@@ -51,21 +72,6 @@ def generate_weil_modular_phases(
         + 2.0 * q_nome * np.cos(2.0 * np.pi * u)
         + 2.0 * (q_nome**4) * np.cos(4.0 * np.pi * u)
     )
-
-    modular_phase = (
-        2.0 * np.pi * ((idx * (idx + 1)) % N_WEIL_MODULES) / float(N_WEIL_MODULES)
-    )
-
-    phase_field = modular_phase.copy()
-    phase_field[IX < 0] = -phase_field[IX < 0]
-
-    zero_x = IX == 0
-    phase_field[zero_x & (IY < 0)] = -phase_field[zero_x & (IY < 0)]
-
-    zero_xy = (IX == 0) & (IY == 0)
-    phase_field[zero_xy & (IZ < 0)] = -phase_field[zero_xy & (IZ < 0)]
-
-    phase_field[IX == 0, IY == 0, IZ == 0] = 0.0
 
     phases = np.cos(phase_field) + 1j * np.sin(phase_field)
     amplitude = np.sqrt(np.maximum(theta3_real, 0.0))

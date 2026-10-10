@@ -403,4 +403,85 @@ mod tests {
         assert!(report.s8_effective < report.s8_primordial);
         assert!((report.s8_effective - 0.764).abs() < 0.02);
     }
+
+    #[test]
+    fn test_cosmological_grid_isotropic_weil_phases() {
+        let grid = CosmologicalGrid::new(256, 0.674);
+        assert!(grid.is_fundamental_mode_linear());
+        let p_pos = grid.isotropic_weil_phase(1, 2, 3);
+        let p_neg = grid.isotropic_weil_phase(-1, -2, -3);
+        assert!((p_pos + p_neg).abs() < 1e-10);
+        assert_eq!(grid.isotropic_weil_phase(0, 0, 0), 0.0);
+    }
+}
+
+pub const N_MOD: i64 = 2_901_360;
+
+#[derive(Debug, Clone)]
+pub struct CosmologicalGrid {
+    pub n_grid: usize,
+    pub box_size_mpc: f64,
+    pub dx_mpc: f64,
+    pub lambda_holo: f64,
+    pub r_merge_mpc: f64,
+}
+
+impl CosmologicalGrid {
+    pub fn new(n_grid: usize, h_hubble: f64) -> Self {
+        // Enforce physical box size such that Delta^2(k1, z=0) <= 0.012
+        let box_size_mpc = 150.0 / h_hubble;
+        let dx_mpc = box_size_mpc / (n_grid as f64);
+        let lambda_holo = 3.0 / (box_size_mpc * box_size_mpc);
+        let kappa_star_d5 = 1.0 / 2.0_f64.sqrt();
+        let r_merge_mpc = 2.0_f64.sqrt() * kappa_star_d5 * dx_mpc;
+
+        Self {
+            n_grid,
+            box_size_mpc,
+            dx_mpc,
+            lambda_holo,
+            r_merge_mpc,
+        }
+    }
+
+    /// Evaluates deterministic, SO(3)-invariant phase for mode k = (kx, ky, kz)
+    #[inline]
+    pub fn isotropic_weil_phase(&self, kx: i32, ky: i32, kz: i32) -> f64 {
+        let kx2 = (kx as i64) * (kx as i64);
+        let ky2 = (ky as i64) * (ky as i64);
+        let kz2 = (kz as i64) * (kz as i64);
+
+        let sigma1 = kx2 + ky2 + kz2;
+        if sigma1 == 0 {
+            return 0.0;
+        }
+
+        let sigma2 = kx2 * ky2 + ky2 * kz2 + kz2 * kx2;
+        let sigma3 = kx2 * ky2 * kz2;
+
+        let sgn_h = if kz > 0 {
+            1.0
+        } else if kz == 0 && ky > 0 {
+            1.0
+        } else if kz == 0 && ky == 0 && kx > 0 {
+            1.0
+        } else {
+            -1.0
+        };
+
+        let w_poly = ((sigma1 % N_MOD) * 157
+            + (sigma2 % N_MOD) * 11
+            + (sigma3 % N_MOD) * 7
+            + (((sigma1 % N_MOD) * (sigma2 % N_MOD)) % N_MOD) * 3
+            + 1)
+            .rem_euclid(N_MOD);
+
+        sgn_h * (2.0 * PI) * (w_poly as f64 / N_MOD as f64)
+    }
+
+    /// Validates that the fundamental mode remains in the linear regime at z = 0
+    pub fn is_fundamental_mode_linear(&self) -> bool {
+        let k1 = (2.0 * PI) / self.box_size_mpc;
+        k1 < 0.05
+    }
 }

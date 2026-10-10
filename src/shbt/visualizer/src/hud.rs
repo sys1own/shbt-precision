@@ -463,9 +463,9 @@ impl VisualizerEngine {
             _pad1: [0.0; 2],
             post0: [1.0, 1.0, 0.0, 1.6],
             post1: [0.0; 4],
-            post2: [0.7853982, 0.032, 0.02, 0.6], // Theta_FoV, zeta_disp, bloom, fog
+            post2: [54.0f32.to_radians(), 0.032, 0.02, 0.6], // Theta_FoV (54 deg), zeta_disp, bloom, fog
             post3: [0.0; 4],
-            post4: [0.0, 0.0, 14.0, crate::units::DEFAULT_EXPOSURE],
+            post4: [0.0, 0.0, 12.0, crate::units::DEFAULT_EXPOSURE],
         };
         uniforms.view_proj[0] = 1.0;
         uniforms.view_proj[5] = 1.0;

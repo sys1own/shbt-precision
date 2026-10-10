@@ -8,6 +8,7 @@
 //! 10^-120 manuscript gate.
 
 use rug::Float;
+use serde::{Deserialize, Serialize};
 
 use crate::shbt::boundary::StaticBoundary;
 use crate::shbt::causal_point::{ETA_DARK_DEN, ETA_DARK_NUM, ETA_VISIBLE_DEN, ETA_VISIBLE_NUM};
@@ -564,5 +565,101 @@ pub fn solve_first_principles_h0_cmb(
     }
 
     Err("Convergence failure in solve_first_principles_h0_cmb".to_string())
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub struct CosmologicalParameters {
+    pub omega_m0: f64,
+    pub omega_lambda0: f64,
+    pub h0: f64,
+    pub a_crit: f64,
+    pub z_freeze: f64,
+    pub trace_anomaly_ratio: f64,
+}
+
+impl Default for CosmologicalParameters {
+    fn default() -> Self {
+        Self {
+            omega_m0: 0.315,
+            omega_lambda0: 0.685,
+            h0: 67.4,
+            a_crit: 1000.0,
+            z_freeze: -0.999,
+            trace_anomaly_ratio: 10.0 / 33.0,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub enum AnomalyStatus {
+    Admissible,
+    ApproachingSaturation { margin: f64 },
+    AnomalyClosureError { z: f64, f_load: f64 },
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CosmologicalEngine {
+    pub params: CosmologicalParameters,
+    pub a: f64,
+    pub v_pec_norm: f64,
+    pub comov_displacement: f64,
+    pub status: AnomalyStatus,
+}
+
+impl CosmologicalEngine {
+    pub fn new(params: CosmologicalParameters) -> Self {
+        Self {
+            params,
+            a: 1.0,
+            v_pec_norm: 300.0,
+            comov_displacement: 0.0,
+            status: AnomalyStatus::Admissible,
+        }
+    }
+
+    pub fn hubble(&self, a: f64) -> f64 {
+        self.params.h0 * (self.params.omega_m0 * a.powi(-3) + self.params.omega_lambda0).sqrt()
+    }
+
+    pub fn boundary_capacity_load(&self, a: f64) -> f64 {
+        if a <= 1.0 {
+            0.0
+        } else if a >= self.params.a_crit {
+            1.0
+        } else {
+            ((a - 1.0) / (self.params.a_crit - 1.0)).powi(3)
+        }
+    }
+
+    pub fn martel_shapiro_acceleration(&self, a: f64) -> f64 {
+        let f_load = self.boundary_capacity_load(a);
+        1.5 * self.params.omega_m0 * a * (1.0 - self.params.trace_anomaly_ratio * f_load)
+    }
+
+    pub fn step(&mut self, da: f64) -> Result<(), AnomalyStatus> {
+        let next_a = self.a + da;
+        let z = (1.0 / next_a) - 1.0;
+        let f_load = self.boundary_capacity_load(next_a);
+
+        if z <= self.params.z_freeze || f_load >= 1.0 {
+            self.status = AnomalyStatus::AnomalyClosureError { z, f_load };
+            return Err(self.status.clone());
+        }
+
+        let h_a = self.hubble(self.a);
+        let dx = (self.v_pec_norm / (self.a.powi(2) * h_a)) * da;
+        self.comov_displacement += dx;
+
+        self.v_pec_norm *= self.a / next_a;
+        self.a = next_a;
+
+        if f_load > 0.95 {
+            self.status = AnomalyStatus::ApproachingSaturation { margin: 1.0 - f_load };
+        } else {
+            self.status = AnomalyStatus::Admissible;
+        }
+
+        Ok(())
+    }
 }
 

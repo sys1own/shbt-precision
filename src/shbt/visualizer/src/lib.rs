@@ -2252,7 +2252,7 @@ impl ShbtWebGpuEngine {
             let d_d = units::CosmologicalContext::angular_diameter_distance_mpc(z_d);
             let d_s = units::CosmologicalContext::angular_diameter_distance_mpc(z_s);
             let d_ds = units::CosmologicalContext::lens_source_distance_mpc(z_d, z_s);
-            let theta_fov = 45.0f64.to_radians();
+            let theta_fov = 54.0f64.to_radians();
             let theta_e_rad = ctx
                 .compute_einstein_radius_rad(s.mass_msun as f64, d_d, d_s, d_ds);
             let theta_e = ((theta_e_rad as f64 * 1.5e5 / theta_fov) as f32)
@@ -2850,7 +2850,7 @@ impl ShbtWebGpuEngine {
             [0.0, 0.0, 1.0, 0.0],
             [0.0, 0.0, 0.0, 1.0],
         ];
-        let f = 1.0 / (45.0f32.to_radians() / 2.0).tan();
+        let f = 1.0 / (54.0f32.to_radians() / 2.0).tan();
         let aspect = self.width as f32 / self.height as f32;
         let near = 1.0f32;
         let far = 4000.0f32;
@@ -3505,7 +3505,7 @@ impl ShbtWebGpuEngine {
                 0.0,
             ],
             post2: [
-                45.0f32.to_radians(), // Theta_FoV (rad)
+                54.0f32.to_radians(), // Theta_FoV (rad)
                 self.dispersion_coeff * 0.04, // zeta_disp boundary dispersion
                 self.bloom_intensity,         // bloom lift gain (Enhancement 12)
                 self.fog_density,             // exponential depth fog (Enhancement 13)
@@ -3514,7 +3514,7 @@ impl ShbtWebGpuEngine {
             post4: [
                 self.telemetry.peak_shear,
                 self.telemetry.peak_convergence,
-                14.0, // Landauer desaturation knee Y_desat
+                12.0, // Landauer desaturation knee Y_desat
                 units::DEFAULT_EXPOSURE, // tone exposure for the luminance-preserving ACES curve
             ],
         };
@@ -3540,7 +3540,7 @@ impl ShbtWebGpuEngine {
 
         // Caustic telemetry for the HUD ledger (analytic estimates — the
         // post pass itself never read-backs G-buffer data).
-        let strength = self.lensing_strength * self.channel_b;
+        let strength = self.channel_b;
         let peak_gamma = 0.428 * strength + 0.05 * strength * (self.frame_index as f32 * 0.1).sin();
         let peak_kappa = 1.185 * strength * (0.5 + 0.5 * f_load as f32)
             + 0.08 * strength * (self.frame_index as f32 * 0.1).cos();
@@ -3552,7 +3552,7 @@ impl ShbtWebGpuEngine {
         let d_s = units::CosmologicalContext::angular_diameter_distance_mpc(z_s);
         let d_ds = units::CosmologicalContext::lens_source_distance_mpc(z_d, z_s);
         let ctx = &self.metrology.ctx;
-        let theta_fov = 45.0f64.to_radians();
+        let theta_fov = 54.0f64.to_radians();
         let mut max_te = 0.0f32;
         for s in &self.emergent_seeds {
             let te_rad = ctx.compute_einstein_radius_rad(s.mass_msun as f64, d_d, d_s, d_ds);

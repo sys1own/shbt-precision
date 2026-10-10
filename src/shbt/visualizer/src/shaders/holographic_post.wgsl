@@ -242,8 +242,8 @@ fn tone_map_luminance_aces(c_hdr: vec3<f32>) -> vec3<f32> {
     // Re-inject chromaticity without per-channel clipping
     let c_chroma = c_hdr * (y_map / max(y, 1e-4));
 
-    // Landauer desaturation knee at Y_desat = 14.0 (rolls hot cores into pale cyan-blue, not chalky white)
-    let knee = clamp(1.0 - exp(-pow(y / 14.0, 1.6)), 0.0, 0.85);
+    // Landauer desaturation knee at Y_desat = 12.0 (rolls hot cores into pale cyan-blue, not chalky white)
+    let knee = clamp(1.0 - exp(-pow(y / 12.0, 1.6)), 0.0, 0.85);
     let corona_tint = vec3<f32>(0.85, 0.95, 1.0) * y_map;
     return mix(c_chroma, corona_tint, knee);
 }
@@ -521,9 +521,9 @@ fn fs_post(in: VertexOutput) -> @location(0) vec4<f32> {
     // structure so empty voids are never amplified.
     let eps = 0.045;
     let a_caustic = 1.0 / sqrt(det_j * det_j + eps * eps);
-    let sb_c = textureSampleLevel(channel_a_tex, tex_sampler, warped_uv, 0.0).a;
-    let structure_mask = smoothstep(0.15, 0.30, sb_c);
-    let clamped_caustic = mix(1.0, clamp(a_caustic, 0.85, 2.5), structure_mask);
+    let sigma_baryon = textureSampleLevel(channel_a_tex, tex_sampler, warped_uv, 0.0).a;
+    let structure_mask = smoothstep(0.10, 0.35, sigma_baryon);
+    let clamped_caustic = mix(1.0, clamp(a_caustic, 0.85, 2.0), structure_mask);
 
     // Shear-gated boundary chromatic dispersion (shbt17 Theorem 16): fringing
     // appears only around genuine lensing arcs, never in the background.
@@ -545,8 +545,8 @@ fn fs_post(in: VertexOutput) -> @location(0) vec4<f32> {
     var lensed_color = vec3<f32>(rad_r, rad_g, rad_b) * clamped_caustic * params.post0.x;
 
     // Void pedestal subtraction: isolates the true cosmic vacuum (Theorem 25)
-    let p_floor = 0.020;
-    lensed_color = max(vec3<f32>(0.0), (lensed_color - vec3<f32>(p_floor)) / (1.0 - p_floor));
+    let ped = 0.024;
+    lensed_color = max(vec3<f32>(0.0), (lensed_color - vec3<f32>(ped)) / (1.0 - ped));
 
     // Emergent condensation glitch (Enhancement 11): pre-nucleation
     // register overflow tears the UV field around saturating cells.
@@ -630,9 +630,9 @@ fn fs_post(in: VertexOutput) -> @location(0) vec4<f32> {
         * params.post0.w;
 
     // Bloom lift (Enhancement 12): additive half-res Gaussian bloom over
-    // the bright-passed Channel-A texture, intensity params.post2.z.
+    // the bright-passed Channel-A texture, scaled down by 50% (params.post2.z * 0.50).
     let bloom_rgb = textureSampleLevel(bloom_tex, tex_sampler, warped_uv, 0.0).rgb
-        * params.post2.z;
+        * (params.post2.z * 0.50);
 
     // Depth fog (Enhancement 13): exponential attenuation along the
     // Channel-A depth field toward the far void ambient, density

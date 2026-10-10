@@ -48,7 +48,7 @@ FRAME_STRIDE = max(1, int(os.getenv("SHBT_FRAME_STRIDE", "4")))
 STRICT_FPS = os.getenv("SHBT_STRICT_FPS", "0") == "1"
 MILESTONE_DWELL_PRESENTED = int(os.getenv("SHBT_MILESTONE_DWELL", "30"))
 
-BOX_SIZE = 200.0
+BOX_SIZE = 222.55
 
 MILESTONE_Z = {0: 1.0e14, 1: 1.0e10, 2: 16.0, 3: 3.0, 4: 1.0, 5: -0.999}
 MILESTONE_LABEL = {
@@ -83,32 +83,27 @@ Z_KEYFRAMES: List[Tuple[float, float]] = [
 
 def compute_camera_trajectory(z: float, progress: float = 0.0) -> Tuple[List[float], List[float]]:
     """
-    Computes smooth 3D isometric camera trajectory avoiding axial Cartesian degeneracy.
+    Computes smooth 3D isometric camera trajectory locked to the diagonal vantage.
+    Frames the cosmic web symmetrically across the entire viewport.
     """
+    target = np.array([0.0, 0.0, 0.0])
+    theta = np.radians(35.264)
+
+    # Gentle symmetric diagonal orbit around phi = 45 degrees
+    phi = np.radians(45.0 + 6.0 * math.sin(progress * math.pi))
+
     if z > 30.0:  # Primordial & Baryogenesis eras
         u = float(np.clip((14.0 - np.log10(max(z, 30.0))) / (14.0 - np.log10(30.0)), 0.0, 1.0))
-        r = 1.80 - 0.40 * u
-        theta = np.radians(35.264)
-        phi = np.radians(45.0 + 15.0 * u)
-        target = np.array([0.0, 0.0, 0.0])
-    elif z > 7.0:  # Ghost Seed Genesis (dolly-in to dominant filament knot)
+        r = 1.18 - 0.05 * u
+    elif z > 7.0:  # Ghost Seed Genesis
         u = float(np.clip((30.0 - z) / 23.0, 0.0, 1.0))
-        r = 1.40 - 0.75 * u
-        theta = np.radians(35.264 - 10.0 * u)
-        phi = np.radians(60.0 + 25.0 * u)
-        target = np.array([0.05 * u, -0.02 * u, 0.08 * u])
-    elif z >= 0.0:  # Cosmic Web Assembly & Lensing (orbital sweep)
+        r = 1.13 - 0.05 * u
+    elif z >= 0.0:  # Cosmic Web Assembly & Lensing
         u = float(np.clip((7.0 - z) / 7.0, 0.0, 1.0))
-        r = 0.65 + 0.35 * u
-        theta = np.radians(25.0 + 10.0 * u)
-        phi = np.radians(85.0 + 45.0 * u)
-        target = np.array([0.05 * (1.0 - u), -0.02 * (1.0 - u), 0.08 * (1.0 - u)])
-    else:  # Asymptotic Horizon Freeze & Boundary Torus Transition
+        r = 1.08 - 0.04 * u
+    else:  # Asymptotic Horizon Freeze
         u = float(np.clip(-z / 0.999, 0.0, 1.0))
-        r = 1.00 + 1.20 * u
-        theta = np.radians(35.0)
-        phi = np.radians(130.0 + 15.0 * u)
-        target = np.array([0.0, 0.0, 0.0])
+        r = 1.04 + 0.35 * u
 
     eye = target + r * np.array([
         np.cos(theta) * np.sin(phi),
@@ -360,6 +355,7 @@ async def record_cosmic_evolution(milestones_only: bool = False) -> Tuple[List[D
         await page.evaluate("() => window.__SHBT_ENGINE__.setDarkGlow(0.0)")
         await page.evaluate("() => window.__SHBT_ENGINE__.setShowObservers(false)")
         await page.evaluate("() => window.__SHBT_ENGINE__.setViewportMode(0)")
+        await page.evaluate("() => window.__SHBT_ENGINE__.setLensingScale(0.025)")
         glitch_off = True
         try:
             await page.wait_for_function(

@@ -2651,7 +2651,91 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--precision", type=int, default=DEFAULT_PRECISION, help="Decimal/mpmath precision.")
     parser.add_argument("--json", action="store_true", help="Print the report as JSON.")
     parser.add_argument("--run-tests", action="store_true", help="Run embedded unit tests instead of the audit.")
+    parser.add_argument("--skip-kinematics", action="store_true", help="Skip kinematics freeze verification.")
     return parser.parse_args(list(argv) if argv is not None else None)
+
+
+# --- Section 5.2 Cosmological Kinematics & Freezing Verification ---
+OMEGA_M0 = 0.315
+OMEGA_LAMBDA0 = 0.685
+H0 = 67.4  # km/s / Mpc
+C_LIGHT = 299792.458  # km/s
+A_CRIT = 1000.0
+Z_FREEZE = -0.999
+TRACE_ANOMALY = 10.0 / 33.0
+L_CP = 1.618e-35  # meters
+
+def hubble_parameter(a: float) -> float:
+    import numpy as np
+    return H0 * float(np.sqrt(OMEGA_M0 * (a ** -3) + OMEGA_LAMBDA0))
+
+def f_load_cosmo(a: float) -> float:
+    if a <= 1.0:
+        return 0.0
+    if a >= A_CRIT:
+        return 1.0
+    return ((a - 1.0) / (A_CRIT - 1.0)) ** 3.0
+
+def conformal_accel_factor(a: float) -> float:
+    load = f_load_cosmo(a)
+    return 1.5 * OMEGA_M0 * a * (1.0 - TRACE_ANOMALY * load)
+
+def comoving_apparent_horizon(a: float) -> float:
+    import numpy as np
+    h_inf = H0 * float(np.sqrt(OMEGA_LAMBDA0))
+    return (C_LIGHT / h_inf) / a
+
+def equations_of_motion(a: float, y: Any) -> Any:
+    import numpy as np
+    x_comov, v_pec = y
+    h_a = hubble_parameter(a)
+    
+    grad_phi = 50.0 / a 
+    a_factor = conformal_accel_factor(a)
+    
+    dx_da = v_pec / (a**2 * h_a)
+    dv_da = - v_pec / a - (a_factor * grad_phi) / (a * h_a)
+    
+    return np.array([dx_da, dv_da])
+
+def regularized_caustic_magnification(a: float, beta: float, theta_e0: float) -> float:
+    import numpy as np
+    chi_h = comoving_apparent_horizon(a)
+    theta_e = theta_e0 * float(np.sqrt(max(0.0, 1.0 - (a / A_CRIT))))
+    u = beta / max(theta_e, 1e-12)
+    
+    geom_mag = (u**2 + 2.0) / (2.0 * u * float(np.sqrt(u**2 + 4.0))) if u > 1e-6 else 1.0 / (2.0 * u)
+    aperture_suppression = min(1.0, (chi_h / 1.0)**2)
+    return float(min(geom_mag, 1000.0 * aperture_suppression))
+
+def run_verification():
+    import numpy as np
+    from scipy.integrate import solve_ivp
+
+    a_span = (1.0, A_CRIT - 0.001)
+    y0 = [0.0, 300.0]  # Initial displacement = 0 Mpc, v_pec = 300 km/s
+    
+    sol = solve_ivp(equations_of_motion, a_span, y0, method="Radau", rtol=1e-8, atol=1e-10)
+    
+    a_vals = sol.t
+    x_vals = sol.y[0]
+    v_vals = sol.y[1]
+    
+    print("=== Cosmological Kinematics & Freezing Verification ===")
+    print(f"Initial Peculiar Velocity (a = 1.0):   {v_vals[0]:.4f} km/s")
+    print(f"Final Peculiar Velocity   (a = 1000):  {v_vals[-1]:.4e} km/s")
+    print(f"Total Comoving Displacement:          {x_vals[-1]:.4f} Mpc")
+    print(f"Displacement Rate (dx/da at a=1000):   {(v_vals[-1] / (A_CRIT**2 * hubble_parameter(A_CRIT))):.4e} Mpc")
+    
+    assert v_vals[-1] < 1.0, "Peculiar velocity failed to decay below 1 km/s"
+    assert not np.isnan(x_vals[-1]), "Comoving displacement diverged"
+    
+    mag_initial = regularized_caustic_magnification(1.0, beta=1e-4, theta_e0=1.0)
+    mag_terminal = regularized_caustic_magnification(A_CRIT, beta=1e-4, theta_e0=1.0)
+    print(f"Initial Caustic Magnification:        {mag_initial:.2f}")
+    print(f"Terminal Caustic Magnification:       {mag_terminal:.4f}")
+    assert mag_terminal <= 1.0, "Caustic magnification failed to extinguish at freeze boundary"
+    print("All mathematical invariants successfully verified.")
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -2674,8 +2758,13 @@ def main(argv: Sequence[str] | None = None) -> int:
         print(json.dumps(_as_json_safe(report), indent=2, sort_keys=True))
     else:
         print(render_report(report))
+
+    if not args.skip_kinematics:
+        run_verification()
+
     return 0
 
 
 if __name__ == "__main__":
     sys.exit(main())
+

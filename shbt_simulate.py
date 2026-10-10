@@ -34,6 +34,8 @@ import shutil
 import subprocess
 import sys
 import time
+import math
+import numpy as np
 from pathlib import Path
 from typing import Any, Iterable
 
@@ -88,11 +90,121 @@ except Exception:  # pragma: no cover
     _HAS_BOLTZMANN = False
 
 
-def generate_weil_modular_phases(grid_shape: tuple[int, int, int] | tuple[int, ...], box_size: float = 200.0) -> Any:
+# Calibrated Cosmological and Holographic Parameters (shbt18)
+N_MOD = 2901360  # Boundary CFT primary modules at tau = i
+H_HUBBLE = 0.674
+L_BOX = 150.0 / H_HUBBLE  # 222.55 comoving Mpc; preserves linearity of k1 at z=0
+N_GRID = 256
+DX = L_BOX / N_GRID
+KAPPA_STAR_D5 = 1.0 / np.sqrt(2.0)
+R_MERGE = np.sqrt(2.0) * KAPPA_STAR_D5 * DX  # Saturated Causal Point packing radius
+LAMBDA_HOLO = 3.0 / (L_BOX ** 2)
+
+
+def generate_isotropic_weil_phases(kx: np.ndarray, ky: np.ndarray, kz: np.ndarray) -> np.ndarray:
+    """Evaluates deterministic, SO(3)-invariant primordial phases on the boundary CFT.
+    Eliminates linear directional vectors and strictly enforces Hermiticity phi(-k) = -phi(k).
+    """
+    kx2 = (kx.astype(np.int64)) ** 2
+    ky2 = (ky.astype(np.int64)) ** 2
+    kz2 = (kz.astype(np.int64)) ** 2
+
+    # Elementary symmetric polynomials under the octahedral group O_h
+    sigma1 = kx2 + ky2 + kz2
+    sigma2 = kx2 * ky2 + ky2 * kz2 + kz2 * kx2
+    sigma3 = kx2 * ky2 * kz2
+
+    # Canonical hemisphere orientation operator
+    sgn_h = np.where(
+        kz > 0, 1.0,
+        np.where(
+            (kz == 0) & (ky > 0), 1.0,
+            np.where((kz == 0) & (ky == 0) & (kx > 0), 1.0, -1.0)
+        )
+    )
+    sgn_h[sigma1 == 0] = 0.0
+
+    # Invariant Weil arithmetic polynomial evaluated on Z / N_mod Z
+    w_poly = (sigma1 * 157 + sigma2 * 11 + sigma3 * 7 + (sigma1 * sigma2) * 3 + 1) % N_MOD
+    return sgn_h * (2.0 * np.pi) * (w_poly.astype(np.float64) / float(N_MOD))
+
+
+def deposit_cic_3d(positions: np.ndarray, masses: np.ndarray, n_grid: int, box_size: float) -> np.ndarray:
+    """Deposits discrete particle mass onto a full 3D mesh via trilinear Cloud-in-Cell interpolation."""
+    dx = box_size / n_grid
+    inv_dx = 1.0 / dx
+    grid = np.zeros((n_grid, n_grid, n_grid), dtype=np.float32)
+
+    u = (positions * inv_dx) % n_grid
+    i0 = np.floor(u).astype(np.int32) % n_grid
+    i1 = (i0 + 1) % n_grid
+    f = u - np.floor(u)
+
+    w0 = 1.0 - f
+    w1 = f
+
+    weight_combinations = [
+        (w0[:, 0] * w0[:, 1] * w0[:, 2], i0[:, 0], i0[:, 1], i0[:, 2]),
+        (w1[:, 0] * w0[:, 1] * w0[:, 2], i1[:, 0], i0[:, 1], i0[:, 2]),
+        (w0[:, 0] * w1[:, 1] * w0[:, 2], i0[:, 0], i1[:, 1], i0[:, 2]),
+        (w1[:, 0] * w1[:, 1] * w0[:, 2], i1[:, 0], i1[:, 1], i0[:, 2]),
+        (w0[:, 0] * w0[:, 1] * w1[:, 2], i0[:, 0], i0[:, 1], i1[:, 2]),
+        (w1[:, 0] * w0[:, 1] * w1[:, 2], i1[:, 0], i0[:, 1], i1[:, 2]),
+        (w0[:, 0] * w1[:, 1] * w1[:, 2], i0[:, 0], i1[:, 1], i1[:, 2]),
+        (w1[:, 0] * w1[:, 1] * w1[:, 2], i1[:, 0], i1[:, 1], i1[:, 2]),
+    ]
+
+    for w, ix, iy, iz in weight_combinations:
+        np.add.at(grid, (ix, iy, iz), masses * w)
+
+    return grid / (dx ** 3)
+
+
+def compute_a_get_3d(grid_rho: np.ndarray, positions: np.ndarray, dx: float, kappa_get: float) -> np.ndarray:
+    """Evaluates 3D bulk entropic clustering acceleration:
+    a_GET = -kappa_GET * nabla ln(rho_bulk)
+    """
+    n_grid = grid_rho.shape[0]
+    eps_rho = 1e-4 * float(np.mean(grid_rho))
+    log_rho = np.log(grid_rho + eps_rho)
+
+    # Central difference spatial gradients under periodic boundary conditions
+    grad_x = (np.roll(log_rho, -1, axis=0) - np.roll(log_rho, 1, axis=0)) / (2.0 * dx)
+    grad_y = (np.roll(log_rho, -1, axis=1) - np.roll(log_rho, 1, axis=1)) / (2.0 * dx)
+    grad_z = (np.roll(log_rho, -1, axis=2) - np.roll(log_rho, 1, axis=2)) / (2.0 * dx)
+
+    inv_dx = 1.0 / dx
+    u = (positions * inv_dx) % n_grid
+    i0 = np.floor(u).astype(np.int32) % n_grid
+    i1 = (i0 + 1) % n_grid
+    f = u - np.floor(u)
+    w0 = 1.0 - f
+    w1 = f
+
+    a_get = np.zeros_like(positions)
+    gradients = [grad_x, grad_y, grad_z]
+
+    for d in range(3):
+        g = gradients[d]
+        interp = (
+            w0[:, 0] * w0[:, 1] * w0[:, 2] * g[i0[:, 0], i0[:, 1], i0[:, 2]] +
+            w1[:, 0] * w0[:, 1] * w0[:, 2] * g[i1[:, 0], i0[:, 1], i0[:, 2]] +
+            w0[:, 0] * w1[:, 1] * w0[:, 2] * g[i0[:, 0], i1[:, 1], i0[:, 2]] +
+            w1[:, 0] * w1[:, 1] * w0[:, 2] * g[i1[:, 0], i1[:, 1], i0[:, 2]] +
+            w0[:, 0] * w0[:, 1] * w1[:, 2] * g[i0[:, 0], i0[:, 1], i1[:, 2]] +
+            w1[:, 0] * w0[:, 1] * w1[:, 2] * g[i1[:, 0], i0[:, 1], i1[:, 2]] +
+            w0[:, 0] * w1[:, 1] * w1[:, 2] * g[i0[:, 0], i1[:, 1], i1[:, 2]] +
+            w1[:, 0] * w1[:, 1] * w1[:, 2] * g[i1[:, 0], i1[:, 1], i1[:, 2]]
+        )
+        a_get[:, d] = -kappa_get * interp
+
+    return a_get
+
+
+def generate_weil_modular_phases(grid_shape: tuple[int, int, int] | tuple[int, ...], box_size: float = 222.55) -> Any:
     """Evaluates exact deterministic perturbation phases and modular amplitudes from the 2,901,360-module Weil representation."""
     if _HAS_BOLTZMANN and hasattr(_boltzmann, "generate_weil_modular_phases"):
         return _boltzmann.generate_weil_modular_phases(grid_shape, box_size)
-    import numpy as np
     n = grid_shape[0] if isinstance(grid_shape, (tuple, list)) else 32
     return np.zeros((n, n, n), dtype=np.complex128)
 
@@ -1142,6 +1254,9 @@ def simulate(config: dict[str, Any]) -> dict[str, Any]:
         vis = {
             "engine": "shbt-webgpu",
             "engine_version": "2.4.0-shbt-precision",
+            "box_size_mpc": L_BOX,
+            "lambda_holo": LAMBDA_HOLO,
+            "r_merge_mpc": R_MERGE,
             "affine_branch": {"k_l": 26, "k_q": 8, "K": 312},
             "screen_saturation_capacity_bits": _boltzmann.N_SAT_BITS,
             "lock_rate_km_s_mpc": _boltzmann.GAMMA_LOCK,

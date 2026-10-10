@@ -268,17 +268,14 @@ struct GBufferOutput {
     @location(1) passive_metric_distortion: vec4<f32>, // Channel B: Lensing Shear & Ghost Mass
 };
 
-// Continuous SPH filament bridging & topological compression (Theorem 22/24)
+// 1. Strict SPH density contraction: prevents dense regions from ballooning into solid sheets
 fn compute_sph_radius(rho_b: f32, sigma: f32) -> f32 {
-    // Filament bridging factor: expand radius in low/intermediate density to blend splats
-    let bridge_factor = 1.0 + 1.20 * exp(-0.85 * rho_b);
-    let rho_excess = max(0.0, rho_b - 1.0);
-    let density_compression = pow(1.0 + 0.45 * rho_excess, -0.33333333);
+    let rho_excess = max(0.0, rho_b - 0.8);
+    // Compress radius as density increases to preserve fine filament threads
+    let density_compression = pow(1.0 + 0.65 * rho_excess, -0.33333333);
     let topo_compression = 1.0 / (1.0 + 25.092857 * sigma * sigma);
-
-    // Base radius increased to 0.95 to achieve continuous SPH fluid continuity
-    let base_splat_radius = 0.95;
-    return base_splat_radius * bridge_factor * density_compression * topo_compression;
+    let base_splat_radius = 0.90;
+    return base_splat_radius * density_compression * topo_compression;
 }
 
 @vertex
@@ -463,7 +460,7 @@ fn fs_render_dual_channel(in: VertexOutput) -> GBufferOutput {
     let sigma = max(in.seed_glow, max(0.0, rho_b - 2.5) / 3.0);
     let r2 = dist_sq;
     let w = max(0.0, 1.0 - r2);
-    let splat_profile = w * w * exp(-1.8 * r2);
+    let splat_profile = w * w * exp(-2.0 * r2);
     let core_intensity = splat_profile;
 
     // Multi-tier thermodynamic transfer (shbt11 / Thm 9.16): the C-infty
@@ -488,32 +485,40 @@ fn fs_render_dual_channel(in: VertexOutput) -> GBufferOutput {
         z
     );
 
-    // Astrophysical collisional bremsstrahlung/excitation scaling:
-    // Underdense cosmic voids (rho_b < 0.25) are non-emissive -> true deep-black voids.
-    // Overdense filaments (rho_b ~ 0.5 - 3.0) radiate as continuous warm golden channels.
-    let early_blend = smoothstep(8.0, 25.0, z);
-    let void_weight = mix(smoothstep(0.08, 0.25, rho_b), 1.0, early_blend);
-    if (void_weight <= 0.0005 && !is_dark_branch) {
+    let delta_b = max(0.0, rho_b - 0.85);
+    let void_weight = smoothstep(0.85, 1.80, rho_b);
+    if (void_weight <= 0.001 && !is_dark_branch) {
         discard;
     }
 
-    let t_eff = compute_effective_temperature(rho_b, sigma);
-    let blackbody_rgb = pade_blackbody_rgb(t_eff);
+    // First-principles self-absorbing radiative transfer:
+    // I = I_bb * (1 - exp(-d_tau)) with mass absorption coefficient kappa = 0.045
+    let kappa_abs = 0.045;
+    let d_tau = kappa_abs * delta_b;
+    let self_absorbed_lum = 1.0 - exp(-d_tau);
+    let compressed_lum = void_weight * (self_absorbed_lum / (1.0 + 0.15 * pow(delta_b, 0.75)));
 
-    // Core emission with soft highlight knee: preserves blackbody hue in
-    // dense cores instead of clipping to flat white discs.
-    let raw_core_lum = void_weight * (0.35 * rho_b + 1.5 * sigma * sigma);
-    // Soft rational highlight compression knee
-    let compressed_lum = raw_core_lum / (1.0 + 0.06 * raw_core_lum);
-    var emission = blackbody_rgb * (compressed_lum * splat_profile);
+    // Unified cohesive astrophysical palette:
+    // - Diffuse gas & filament envelopes (warm neutral amber)
+    let col_diffuse  = vec3<f32>(0.55, 0.38, 0.22);
+    // - Condensing filament spines (warm solar gold)
+    let col_filament = vec3<f32>(0.95, 0.76, 0.38);
+    // - High-density seeds & cluster nodes (compact stellar white)
+    let col_seed     = vec3<f32>(1.00, 0.98, 0.95);
 
-    // Restrained Landauer Corona
-    if (sigma > 0.8 && !is_dark_branch) {
-        let corona_t = clamp(t_eff * 1.12, 2500.0, 25000.0);
-        let corona_rgb = pade_blackbody_rgb(corona_t);
-        let corona_profile = pow(1.0 - r2, 2.5) * 0.20;
-        let landauer_power = 0.693147 * sigma * 0.45;
-        emission += corona_rgb * (landauer_power * corona_profile);
+    let t_fil = smoothstep(1.20, 3.80, rho_b);
+    let t_seed = smoothstep(0.70, 1.80, sigma);
+
+    var base_color = mix(col_diffuse, col_filament, t_fil);
+    base_color = mix(base_color, col_seed, t_seed);
+
+    // Splat emission with clean Gaussian falloff
+    var emission = base_color * (compressed_lum * splat_profile * 1.5);
+
+    // Restrained Landauer corona on active instanton seeds
+    if (sigma > 0.7 && !is_dark_branch) {
+        let corona_profile = pow(max(0.0, 1.0 - r2), 3.5) * 0.08;
+        emission += col_seed * (0.693147 * sigma * 0.10 * corona_profile);
     }
 
     let dark_ghost_weight = (1.0 - in.vis_factor) * in.mass;
@@ -573,10 +578,10 @@ fn fs_render_dual_channel(in: VertexOutput) -> GBufferOutput {
     // mid/far particles at 1-4 px still carry the resolved structure.
     let near_fade = smoothstep(10.0, 35.0, in.linear_depth);
 
-    // Linear-epoch attenuation: for z > 15 the register is sub-critical
-    // (sigma ~ 0, delta rho/rho << 1), so radiance is a faint primordial
-    // plasma.
-    let linear_epoch = smoothstep(15.0, 40.0, z) * (1.0 - smoothstep(0.5, 1.0, sigma));
+    // Linear-epoch attenuation: for z > 5 the register is sub-critical
+    // (sigma ~ 0, delta rho/rho << 1), so unclustered primordial gas
+    // is attenuated, preventing uniform gas from blowing out into a white sheet.
+    let linear_epoch = smoothstep(5.0, 18.0, z) * (1.0 - smoothstep(0.3, 0.8, sigma));
     let epoch_gain = mix(1.0, 0.015, linear_epoch);
     glow_rgb = glow_rgb * epoch_gain;
 

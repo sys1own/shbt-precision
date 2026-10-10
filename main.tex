@@ -9668,6 +9668,47 @@ machine-checkable closure conditions
 \end{equation}
 % END INLINED APPENDIX MATERIAL
 
+\section{Precision Corrections to Holographic Bulk Transport and Initial Conditions}
+
+\subsection{Isotropic Weil Modular Phase Seeding}
+Primordial Fourier phases $\phi(\mathbf{k})$ are derived deterministically from the discriminant module ring $N_{\text{mod}} = 2{,}901{,}360$ of the boundary conformal field theory at $\tau = i$. The phase formulation utilizes the elementary symmetric polynomials in squared wavevectors:
+\begin{equation}
+    \sigma_1 = k_x^2 + k_y^2 + k_z^2, \quad 
+    \sigma_2 = k_x^2 k_y^2 + k_y^2 k_z^2 + k_z^2 k_x^2, \quad 
+    \sigma_3 = k_x^2 k_y^2 k_z^2
+\end{equation}
+With the canonical hemisphere orientation operator $\operatorname{sgn}_H(\mathbf{k})$ enforcing Hermiticity $\phi(-\mathbf{k}) = -\phi(\mathbf{k}) \pmod{2\pi}$, the isotropic modular phase is given by:
+\begin{equation}
+    \phi(\mathbf{k}) = \operatorname{sgn}_H(\mathbf{k}) \cdot 2\pi \cdot \left\{ \frac{\left( 157 \sigma_1 + 11 \sigma_2 + 7 \sigma_3 + 3 \sigma_1 \sigma_2 + 1 \right) \pmod{N_{\text{mod}}}}{N_{\text{mod}}} \right\}
+\end{equation}
+This formulation preserves octahedral lattice symmetry $O_h \subset SO(3)$, eliminating spurious directional caustics and satisfying $\langle \delta(\mathbf{k}) \delta(\mathbf{k}') \rangle = (2\pi)^3 P(k) \delta^3(\mathbf{k} + \mathbf{k}')$.
+
+\subsection{First-Principles Box Calibration}
+To prevent non-linear collapse of the fundamental computational mode before redshift $z = 0$, the box dimension must satisfy $\Delta^2(k_1, z=0) \le 0.02$, where $k_1 = 2\pi / L_{\text{box}}$. In a standard $\Lambda\text{CDM}$ cosmology, this enforces the lower bound $L_{\text{box}} \ge 140 \, h^{-1} \, \text{Mpc}$. Calibrating against the saturated holographic screen capacity $N_{\text{sat}} = 3\pi / (L_P^2 \Lambda_{\text{holo}})$ yields:
+\begin{equation}
+    L_{\text{box}} = 150.0 \, h^{-1} \, \text{Mpc} \approx 222.55 \, \text{Mpc}, \quad
+    \Lambda_{\text{holo}} = \frac{3}{L_{\text{box}}^2} \approx 6.057 \times 10^{-5} \, \text{Mpc}^{-2}
+\end{equation}
+with Causal Point packing radius $r_{\text{merge}} = \sqrt{2} \kappa_*^{D5} \Delta x = \Delta x \approx 0.293 \, h^{-1} \, \text{Mpc}$.
+
+\subsection{3D Bulk Entropic Clustering Acceleration}
+Bulk entropic transport derived from the boundary Virasoro Ward identities induces the three-dimensional acceleration field:
+\begin{equation}
+    \mathbf{a}_{\text{GET}}(\mathbf{x}) = -\kappa_{\text{GET}}(f_{\text{load}}) \, \nabla_{\mathbf{x}} \ln \rho_{\text{bulk}}(\mathbf{x})
+\end{equation}
+where $f_{\text{load}} = N_{\text{active}} / N_{\text{sat}}$ and $\kappa_{\text{GET}}(f_{\text{load}}) = \kappa_0 (1 - f_{\text{load}})^{-1/2}$. Computing the gradient via trilinear Cloud-in-Cell deposition on a full 3D spatial mesh restores vertical hydrostatic equilibrium and prevents artificial planar collapse.
+
+\subsection{Self-Absorbing Radiative Transfer}
+Emergent intensity along a ray through the baryonic plasma satisfies the radiative transfer equation with local thermodynamic source function $B_\nu(T) \equiv I_{\text{bb}}$:
+\begin{equation}
+    \frac{d I_\nu}{ds} = \kappa_\nu \rho_b (I_{\text{bb}} - I_\nu)
+\end{equation}
+Integrating along the ray trajectory yields the self-absorbing emergent radiance:
+\begin{equation}
+    I_\nu = I_{\text{bb}} \left( 1 - e^{-\tau} \right), \quad \tau = \int \kappa_\nu \rho_b \, ds
+\end{equation}
+In diffuse filaments ($\tau \ll 1$), radiance scales linearly with column density $I_\nu \approx I_{\text{bb}} \kappa_\nu \int \rho_b \, ds$. In high-density cluster cores ($\tau \gg 1$), radiance asymptotes smoothly to $I_{\text{bb}}$, preventing pixel blowout without empirical clamping.
+
 \begin{thebibliography}{99}
 
 \bibitem{barbieri1988}
