@@ -308,7 +308,7 @@ async def verify_hud_telemetry_milestone(page, milestone_idx: int, z: float, res
     return ok
 
 
-async def record_cosmic_evolution() -> Tuple[List[Dict], Path | None]:
+async def record_cosmic_evolution(milestones_only: bool = False) -> Tuple[List[Dict], Path | None]:
     from playwright.async_api import async_playwright
 
     RECORDINGS_DIR.mkdir(parents=True, exist_ok=True)
@@ -328,11 +328,11 @@ async def record_cosmic_evolution() -> Tuple[List[Dict], Path | None]:
                 "--no-sandbox",
             ],
         )
-        context = await browser.new_context(
-            viewport={"width": 1920, "height": 1080},
-            record_video_dir=str(RAW_VIDEO_DIR),
-            record_video_size={"width": 1920, "height": 1080},
-        )
+        context_kwargs = {"viewport": {"width": 1920, "height": 1080}}
+        if not milestones_only:
+            context_kwargs["record_video_dir"] = str(RAW_VIDEO_DIR)
+            context_kwargs["record_video_size"] = {"width": 1920, "height": 1080}
+        context = await browser.new_context(**context_kwargs)
         page = await context.new_page()
 
         # Browser console / error logging
@@ -358,6 +358,7 @@ async def record_cosmic_evolution() -> Tuple[List[Dict], Path | None]:
         await page.evaluate("() => window.__SHBT_ENGINE__.setGlitchEnabled(false)")
         await page.evaluate("() => window.__SHBT_ENGINE__.setGlitchIntensity(0.0)")
         await page.evaluate("() => window.__SHBT_ENGINE__.setDarkGlow(0.0)")
+        await page.evaluate("() => window.__SHBT_ENGINE__.setShowObservers(false)")
         await page.evaluate("() => window.__SHBT_ENGINE__.setViewportMode(0)")
         glitch_off = True
         try:
@@ -450,6 +451,18 @@ async def record_cosmic_evolution() -> Tuple[List[Dict], Path | None]:
                 print(f"    [ADVISORY] frame dwell timed out at milestone {ms_idx}")
             await verify_hud_telemetry_milestone(page, ms_idx, mz, milestone_results)
 
+        if milestones_only:
+            print("[*] Running in --milestones-only mode: capturing milestone stills directly...")
+            for ms_idx in range(6):
+                mz = MILESTONE_Z[ms_idx]
+                eye, look = compute_camera_trajectory(mz, 0.5)
+                await run_milestone(ms_idx, eye, look)
+            print("[*] Milestones complete. Closing context...")
+            await page.close()
+            await context.close()
+            await browser.close()
+            return milestone_results, None
+
         frame_interval = 1.0 / TARGET_FPS
         total_commits = TOTAL_FRAMES // FRAME_STRIDE
         print(
@@ -498,7 +511,7 @@ def finalize(results: List[Dict], raw: Path | None) -> None:
         shutil.move(str(raw), OUTPUT_VIDEO_PATH)
         print(f"[RECORDER] full run: {OUTPUT_VIDEO_PATH.name} ({OUTPUT_VIDEO_PATH.stat().st_size:,} bytes)")
     else:
-        print("[RECORDER] WARNING: no compositor video produced")
+        print("[RECORDER] No video produced (milestones-only mode or skipped). Telemetry frame written.")
 
 
 def png_non_blank(path: Path) -> bool:
@@ -513,13 +526,14 @@ def png_non_blank(path: Path) -> bool:
     return var > 1.0
 
 
-def verify() -> bool:
+def verify(milestones_only: bool = False) -> bool:
     ok = True
-    if not OUTPUT_VIDEO_PATH.exists() or OUTPUT_VIDEO_PATH.stat().st_size < 100_000:
-        print(f"[VERIFY] FAIL {OUTPUT_VIDEO_PATH.name}: missing or < 100 KB")
-        ok = False
-    else:
-        print(f"[VERIFY] ok {OUTPUT_VIDEO_PATH.name} ({OUTPUT_VIDEO_PATH.stat().st_size:,} B)")
+    if not milestones_only:
+        if not OUTPUT_VIDEO_PATH.exists() or OUTPUT_VIDEO_PATH.stat().st_size < 100_000:
+            print(f"[VERIFY] FAIL {OUTPUT_VIDEO_PATH.name}: missing or < 100 KB")
+            ok = False
+        else:
+            print(f"[VERIFY] ok {OUTPUT_VIDEO_PATH.name} ({OUTPUT_VIDEO_PATH.stat().st_size:,} B)")
 
     for check_dir in [RECORDINGS_DIR, MILESTONES_DIR]:
         if not check_dir.exists():
@@ -546,12 +560,13 @@ def verify() -> bool:
 
 
 def main() -> None:
+    milestones_only = "--milestones-only" in sys.argv
     if "--verify" in sys.argv:
-        sys.exit(0 if verify() else 1)
+        sys.exit(0 if verify(milestones_only) else 1)
     srv = start_server()
     failed = False
     try:
-        results, raw = asyncio.run(record_cosmic_evolution())
+        results, raw = asyncio.run(record_cosmic_evolution(milestones_only=milestones_only))
         finalize(results, raw)
         hard_fails = [
             a for r in results for a in r["asserts"]
@@ -563,7 +578,7 @@ def main() -> None:
     finally:
         if srv is not None:
             srv.shutdown()
-    if not verify() or failed:
+    if not verify(milestones_only) or failed:
         sys.exit(1)
 
 

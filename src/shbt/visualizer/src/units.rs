@@ -266,6 +266,39 @@ pub fn kappa_get(f_load: f32) -> f32 {
     (1.0 / D_EFF_0) * (1.0 + C_EFF_OVER_D1 * f_load)
 }
 
+/// Default Tier-2 WebGPU visualizer architectural defaults.
+#[allow(dead_code)]
+pub const DEFAULT_BASE_SPLAT_RADIUS: f32 = 0.95;
+#[allow(dead_code)]
+pub const DEFAULT_LENSING_STRENGTH: f32 = 0.022;
+pub const DEFAULT_EXPOSURE: f32 = 0.95;
+#[allow(dead_code)]
+pub const DEFAULT_BLACK_PEDESTAL: f32 = 0.020;
+pub const DEFAULT_DARK_MATTER_OPACITY: f32 = 0.0;
+#[allow(dead_code)]
+pub const DEFAULT_SHOW_OBSERVERS: u32 = 0;
+
+#[allow(dead_code)]
+#[derive(Debug, Clone, Copy)]
+pub struct VisualizerDefaults {
+    pub base_splat_radius: f32,
+    pub lensing_strength: f32,
+    pub exposure: f32,
+    pub black_pedestal: f32,
+    pub dark_matter_opacity: f32,
+    pub show_observers: u32,
+}
+
+#[allow(dead_code)]
+pub const VISUALIZER_DEFAULTS: VisualizerDefaults = VisualizerDefaults {
+    base_splat_radius: DEFAULT_BASE_SPLAT_RADIUS,
+    lensing_strength: DEFAULT_LENSING_STRENGTH,
+    exposure: DEFAULT_EXPOSURE,
+    black_pedestal: DEFAULT_BLACK_PEDESTAL,
+    dark_matter_opacity: DEFAULT_DARK_MATTER_OPACITY,
+    show_observers: DEFAULT_SHOW_OBSERVERS,
+};
+
 /// WebGPU StepUniforms layout matching the holographic softening contract.
 #[repr(C)]
 #[derive(Copy, Clone, Debug, Pod, Zeroable)]

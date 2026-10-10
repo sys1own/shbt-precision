@@ -225,37 +225,27 @@ fn calculate_luminance(color: vec3<f32>) -> f32 {
     return dot(color, vec3<f32>(0.2126, 0.7152, 0.0722));
 }
 
-// Anti-Blowout Luminance-Preserving ACES film transform (shbt11 /
-// Thm 9.18): the Narkiewicz/Hill ACES fit is evaluated strictly on
-// scalar luminance Y_in; pristine un-clipped chromaticity is then
-// re-injected at the mapped luminance, and a controlled Landauer corona
-// desaturation (white-cyan core tint) rolls in only above the knee
-// Y_desat so galactic centers keep golden/cyan structure instead of
-// collapsing into flat white discs.
-fn tone_map_aces_anti_blowout(color_hdr: vec3<f32>, exposure: f32) -> vec3<f32> {
-    let exposed_color = max(vec3<f32>(0.0), color_hdr * exposure);
-    let y_in = calculate_luminance(exposed_color);
-
-    // Narkiewicz/Hill ACES fit evaluated on scalar luminance.
+// Theorem 24: Luminance-preserving ACES tonemapping with Landauer desaturation knee
+fn tone_map_luminance_aces(c_hdr: vec3<f32>) -> vec3<f32> {
+    let y = dot(c_hdr, vec3<f32>(0.2126, 0.7152, 0.0722));
+    if (y <= 0.0001) {
+        return vec3<f32>(0.0);
+    }
+    // ACES fit evaluated strictly on scalar luminance
     let a = 2.51;
     let b = 0.03;
     let c = 2.43;
     let d = 0.59;
     let e = 0.14;
-    let y_mapped = clamp(
-        (y_in * (a * y_in + b)) / (y_in * (c * y_in + d) + e), 0.0, 1.0);
+    let y_map = clamp((y * (a * y + b)) / (y * (c * y + d) + e), 0.0, 1.0);
 
-    // Re-inject pristine un-clipped chromaticity (guard the dark floor).
-    let chromatic_color = exposed_color * (y_mapped / max(y_in, 1.0e-5));
+    // Re-inject chromaticity without per-channel clipping
+    let c_chroma = c_hdr * (y_map / max(y, 1e-4));
 
-    // Controlled Landauer corona high-end desaturation.
-    let desat_ratio = pow(y_in / max(u_desat_threshold(), 1.0e-3), 1.6);
-    let desat_factor = clamp(1.0 - exp(-desat_ratio), 0.0, 0.85);
-
-    let landauer_core_tint = vec3<f32>(0.85 * y_mapped, 0.95 * y_mapped, 1.0 * y_mapped);
-    let final_linear = mix(chromatic_color, landauer_core_tint, desat_factor);
-
-    return clamp(final_linear, vec3<f32>(0.0), vec3<f32>(1.0));
+    // Landauer desaturation knee at Y_desat = 14.0 (rolls hot cores into pale cyan-blue, not chalky white)
+    let knee = clamp(1.0 - exp(-pow(y / 14.0, 1.6)), 0.0, 0.85);
+    let corona_tint = vec3<f32>(0.85, 0.95, 1.0) * y_map;
+    return mix(c_chroma, corona_tint, knee);
 }
 
 fn u_desat_threshold() -> f32 {
@@ -432,12 +422,28 @@ fn seed_deflection_shapiro(uv: vec2<f32>, z_m: f32, shapiro: ptr<function, f32>)
         // theta_E^2/core^2 ~ 20 otherwise drag every pixel into a core and
         // smear the frame into a white wash.
         let defl_mag = min((s.theta_e * s.theta_e) / (r2 + core2), 0.05);
-        alpha_seeds = alpha_seeds + diff * (defl_mag * params.lensing_strength);
+        alpha_seeds = alpha_seeds + diff * (defl_mag * params.lensing_strength * 0.022);
         // Shapiro slab integral: Delta t_m ~ (1+z_m) * 4G/c^3 * Psi,
         // approximated by the normalized deflection potential per seed.
         *shapiro = *shapiro + (1.0 + z_m) * defl_mag * s.theta_e;
     }
     return alpha_seeds;
+}
+
+// 5-tap cross filter on total mass density to eliminate single-texel Hessian singularities
+fn sample_total_mass_density(uv: vec2<f32>) -> f32 {
+    let sb = textureSampleLevel(channel_a_tex, tex_sampler, uv, 0.0).a;
+    let sd = textureSampleLevel(channel_b_tex, tex_sampler, uv, 0.0).z;
+    return (10.0 / 33.0) * sb + (23.0 / 33.0) * sd;
+}
+
+fn sample_smoothed_mass(uv: vec2<f32>, texel: vec2<f32>) -> f32 {
+    let c = sample_total_mass_density(uv);
+    let r = sample_total_mass_density(uv + vec2<f32>(texel.x, 0.0));
+    let l = sample_total_mass_density(uv - vec2<f32>(texel.x, 0.0));
+    let t = sample_total_mass_density(uv + vec2<f32>(0.0, texel.y));
+    let b = sample_total_mass_density(uv - vec2<f32>(0.0, texel.y));
+    return c * 0.40 + (r + l + t + b) * 0.15;
 }
 
 @fragment
@@ -487,46 +493,20 @@ fn fs_post(in: VertexOutput) -> @location(0) vec4<f32> {
     let dx = vec2<f32>(texel.x, 0.0);
     let dy = vec2<f32>(0.0, texel.y);
 
-    let sb_c = textureSampleLevel(channel_a_tex, tex_sampler, warped_uv, 0.0).a;
-    let sd_c = textureSampleLevel(channel_b_tex, tex_sampler, warped_uv, 0.0).z;
-    let m_c = (10.0 / 33.0) * sb_c + (23.0 / 33.0) * sd_c;
-
-    let sb_r = textureSampleLevel(channel_a_tex, tex_sampler, warped_uv + dx, 0.0).a;
-    let sd_r = textureSampleLevel(channel_b_tex, tex_sampler, warped_uv + dx, 0.0).z;
-    let m_r = (10.0 / 33.0) * sb_r + (23.0 / 33.0) * sd_r;
-
-    let sb_l = textureSampleLevel(channel_a_tex, tex_sampler, warped_uv - dx, 0.0).a;
-    let sd_l = textureSampleLevel(channel_b_tex, tex_sampler, warped_uv - dx, 0.0).z;
-    let m_l = (10.0 / 33.0) * sb_l + (23.0 / 33.0) * sd_l;
-
-    let sb_t = textureSampleLevel(channel_a_tex, tex_sampler, warped_uv + dy, 0.0).a;
-    let sd_t = textureSampleLevel(channel_b_tex, tex_sampler, warped_uv + dy, 0.0).z;
-    let m_t = (10.0 / 33.0) * sb_t + (23.0 / 33.0) * sd_t;
-
-    let sb_b = textureSampleLevel(channel_a_tex, tex_sampler, warped_uv - dy, 0.0).a;
-    let sd_b = textureSampleLevel(channel_b_tex, tex_sampler, warped_uv - dy, 0.0).z;
-    let m_b = (10.0 / 33.0) * sb_b + (23.0 / 33.0) * sd_b;
-
-    let sb_tr = textureSampleLevel(channel_a_tex, tex_sampler, warped_uv + dx + dy, 0.0).a;
-    let sd_tr = textureSampleLevel(channel_b_tex, tex_sampler, warped_uv + dx + dy, 0.0).z;
-    let m_tr = (10.0 / 33.0) * sb_tr + (23.0 / 33.0) * sd_tr;
-
-    let sb_tl = textureSampleLevel(channel_a_tex, tex_sampler, warped_uv - dx + dy, 0.0).a;
-    let sd_tl = textureSampleLevel(channel_b_tex, tex_sampler, warped_uv - dx + dy, 0.0).z;
-    let m_tl = (10.0 / 33.0) * sb_tl + (23.0 / 33.0) * sd_tl;
-
-    let sb_br = textureSampleLevel(channel_a_tex, tex_sampler, warped_uv + dx - dy, 0.0).a;
-    let sd_br = textureSampleLevel(channel_b_tex, tex_sampler, warped_uv + dx - dy, 0.0).z;
-    let m_br = (10.0 / 33.0) * sb_br + (23.0 / 33.0) * sd_br;
-
-    let sb_bl = textureSampleLevel(channel_a_tex, tex_sampler, warped_uv - dx - dy, 0.0).a;
-    let sd_bl = textureSampleLevel(channel_b_tex, tex_sampler, warped_uv - dx - dy, 0.0).z;
-    let m_bl = (10.0 / 33.0) * sb_bl + (23.0 / 33.0) * sd_bl;
+    let m_c = sample_smoothed_mass(warped_uv, texel);
+    let m_r = sample_smoothed_mass(warped_uv + dx, texel);
+    let m_l = sample_smoothed_mass(warped_uv - dx, texel);
+    let m_t = sample_smoothed_mass(warped_uv + dy, texel);
+    let m_b = sample_smoothed_mass(warped_uv - dy, texel);
+    let m_tr = sample_smoothed_mass(warped_uv + dx + dy, texel);
+    let m_tl = sample_smoothed_mass(warped_uv - dx + dy, texel);
+    let m_br = sample_smoothed_mass(warped_uv + dx - dy, texel);
+    let m_bl = sample_smoothed_mass(warped_uv - dx - dy, texel);
 
     // Deflection gradient alpha = grad(psi)
     let dpsi_dx = (m_r - m_l) * 0.5;
     let dpsi_dy = (m_t - m_b) * 0.5;
-    let k_lens = max(params.lensing_strength * 0.062, 0.001);
+    let k_lens = max(params.lensing_strength * 0.022, 0.001);
     let alpha_base = vec2<f32>(dpsi_dx, dpsi_dy) * k_lens + alpha_total * 0.5;
 
     // Second derivatives of potential (tidal shear tensor)
@@ -541,8 +521,9 @@ fn fs_post(in: VertexOutput) -> @location(0) vec4<f32> {
     // structure so empty voids are never amplified.
     let eps = 0.045;
     let a_caustic = 1.0 / sqrt(det_j * det_j + eps * eps);
+    let sb_c = textureSampleLevel(channel_a_tex, tex_sampler, warped_uv, 0.0).a;
     let structure_mask = smoothstep(0.15, 0.30, sb_c);
-    let clamped_caustic = mix(1.0, clamp(a_caustic, 0.75, 4.5), structure_mask);
+    let clamped_caustic = mix(1.0, clamp(a_caustic, 0.85, 2.5), structure_mask);
 
     // Shear-gated boundary chromatic dispersion (shbt17 Theorem 16): fringing
     // appears only around genuine lensing arcs, never in the background.
@@ -564,7 +545,7 @@ fn fs_post(in: VertexOutput) -> @location(0) vec4<f32> {
     var lensed_color = vec3<f32>(rad_r, rad_g, rad_b) * clamped_caustic * params.post0.x;
 
     // Void pedestal subtraction: isolates the true cosmic vacuum (Theorem 25)
-    let p_floor = 0.002;
+    let p_floor = 0.020;
     lensed_color = max(vec3<f32>(0.0), (lensed_color - vec3<f32>(p_floor)) / (1.0 - p_floor));
 
     // Emergent condensation glitch (Enhancement 11): pre-nucleation
@@ -666,12 +647,8 @@ fn fs_post(in: VertexOutput) -> @location(0) vec4<f32> {
     let fogged = mix(raw_composite + bloom_rgb, fog_ambient, clamp(fog_amt, 0.0, 1.0));
 
     // Anti-blowout luminance-preserving ACES tonemap (shbt11 /
-    // Thm 9.18): the film curve acts on scalar luminance so saturated
-    // Planckian hues keep their chromaticity through the highlight
-    // rolloff, with the controlled Landauer corona desaturation knee at
-    // post4.z and tone exposure post4.w — replacing per-channel ACES
-    // (which desaturated dense cores into flat white discs).
-    let mapped_linear = tone_map_aces_anti_blowout(fogged, params.post4.w);
+    // Theorem 24: Anti-blowout luminance-preserving ACES tonemap
+    let mapped_linear = tone_map_luminance_aces(fogged * params.post4.w);
     // Accurate sRGB electro-optical transfer for display presentation.
     let final_composite = linear_to_srgb(mapped_linear);
 

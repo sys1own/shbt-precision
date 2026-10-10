@@ -454,7 +454,7 @@ impl VisualizerEngine {
             screen_size: [width, height],
             lensing_strength: 1.0,
             dispersion_coeff: 0.25,
-            dark_glow_intensity: 0.8,
+            dark_glow_intensity: crate::units::DEFAULT_DARK_MATTER_OPACITY,
             dark_glow_radius: 4.0,
             doppler_enabled: 1,
             seed_count: 0,
@@ -465,7 +465,7 @@ impl VisualizerEngine {
             post1: [0.0; 4],
             post2: [0.7853982, 0.032, 0.02, 0.6], // Theta_FoV, zeta_disp, bloom, fog
             post3: [0.0; 4],
-            post4: [0.0, 0.0, 14.0, 0.60],
+            post4: [0.0, 0.0, 14.0, crate::units::DEFAULT_EXPOSURE],
         };
         uniforms.view_proj[0] = 1.0;
         uniforms.view_proj[5] = 1.0;

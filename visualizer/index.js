@@ -180,7 +180,7 @@ async function boot() {
       "set_dark_glow", "set_glitch_enabled", "set_glitch_intensity",
       "set_simulation_controls", "set_viewport_mode",
       "unproject_and_dispatch_causal_point",
-      "update_cosmic_state", "clear_camera_override",
+      "update_cosmic_state", "clear_camera_override", "set_show_observers",
     ]);
     const raw = engine;
     engine = new Proxy(raw, {
@@ -228,6 +228,7 @@ async function boot() {
     setGlitchEnabled: (b) => engine.set_glitch_enabled(b),
     setGlitchIntensity: (v) => engine.set_glitch_intensity(v),
     setDarkGlow: (v) => engine.set_dark_glow(v),
+    setShowObservers: (b) => engine.set_show_observers(b),
     setPlaying: (b) => engine.set_playing(b),
     // shbt9 sandbox controls + click-to-measure dispatch.
     setSimulationControls: (cs, pt, ls, cd, tz, split) =>

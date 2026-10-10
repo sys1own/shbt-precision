@@ -3441,8 +3441,8 @@ impl ShbtWebGpuEngine {
             params2: [
                 self.width as f32,
                 self.height as f32,
-                1.0, // min SPH splat radius (px)
-                3.5, // max SPH splat radius (px; 16 px absolute cap in-shader)
+                1.8, // min SPH splat radius (px)
+                5.5, // max SPH splat radius (px; 16 px absolute cap in-shader)
             ],
         };
         self.queue
@@ -3515,7 +3515,7 @@ impl ShbtWebGpuEngine {
                 self.telemetry.peak_shear,
                 self.telemetry.peak_convergence,
                 14.0, // Landauer desaturation knee Y_desat
-                0.60, // tone exposure for the luminance-preserving ACES curve
+                units::DEFAULT_EXPOSURE, // tone exposure for the luminance-preserving ACES curve
             ],
         };
         self.queue
