@@ -205,8 +205,8 @@ fn compute_seed_force(x_tilde: vec3<f32>, a_coupling: f32) -> vec3<f32> {
     return -a_coupling * cosmo.g_code * acc;
 }
 
-// Projected-density log gradient on the PM alpha channel, shared by the
-// GET entropic pull and the P-PM baryon pressure force.
+// Projected-density log gradient on the PM alpha channel, regularized via
+// boundary central charge vacuum capacity floor rho_soft = c_bdry^(-1/3) (shbt20).
 fn grad_ln_rho(x_tilde: vec3<f32>) -> vec3<f32> {
     let eps = 1.0 / cosmo.grid_size;
     let rho_c = pm_rho(x_tilde);
@@ -216,25 +216,28 @@ fn grad_ln_rho(x_tilde: vec3<f32>) -> vec3<f32> {
         - pm_rho(x_tilde - vec3<f32>(0.0, eps, 0.0));
     let gz = pm_rho(x_tilde + vec3<f32>(0.0, 0.0, eps))
         - pm_rho(x_tilde - vec3<f32>(0.0, 0.0, eps));
-    return vec3<f32>(gx, gy, gz) / (2.0 * eps * max(rho_c, 1.0e-3));
+    // Boundary central charge c_bdry = 2901360 -> c_bdry^(-1/3) ~ 0.00697
+    let rho_soft: f32 = 0.006967;
+    return vec3<f32>(gx, gy, gz) / (2.0 * eps * (rho_c + rho_soft));
 }
 
-// GET entropic transport and Cardy velocity dispersion floor (shbt19):
-//   F_GET  = -kappa_GET(f_load) * grad ln rho_proj(x_tilde)
-//   F_disp = -2 * sigma_v^2 * grad ln rho_proj(x_tilde), where sigma_v^2 = sigma_vir^2 * eta_sat
-// As eta_sat -> 1, the outward dispersion pressure halts monolithic caustic collapse.
+// GET entropic transport and Cardy velocity dispersion floor (shbt20):
+//   a_net = -[kappa_GET - 2 * sigma_v^2] grad ln rho_bulk
+//   sigma_v^2 = 0.5 * kappa_GET * (eta_sat^4 / (1 + eta_sat^4))
+// When eta_sat -> 1, 2 * sigma_v^2 -> kappa_GET, yielding a_net -> 0.
 fn compute_get_force(x_tilde: vec3<f32>, kappa_get: f32) -> vec3<f32> {
     let rho = pm_rho(x_tilde);
     let z = (1.0 / max(cosmo.a, 1.0e-4)) - 1.0;
     let n_limit = cardy_limit_norm(z);
-    let eta_sat = clamp(rho / max(n_limit, 1.0e-4), 0.0, 1.0);
-    let sigma_vir_sq: f32 = 0.05;
-    let sigma_v_sq = sigma_vir_sq * eta_sat;
+    let eta_sat = clamp(rho / max(n_limit, 1.0e-4), 0.0, 2.0);
+    let eta_sq = eta_sat * eta_sat;
+    let eta_pow4 = eta_sq * eta_sq;
+    let cardy_switch = eta_pow4 / (1.0 + eta_pow4);
+    let sigma_v_sq = 0.5 * kappa_get * cardy_switch;
 
     let grad_ln_r = grad_ln_rho(x_tilde);
-    let a_get = -kappa_get * grad_ln_r * 0.01;
-    let a_disp = -2.0 * sigma_v_sq * grad_ln_r * 0.01;
-    return a_get + a_disp;
+    let effective_coupling = -kappa_get + 2.0 * sigma_v_sq;
+    return effective_coupling * grad_ln_r * 0.01;
 }
 
 // Conservative P-PM baryon pressure force (shbt9 Thm 9.13):

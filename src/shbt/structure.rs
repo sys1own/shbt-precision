@@ -413,9 +413,154 @@ mod tests {
         assert!((p_pos + p_neg).abs() < 1e-10);
         assert_eq!(grid.isotropic_weil_phase(0, 0, 0), 0.0);
     }
+
+    #[test]
+    fn test_hermitian_anti_symmetry() {
+        let grid_size = 32;
+        let phases = generate_weil_modular_phases(grid_size);
+
+        for ix in 0..grid_size {
+            let neg_ix = (grid_size - ix) % grid_size;
+            for iy in 0..grid_size {
+                let neg_iy = (grid_size - iy) % grid_size;
+                for iz in 0..grid_size {
+                    let neg_iz = (grid_size - iz) % grid_size;
+
+                    let idx_pos = (ix * grid_size + iy) * grid_size + iz;
+                    let idx_neg = (neg_ix * grid_size + neg_iy) * grid_size + neg_iz;
+
+                    if idx_pos == idx_neg {
+                        assert_eq!(phases[idx_pos], 0.0);
+                    } else {
+                        let sum = (phases[idx_pos] + phases[idx_neg]) % (2.0 * PI);
+                        assert!(
+                            sum.abs() < 1e-12 || (sum - 2.0 * PI).abs() < 1e-12,
+                            "Hermitian condition violated at ({}, {}, {})",
+                            ix, iy, iz
+                        );
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn test_point_group_symmetry_breaking() {
+        let grid_size = 32;
+        let phases = generate_weil_modular_phases(grid_size);
+
+        let k1 = (1, 2, 3);
+        let k2 = (2, 1, 3);
+
+        let idx1 = (k1.0 * grid_size + k1.1) * grid_size + k1.2;
+        let idx2 = (k2.0 * grid_size + k2.1) * grid_size + k2.2;
+
+        assert_ne!(
+            phases[idx1], phases[idx2],
+            "Octahedral permutation symmetry must be strictly broken"
+        );
+    }
 }
 
 pub const N_MOD: i64 = 2_901_360;
+pub const CFT_MODULE_COUNT: u64 = 2_901_360;
+const PRIME_C1: u64 = 73_856_093;
+const PRIME_C2: u64 = 19_349_663;
+const PRIME_C3: u64 = 83_492_791;
+const SPLITMIX_C1: u64 = 0xBF58_476D_1CE4_E5B9;
+const SPLITMIX_C2: u64 = 0x94D0_49BB_1331_11EB;
+
+/// Deterministic, PRNG-free phase generation mapping lattice modes onto CFT primary modules.
+///
+/// Ensures:
+/// - Exact Hermitian anti-symmetry: phi(-k) == -phi(k) (mod 2*pi)
+/// - Total breaking of O_h point-group symmetries on individual realizations
+/// - Ergodic uniform distribution over [0, 2*pi)
+pub fn generate_weil_modular_phases(grid_size: usize) -> Vec<f64> {
+    let total_elements = grid_size * grid_size * grid_size;
+    let mut phases = vec![0.0f64; total_elements];
+    let half_n = (grid_size / 2) as i64;
+
+    for ix in 0..grid_size {
+        let kx = if ix as i64 >= half_n {
+            ix as i64 - grid_size as i64
+        } else {
+            ix as i64
+        };
+
+        for iy in 0..grid_size {
+            let ky = if iy as i64 >= half_n {
+                iy as i64 - grid_size as i64
+            } else {
+                iy as i64
+            };
+
+            for iz in 0..grid_size {
+                let kz = if iz as i64 >= half_n {
+                    iz as i64 - grid_size as i64
+                } else {
+                    iz as i64
+                };
+                let idx = (ix * grid_size + iy) * grid_size + iz;
+
+                // For periodic FFT lattice indices, the negative mode -k has coordinates in [0, grid_size):
+                // neg_ix = (grid_size - ix) % grid_size, etc.
+                // The corresponding Fourier mode k_neg is:
+                let neg_ix = (grid_size - ix) % grid_size;
+                let neg_iy = (grid_size - iy) % grid_size;
+                let neg_iz = (grid_size - iz) % grid_size;
+
+                let kx_neg = if neg_ix as i64 >= half_n { neg_ix as i64 - grid_size as i64 } else { neg_ix as i64 };
+                let ky_neg = if neg_iy as i64 >= half_n { neg_iy as i64 - grid_size as i64 } else { neg_iy as i64 };
+                let kz_neg = if neg_iz as i64 >= half_n { neg_iz as i64 - grid_size as i64 } else { neg_iz as i64 };
+
+                // Modes that map to themselves under periodic negation:
+                if ix == neg_ix && iy == neg_iy && iz == neg_iz {
+                    phases[idx] = 0.0;
+                    continue;
+                }
+
+                // Lexicographical positive half-space partition:
+                // (ix, iy, iz) vs (neg_ix, neg_iy, neg_iz)
+                let is_positive = (ix, iy, iz) > (neg_ix, neg_iy, neg_iz);
+
+                let (kx_c, ky_c, kz_c) = if is_positive {
+                    (kx, ky, kz)
+                } else {
+                    (kx_neg, ky_neg, kz_neg)
+                };
+
+                // Cast to unsigned 64-bit coordinates
+                let ux = kx_c as u64;
+                let uy = ky_c as u64;
+                let uz = kz_c as u64;
+
+                // Asymmetric linear coordinate projection
+                let w = (ux.wrapping_mul(PRIME_C1))
+                    ^ (uy.wrapping_mul(PRIME_C2))
+                    ^ (uz.wrapping_mul(PRIME_C3));
+
+                // SplitMix64 bi-permutative mixing
+                let xi1 = (w ^ (w >> 30)).wrapping_mul(SPLITMIX_C1);
+                let xi2 = (xi1 ^ (xi1 >> 27)).wrapping_mul(SPLITMIX_C2);
+                let xi = xi2 ^ (xi2 >> 31);
+
+                // Modular CFT projection
+                let module_idx = xi % CFT_MODULE_COUNT;
+                let phi_canon = (2.0 * PI) * ((module_idx as f64 + 0.5) / (CFT_MODULE_COUNT as f64));
+
+                phases[idx] = if is_positive {
+                    phi_canon
+                } else {
+                    let wrapped = (2.0 * PI) - phi_canon;
+                    if wrapped >= 2.0 * PI { 0.0 } else { wrapped }
+                };
+            }
+        }
+    }
+
+    phases
+}
 
 #[derive(Debug, Clone)]
 pub struct CosmologicalGrid {

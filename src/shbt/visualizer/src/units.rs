@@ -871,3 +871,201 @@ pub struct CosmoShaderUniforms {
     pub grid_dim: f32,
     pub _padding: [f32; 2],
 }
+
+/// Cosmological parameters for the Lambda-CDM simulation model (shbt20).
+#[derive(Debug, Clone, Copy)]
+pub struct CosmologyParams {
+    pub h0: f32,             // Hubble constant in km/s/Mpc (e.g., 67.74)
+    pub omega_m: f32,        // Matter density parameter at z=0 (e.g., 0.3089)
+    pub omega_lambda: f32,   // Dark energy density parameter at z=0 (e.g., 0.6911)
+    pub c_kms: f32,          // Speed of light in km/s (299792.458)
+    pub box_size_mpc: f32,   // Comoving box length in Mpc/h
+}
+
+impl Default for CosmologyParams {
+    fn default() -> Self {
+        Self {
+            h0: 67.74,
+            omega_m: 0.3089,
+            omega_lambda: 0.6911,
+            c_kms: 299792.458,
+            box_size_mpc: 500.0, // shbt20: L_box = 500.0 h^-1 Mpc (742.3 Mpc)
+        }
+    }
+}
+
+impl CosmologyParams {
+    /// Computes the Hubble parameter H(a) in km/s/Mpc at scale factor `a`.
+    pub fn hubble(&self, a: f32) -> f32 {
+        let a_clamped = a.max(1e-4);
+        let term_m = self.omega_m / (a_clamped * a_clamped * a_clamped);
+        let term_l = self.omega_lambda;
+        self.h0 * (term_m + term_l).sqrt()
+    }
+
+    /// Evaluates the asymptotic de Sitter Hubble rate H_inf as a -> infinity.
+    pub fn hubble_inf(&self) -> f32 {
+        self.h0 * self.omega_lambda.sqrt()
+    }
+
+    /// Evaluates the comoving cosmological event horizon chi_event(a) in Mpc.
+    /// In the late-time de Sitter regime (a >> 1), chi_event(a) -> c / (a * H_inf).
+    pub fn comoving_event_horizon(&self, a: f32) -> f32 {
+        if a >= 10.0 {
+            let r_ds = self.c_kms / self.hubble_inf();
+            r_ds / a
+        } else {
+            self.integrate_comoving_event_horizon(a, 1000.0, 64)
+                + (self.c_kms / self.hubble_inf()) / 1000.0
+        }
+    }
+
+    fn integrate_comoving_event_horizon(&self, a_start: f32, a_end: f32, steps: usize) -> f32 {
+        let mut sum = 0.0;
+        let da = (a_end - a_start) / (steps as f32);
+        for i in 0..steps {
+            let a_mid = a_start + (i as f32 + 0.5) * da;
+            let h = self.hubble(a_mid);
+            sum += (self.c_kms / (a_mid * a_mid * h)) * da;
+        }
+        sum
+    }
+}
+
+/// Dynamic camera state for physical observer frame visualization (shbt20).
+#[derive(Debug, Clone, Copy)]
+pub struct CameraState {
+    pub position: [f32; 3],
+    pub target: [f32; 3],
+    pub up: [f32; 3],
+    pub fov_y_radians: f32,
+    pub near_clip: f32,
+    pub far_clip: f32,
+}
+
+/// Unit and coordinate transformation engine for physical frame rendering (shbt20).
+pub struct PhysicalUnitTransformer {
+    pub params: CosmologyParams,
+    pub r_cam_base: f32,
+    pub fov_base: f32,
+}
+
+impl PhysicalUnitTransformer {
+    pub fn new(params: CosmologyParams) -> Self {
+        Self {
+            params,
+            r_cam_base: 158.0, // Base camera distance in Mpc at a = 1.0
+            fov_base: 45.0 * std::f32::consts::PI / 180.0,
+        }
+    }
+
+    /// Maps normalized comoving coordinates x_tilde in [0, 1]^3 to physical observer coordinates:
+    /// x_phys(t) = a(t) * L_box * (x_tilde - 0.5)
+    pub fn comoving_to_physical(&self, x_tilde: [f32; 3], a: f32) -> [f32; 3] {
+        let l_phys = a * self.params.box_size_mpc;
+        [
+            l_phys * (x_tilde[0] - 0.5),
+            l_phys * (x_tilde[1] - 0.5),
+            l_phys * (x_tilde[2] - 0.5),
+        ]
+    }
+
+    /// Maps physical observer coordinates back to normalized comoving coordinates.
+    pub fn physical_to_comoving(&self, x_phys: [f32; 3], a: f32) -> [f32; 3] {
+        let inv_l_phys = 1.0 / (a * self.params.box_size_mpc).max(1e-6);
+        [
+            x_phys[0] * inv_l_phys + 0.5,
+            x_phys[1] * inv_l_phys + 0.5,
+            x_phys[2] * inv_l_phys + 0.5,
+        ]
+    }
+
+    /// Generates the continuous camera orbit path:
+    /// r_cam(a) = r_base * a^(1/2), FOV(a) = 2 * atan(tan(FOV_0 / 2) * a^(1/6))
+    pub fn calculate_camera_orbit(&self, a: f32, orbit_phase: f32) -> CameraState {
+        let a_clamped = a.max(1e-4);
+        let alpha = 0.50; // Sub-linear camera distance power
+        let beta = 1.0 / 6.0;
+
+        let r_cam = self.r_cam_base * a_clamped.powf(alpha);
+        let fov = 2.0 * ((self.fov_base * 0.5).tan() * a_clamped.powf(beta)).atan();
+
+        // Continuous azimuth and elevation path
+        let azimuth = orbit_phase + 0.25 * a_clamped.ln();
+        let elevation = 0.35 + 0.10 * (0.5 * a_clamped.ln()).sin();
+
+        let pos = [
+            r_cam * azimuth.cos() * elevation.cos(),
+            r_cam * azimuth.sin() * elevation.cos(),
+            r_cam * elevation.sin(),
+        ];
+
+        let l_phys = a_clamped * self.params.box_size_mpc;
+        CameraState {
+            position: pos,
+            target: [0.0, 0.0, 0.0],
+            up: [0.0, 0.0, 1.0],
+            fov_y_radians: fov.clamp(10.0 * std::f32::consts::PI / 180.0, 110.0 * std::f32::consts::PI / 180.0),
+            near_clip: (0.01 * r_cam).max(0.1),
+            far_clip: (5.0 * (r_cam + l_phys)).max(100.0),
+        }
+    }
+
+    /// Computes decade-quantized physical grid ticks that expand with the background metric.
+    pub fn calculate_physical_grid_ticks(&self, a: f32) -> (f32, f32) {
+        let l_phys = a.max(1e-4) * self.params.box_size_mpc;
+        let target_divisions = 8.0;
+        let raw_step = l_phys / target_divisions;
+
+        let power = raw_step.log10().floor();
+        let decade = 10.0_f32.powf(power);
+        let mantissa = raw_step / decade;
+
+        let snapped_mantissa = if mantissa < 1.5 {
+            1.0
+        } else if mantissa < 3.5 {
+            2.0
+        } else if mantissa < 7.5 {
+            5.0
+        } else {
+            10.0
+        };
+
+        let tick_spacing = snapped_mantissa * decade;
+        let alpha_fade = ((mantissa - 1.0) / 9.0).clamp(0.0, 1.0);
+        (tick_spacing, alpha_fade)
+    }
+
+    /// Tests whether a pairwise comoving separation satisfies the event horizon cutoff:
+    /// Returns true if r_ij < chi_event(a) (causally connected), false if disconnected.
+    pub fn is_causally_connected(&self, comoving_sep_mpc: f32, a: f32) -> bool {
+        let chi_limit = self.params.comoving_event_horizon(a);
+        comoving_sep_mpc < chi_limit
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_physical_unit_transformer_roundtrip() {
+        let params = CosmologyParams::default();
+        let transformer = PhysicalUnitTransformer::new(params);
+        let x_tilde = [0.25, 0.5, 0.75];
+        let a = 0.5;
+        let x_phys = transformer.comoving_to_physical(x_tilde, a);
+        let x_back = transformer.physical_to_comoving(x_phys, a);
+        for i in 0..3 {
+            assert!((x_tilde[i] - x_back[i]).abs() < 1e-5);
+        }
+    }
+
+    #[test]
+    fn test_asymptotic_event_horizon() {
+        let params = CosmologyParams::default();
+        let chi_1000 = params.comoving_event_horizon(1000.0);
+        // At a = 1000, chi_event ~ 5.33 Mpc
+        assert!((chi_1000 - 5.33).abs() < 0.2);
+    }
+}

@@ -9766,6 +9766,21 @@ R_{\mathrm{entropy}}(a) = 1 - f_{\mathrm{load}}(a) - 10^{-6} \le 0.
 \end{equation}
 At this boundary, all bulk peculiar acceleration and velocity are extinguished ($\mathbf{v} \to 0, \mathbf{a} \to 0$), and cluster cores crystallize into the ground-state topological invariant $[0.12, 0.18, 0.28, 0.35]$, completing the cosmic lifecycle without eternal cosmological expansion.
 
+\subsection{Ergodic CFT Modular Phase Seeding, Linear Box Metrology, and 2LPT Initialization}
+\label{sec:ergodic_phase_seeding_2lpt}
+Deterministic primordial initial conditions in numerical simulations on periodic cubic lattices $\mathbb{Z}_N^3$ are constrained by the octahedral point group $O_h \cong S_4 \times \mathbb{Z}_2$. Any polynomial constructed from the elementary symmetric polynomials $\sigma_1 = |\mathbf{k}|^2$, $\sigma_2 = k_x^2 k_y^2 + k_y^2 k_z^2 + k_z^2 k_x^2$, and $\sigma_3 = k_x^2 k_y^2 k_z^2$ inherits complete $O_h$ point-group invariance $\phi(R\mathbf{k}) = \phi(\mathbf{k})$ for all $R \in O_h$, triggering artificial constructive interference caustics along the $\langle 100 \rangle$ and $\langle 111 \rangle$ lattice axes.
+
+To break point-group degeneracies ergodically while enforcing strict Hermitian anti-symmetry $\phi(-\mathbf{k}) \equiv -\phi(\mathbf{k}) \pmod{2\pi}$ and $\phi(\mathbf{0}) \equiv 0$, primordial phases are mapped from the $M = 2{,}901{,}360$ primary boundary CFT modules at modular parameter $\tau = i$. The canonical half-space representative $\mathbf{k}_0 \in \mathbb{H}^+$ is projected through asymmetric prime multipliers $c_1 = 73{,}856{,}093$, $c_2 = 19{,}349{,}663$, and $c_3 = 83{,}492{,}791$ coprime to $M$:
+\begin{equation}
+w(\mathbf{k}_0) = \left( (k_x \bmod 2^{64}) c_1 \right) \oplus \left( (k_y \bmod 2^{64}) c_2 \right) \oplus \left( (k_z \bmod 2^{64}) c_3 \right) \pmod{2^{64}},
+\end{equation}
+followed by a SplitMix64 bi-permutative avalanche bijection $\Xi(\mathbf{k}_0)$ sampling the primary module index $m(\mathbf{k}_0) = \Xi(\mathbf{k}_0) \bmod M$. The canonical phase evaluates to $\Phi(\mathbf{k}_0) = 2\pi (m(\mathbf{k}_0) + 1/2)/M$, breaking $O_h$ point-group caustics across all spherical wavemode shells.
+
+To prevent fundamental-mode non-linear coupling and monolithic collapse, the comoving simulation box scale is calibrated to $L_{\mathrm{box}} = 500.0 \, h^{-1}\mathrm{Mpc}$ ($742.3 \, \mathrm{Mpc}$), bounding the dimensionless variance at $\Delta^2(k_1, z=0) = 0.001928 \le 0.008$. Second-Order Lagrangian Perturbation Theory (2LPT) tidal shear corrections at $z_{\mathrm{init}} = 30$ suppress spurious early shell-crossing:
+\begin{equation}
+\mathbf{x}(\mathbf{q}, z) = \mathbf{q} - D_1(z) \, \nabla \Phi^{(1)}(\mathbf{q}) + D_2(z) \, \nabla \Phi^{(2)}(\mathbf{q}),
+\end{equation}
+where $\nabla^2 \Phi^{(2)} = \sum_{i > j} [ \Phi^{(1)}_{,ii} \Phi^{(1)}_{,jj} - (\Phi^{(1)}_{,ij})^2 ]$, with $D_1(z=30) \approx 0.02521$ and $D_2(z=30) \approx -2.7238 \times 10^{-4}$.
 
 \begin{thebibliography}{99}
 

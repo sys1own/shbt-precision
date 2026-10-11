@@ -165,26 +165,28 @@ fn apply_get_acceleration(@builtin(global_invocation_id) global_id: vec3<u32>) {
                 let grad_rho = sample_density_gradient(p.pos, params.mesh_dim);
 
                 // Cardy holographic capacity saturation ratio: eta_sat = N_local / N_limit
-                let eta_sat = clamp(rho / max(n_limit, 1.0e-4), 0.0, 1.0);
+                let eta_sat = clamp(rho / max(n_limit, 1.0e-4), 0.0, 2.0);
 
-                // Screen capacity bounded bulk density
-                let rho_eff = max(rho, 1.0e-4);
-                let grad_ln_rho = grad_rho / rho_eff;
+                // Boundary vacuum capacity floor rho_soft = c_bdry^(-1/3) ~ 0.00697
+                let rho_soft: f32 = 0.006967;
+                let grad_ln_rho = grad_rho / (rho + rho_soft);
 
-                // Emergent velocity dispersion floor: sigma_v^2 = sigma_vir^2 * eta_sat
-                let sigma_v_sq = sigma_vir_sq * eta_sat;
+                // Emergent velocity dispersion floor via quartic Cardy activation (shbt20):
+                // sigma_v^2 = 0.5 * kappa_GET * (eta_sat^4 / (1 + eta_sat^4))
+                let kappa_get = compute_kappa_get(params.load_fraction);
+                let eta_sq = eta_sat * eta_sat;
+                let eta_pow4 = eta_sq * eta_sq;
+                let cardy_switch = eta_pow4 / (1.0 + eta_pow4);
+                let sigma_v_sq = 0.5 * kappa_get * cardy_switch;
 
                 let window = 1.0 - smoothstep(0.0, cp.radius, dist);
-                let kappa_get = compute_kappa_get(params.load_fraction);
 
-                // Inward entropic clustering kick
-                let a_collapse = -kappa_get * cp.collapse_phase * grad_ln_rho * window;
+                // Inward entropic clustering kick balanced by outward dispersion pressure:
+                // a_net = (-kappa_get + 2.0 * sigma_v_sq) * cp.collapse_phase * grad_ln_rho * window
+                let effective_coupling = -kappa_get + 2.0 * sigma_v_sq;
+                let a_net = effective_coupling * cp.collapse_phase * grad_ln_rho * window;
 
-                // Outward dispersion pressure kick balancing inward collapse:
-                // a_disp = -2 * sigma_v^2 * grad ln rho
-                let a_disp = -2.0 * sigma_v_sq * cp.collapse_phase * grad_ln_rho * window;
-
-                total_a_get += (a_collapse + a_disp);
+                total_a_get += a_net;
 
                 p.vis_weight = mix(p.vis_weight, 1.0, 0.02 * cp.collapse_phase);
             }

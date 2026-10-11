@@ -109,6 +109,11 @@ The platform proves the following foundational physics invariants:
 | **Cardy Phase-Space Virialization Floor** | Holographic velocity dispersion $\sigma_v^2 = \sigma_{\mathrm{vir}}^2 \eta_{\mathrm{sat}}$ halting monolithic cluster collapse via $\mathbf{a}_{\mathrm{disp}} = -2 \sigma_v^2 \nabla\ln\rho$ | `src/shbt/visualizer/src/shaders/causal_point_get.wgsl`, `nbody_pm.wgsl` |
 | **First-Principles Two-Fluid Sound Speed** | Thermal decoupling $T_b(z) = T_{\mathrm{CMB},0}(1+z)z/(z+137)$ and relativistic $c_s(z)$, yielding acoustic horizon $r_s(z_{\mathrm{drag}}) \approx 147.50\,\mathrm{Mpc}$ | `src/shbt/cosmology.rs`, `src/shbt/structure.rs`, `src/shbt/visualizer/src/units.rs` |
 | **Causal Event Horizon Truncation & Freeze** | Comoving event horizon $\chi_{\mathrm{event}}(a)$ screening and asymptotic horizon freeze ($\mathbf{v}=0, \mathbf{a}=0$, ground-state node crystallization `[0.12, 0.18, 0.28, 0.35]`) as $z \to -0.999$ | `src/shbt/cosmology.rs`, `src/shbt/visualizer/src/shaders/nbody_pm.wgsl`, `dual_channel_render.wgsl` |
+| **Ergodic CFT Modular Phase Seeding** | SplitMix64 bi-permutative avalanche bijection over $M = 2{,}901{,}360$ primary CFT modules, breaking octahedral $O_h$ point-group symmetry while strictly guaranteeing Hermitian anti-symmetry $\phi(-\mathbf{k}) = -\phi(\mathbf{k}) \pmod{2\pi}$ | `src/shbt/structure.rs`, `boltzmann_shbt.py` |
+| **Linear Box Metrology & 2LPT Initialization** | Comoving $L_{\mathrm{box}} = 500.0\,h^{-1}\text{Mpc} \approx 741.84\text{ Mpc}$, preserving fundamental mode linearity $\Delta^2(k_1, 0) = 0.001928 \le 0.008$ with 2LPT displacement fields | `shbt_simulate.py`, `boltzmann_shbt.py` |
+| **Physical Observer Frame & Sub-Linear Camera Orbit** | Physical coordinates $\mathbf{x}_{\mathrm{phys}}(t) = a(t) L_{\mathrm{box}}(\tilde{\mathbf{x}} - 0.5\cdot\mathbf{1})$, sub-linear camera orbit $r_{\mathrm{cam}}(a) \propto a^{1/2}$, adaptive FOV $\tan(\text{FOV}/2) \propto a^{1/6}$, dynamic decade-quantized grid ticks, pairwise horizon freeze $\chi_{\mathrm{event}}(a) \to c/(a H_\infty) \approx 5.33\text{ Mpc}$ | `src/shbt/visualizer/src/units.rs`, `visualizer/record_simulation_events.py` |
+| **Regularized Entropic Transport & Quartic Cardy Switch** | Boundary vacuum capacity floor $\rho_{\mathrm{soft}} = c_{\mathrm{bdry}}^{-1/3} \approx 0.006967$, quartic Cardy dispersion switch $\sigma_v^2 = \frac{1}{2}\kappa_{\mathrm{GET}} \frac{\eta_{\mathrm{sat}}^4}{1+\eta_{\mathrm{sat}}^4}$ | `src/shbt/visualizer/src/shaders/nbody_pm.wgsl`, `causal_point_get.wgsl` |
+| **Symmetrized Spectral Solver & Phase-Space Atomic Binning** | 7-point discrete Laplacian with strict DC mode nullification $\tilde{G}(\mathbf{0}) \equiv 0$, Gaussian UV regulator, and synchronized 3-pass atomic histogram binning | `src/shbt/visualizer/src/shaders/nbody_pm.wgsl`, `diagnostics.wgsl` |
 
 Boundary-isometry constraint consumed by downstream hardware:
 
@@ -297,6 +302,11 @@ The 3D isometric orbital trajectory matrix traverses the five cosmic evolutionar
 | Mass-congestion condensation (*M*<sub>seed</sub> = α<sub>seed</sub> Δ*N*) | `src/shbt/cosmology.rs` (`compute_seed_condensation`, `eval_landauer_debt_power`) | SHBT-MMIO `SeedDefectRecord` payload |
 | SHBT-MMIO telemetry frame | `src/shbt/export.rs` (`serialize_mmio_frame_py`, `MmioTelemetryHeader.to_bytes`) | `data/telemetry.bin` |
 | Two-tier WebGPU visualizer | `src/shbt/visualizer` (`ShbtWebGpuEngine`, WGSL pipeline) | `visualizer/pkg/shbt_visualizer_bg.wasm` |
+| Ergodic CFT modular phase seeding | `src/shbt/structure.rs` (`generate_weil_modular_phases`), `boltzmann_shbt.py` (`generate_weil_modular_phases_grid`) | `tests/test_shbt.rs` |
+| Linear box metrology & 2LPT initialization | `shbt_simulate.py` (`compute_2lpt_displacements`), `boltzmann_shbt.py` | `data/telemetry.bin` |
+| Physical observer frame & sub-linear orbit | `src/shbt/visualizer/src/units.rs` (`PhysicalUnitTransformer`), `record_simulation_events.py` | `visualizer/recordings/` milestone verification |
+| Regularized entropic transport & quartic Cardy switch | `src/shbt/visualizer/src/shaders/nbody_pm.wgsl`, `causal_point_get.wgsl` | `tests/test_harness_metrology.py` |
+| Symmetrized Green's function & phase-space atomic binning | `src/shbt/visualizer/src/shaders/nbody_pm.wgsl`, `diagnostics.wgsl` | `visualizer/recordings/` milestone verification |
 
 ### Generated-Artifact Data Product Crosswalk (Table 39)
 

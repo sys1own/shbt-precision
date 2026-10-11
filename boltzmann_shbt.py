@@ -14,32 +14,40 @@ N_T_CANONICAL = -0.0004
 N_WEIL_MODULES = 2901360
 
 
+CFT_MODULE_COUNT = 2901360
+PRIME_C1 = np.uint64(73856093)
+PRIME_C2 = np.uint64(19349663)
+PRIME_C3 = np.uint64(83492791)
+SPLITMIX_C1 = np.uint64(0xBF58476D1CE4E5B9)
+SPLITMIX_C2 = np.uint64(0x94D049BB133111EB)
+
+
 def generate_isotropic_weil_phases(kx: np.ndarray, ky: np.ndarray, kz: np.ndarray) -> np.ndarray:
-    """Evaluates deterministic, SO(3)-invariant primordial phases on the boundary CFT.
-    Eliminates linear directional vectors and strictly enforces Hermiticity phi(-k) = -phi(k).
-    """
-    kx2 = (kx.astype(np.int64)) ** 2
-    ky2 = (ky.astype(np.int64)) ** 2
-    kz2 = (kz.astype(np.int64)) ** 2
+    """Evaluates deterministic, point-group broken primordial phases on the boundary CFT (shbt20)."""
+    kx_i = kx.astype(np.int64)
+    ky_i = ky.astype(np.int64)
+    kz_i = kz.astype(np.int64)
 
-    # Elementary symmetric polynomials under the octahedral group O_h
-    sigma1 = kx2 + ky2 + kz2
-    sigma2 = kx2 * ky2 + ky2 * kz2 + kz2 * kx2
-    sigma3 = kx2 * ky2 * kz2
+    pos_mask = (kz_i > 0) | ((kz_i == 0) & (ky_i > 0)) | ((kz_i == 0) & (ky_i == 0) & (kx_i > 0))
+    neg_mask = (kz_i < 0) | ((kz_i == 0) & (ky_i < 0)) | ((kz_i == 0) & (ky_i == 0) & (kx_i < 0))
 
-    # Canonical hemisphere orientation operator
-    sgn_h = np.where(
-        kz > 0, 1.0,
-        np.where(
-            (kz == 0) & (ky > 0), 1.0,
-            np.where((kz == 0) & (ky == 0) & (kx > 0), 1.0, -1.0)
-        )
-    )
-    sgn_h[sigma1 == 0] = 0.0
+    kx_c = np.where(neg_mask, -kx_i, kx_i).astype(np.uint64)
+    ky_c = np.where(neg_mask, -ky_i, ky_i).astype(np.uint64)
+    kz_c = np.where(neg_mask, -kz_i, kz_i).astype(np.uint64)
 
-    # Invariant Weil arithmetic polynomial evaluated on Z / N_mod Z
-    w_poly = (sigma1 * 157 + sigma2 * 11 + sigma3 * 7 + (sigma1 * sigma2) * 3 + 1) % N_WEIL_MODULES
-    return sgn_h * (2.0 * np.pi) * (w_poly.astype(np.float64) / float(N_WEIL_MODULES))
+    w = (kx_c * PRIME_C1) ^ (ky_c * PRIME_C2) ^ (kz_c * PRIME_C3)
+    xi1 = (w ^ (w >> np.uint64(30))) * SPLITMIX_C1
+    xi2 = (xi1 ^ (xi1 >> np.uint64(27))) * SPLITMIX_C2
+    xi = xi2 ^ (xi2 >> np.uint64(31))
+
+    module_idx = xi % np.uint64(CFT_MODULE_COUNT)
+    phi_canon = (2.0 * np.pi) * ((module_idx.astype(np.float64) + 0.5) / float(CFT_MODULE_COUNT))
+
+    phases = np.zeros_like(kx, dtype=np.float64)
+    phases[pos_mask] = phi_canon[pos_mask]
+    phases[neg_mask] = (2.0 * np.pi - phi_canon[neg_mask]) % (2.0 * np.pi)
+    phases[kx_i == 0, ky_i == 0, kz_i == 0] = 0.0
+    return phases
 
 
 def generate_weil_modular_phases(
