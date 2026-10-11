@@ -23,7 +23,10 @@ mod units;
 
 pub use emergence::{EmergenceUniforms, HaloMerger, D5_MERGE_COEFFICIENT, KAPPA_STAR_D5};
 pub use engine::{CausalPointRecord, ParticleRecord, SeedDefectRecord, WasmShbtEngine};
-pub use units::{GpuLensUniforms, GpuSeedLensBuffer, GpuSimulationUniforms};
+pub use units::{
+    AdaptiveViewport, CosmoParams, CosmoShaderUniforms, CosmologicalBackground,
+    GpuLensUniforms, GpuSeedLensBuffer, GpuSimulationUniforms, SimUnits,
+};
 pub use hud::{
     CausalPointRecord as HudCausalRecord, HorizonLedger, HudMetrics, LensingUniforms,
     SeedDefect, SimulationControls, TimelineController, VisualizerEngine,
@@ -135,7 +138,6 @@ fn stinespring_dw_vis_dz(z: f64) -> f64 {
 // shbt8 Phase 1: the n-body uniform block is the byte-exact
 // `GpuSimulationUniforms` defined in `units.rs` (Martel-Shapiro
 // supercomoving KDK contract).
-type CosmoParams = units::GpuSimulationUniforms;
 
 /// Mirrors `SimulationParameters` in seed_emergence.wgsl (16 x 4B = 64B).
 #[repr(C)]
@@ -1523,7 +1525,7 @@ impl ShbtWebGpuEngine {
         ];
         let cosmo_buffer = device.create_buffer(&BufferDescriptor {
             label: Some("cosmo uniform"),
-            size: std::mem::size_of::<CosmoParams>() as u64,
+            size: std::mem::size_of::<units::GpuSimulationUniforms>() as u64,
             usage: BufferUsages::UNIFORM | BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
@@ -3308,7 +3310,7 @@ impl ShbtWebGpuEngine {
         let dtau = dt_code;
         let a_half_probe = a_now.max(1.0e-3);
         let da = dtau * a_half_probe.powi(3) * h_h0;
-        let mut cosmo: CosmoParams = self.metrology.prepare_step_uniforms(
+        let mut cosmo: units::GpuSimulationUniforms = self.metrology.prepare_step_uniforms(
             a_now,
             da,
             h_h0,

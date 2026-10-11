@@ -588,10 +588,24 @@ fn fs_render_dual_channel(in: VertexOutput) -> GBufferOutput {
     // Channel A: spectral radiance in RGB, normalized line-of-sight
     // depth in A for the depth-aware bilateral post pass.
     let depth_norm = clamp(in.linear_depth / 4000.0, 0.0, 1.0);
+
+    // Asymptotic Horizon Freeze Crystallization (shbt19):
+    // As z -> -0.999 (scale factor a -> 1000), active baryonic emission transitions
+    // through a smooth Hermite cubic into degenerate ground-state nodes:
+    // [0.12, 0.18, 0.28, 0.35] with constant base luminance.
+    var ch_a_rgb = glow_rgb * near_fade;
+    var ch_a_alpha = depth_norm * max(glow_a, 0.001);
+    if (z <= -0.90) {
+        let freeze_t = smoothstep(-0.90, -0.999, z);
+        let ground_state = vec3<f32>(0.12, 0.18, 0.28);
+        ch_a_rgb = mix(ch_a_rgb, ground_state * core_intensity, freeze_t);
+        ch_a_alpha = mix(ch_a_alpha, 0.35 * core_intensity, freeze_t);
+    }
+
     if (is_dark_branch) {
         output.visible_gauge_glow = vec4<f32>(0.0);
     } else {
-        output.visible_gauge_glow = vec4<f32>(glow_rgb * near_fade, depth_norm * max(glow_a, 0.001));
+        output.visible_gauge_glow = vec4<f32>(ch_a_rgb, ch_a_alpha);
     }
 
     // Channel B: Passive Gravitational Ghost Distortion

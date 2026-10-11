@@ -137,25 +137,11 @@ impl CosmologicalContext {
         Self::comoving_distance_mpc(z) / (1.0 + z)
     }
 
-    /// Baryon sound speed c_s(z) in m/s (shbt9 P-PM hydrodynamics).
-    /// Pre-decoupling (z > z_dec): photon-baryon tight coupling,
-    ///   c_s = c / sqrt(3 (1 + 3 rho_b / (4 rho_gamma)))
-    /// with rho_b/rho_gamma = (Omega_b0/Omega_r0) / (1+z).
-    /// Post-decoupling: monatomic adiabatic cooling under the SHBT
-    /// loaded conformal factor (1 + 1/(52 (1+z)))^-1:
-    ///   c_s^2 = (5 k_B T_dec / (3 mu m_H)) ((1+z)/(1+z_dec))^2 (1 + 1/(52(1+z)))^-1
+    /// Baryon sound speed c_s(z) in m/s (shbt19 first-principles two-fluid hydrodynamics).
+    /// Tightly coupled relativistic acoustic speed transitioning through recombination (z=1080)
+    /// and Compton decoupling (z=137) down to the asymptotic horizon freeze (z -> -0.999).
     pub fn sound_speed_ms(z: f64) -> f64 {
-        if z > Z_DEC {
-            let opz = 1.0 + z;
-            let baryon_photon = (3.0 * OMEGA_B0 / (4.0 * telemetry::OMEGA_R0)) / opz;
-            C_SI / (3.0 * (1.0 + baryon_photon)).sqrt()
-        } else {
-            let opz = 1.0 + z.max(-0.999);
-            let thermal = 5.0 * K_B_SI * T_DEC_K / (3.0 * MU_NEUTRAL * M_H_KG);
-            let cooling = (opz / (1.0 + Z_DEC)).powi(2);
-            let conformal = 1.0 / (1.0 + 1.0 / (52.0 * opz));
-            (thermal * cooling * conformal).sqrt()
-        }
+        CosmologicalBackground::default().baryon_sound_speed(z)
     }
 
     /// Dimensionless squared baryon sound speed for the supercomoving
@@ -517,4 +503,371 @@ impl UnitConverter {
     pub fn normalized_r_merge(&self) -> f32 {
         self.r_merge_mpc / self.box_size_mpc
     }
+}
+
+use glam::{Mat4, Vec3};
+
+#[derive(Debug, Clone, Copy)]
+pub struct CosmoParams {
+    pub h: f32,
+    pub omega_m: f32,
+    pub omega_r: f32,
+    pub omega_lambda: f32,
+    pub l_box_mpc: f32,
+    pub n_grid: u32,
+    pub n_sat: f64,
+    pub gamma_cft: f32,
+    pub h_ref_si: f32,
+    pub t_vir_kelvin: f32,
+    pub particle_mass_kg: f64,
+}
+
+impl Default for CosmoParams {
+    fn default() -> Self {
+        Self {
+            h: 0.70,
+            omega_m: 0.30,
+            omega_r: 8.5e-5,
+            omega_lambda: 0.70,
+            l_box_mpc: 100.0,
+            n_grid: 256,
+            n_sat: 1.0e122,
+            gamma_cft: 1.0,
+            h_ref_si: 2.2e-18, // H_0 in s^-1 (~70 km/s/Mpc)
+            t_vir_kelvin: 1.0e6,
+            particle_mass_kg: 1.0e40, // DM simulation particle cluster mass
+        }
+    }
+}
+
+impl CosmoParams {
+    /// Evaluates dimensionless expansion rate E(a) = H(a) / H_0
+    #[inline]
+    pub fn e_factor(&self, a: f32) -> f32 {
+        let inv_a = 1.0 / a;
+        let inv_a2 = inv_a * inv_a;
+        let inv_a3 = inv_a2 * inv_a;
+        let inv_a4 = inv_a3 * inv_a;
+        (self.omega_r * inv_a4 + self.omega_m * inv_a3 + self.omega_lambda).sqrt()
+    }
+
+    /// Evaluates Hubble parameter in SI units (s^-1)
+    #[inline]
+    pub fn hubble_si(&self, a: f32) -> f32 {
+        self.h_ref_si * self.e_factor(a)
+    }
+
+    /// Evaluates the Cardy operational entropy ceiling N_limit(z) per cell
+    pub fn cardy_cell_limit(&self, a: f32) -> f32 {
+        let h_ratio = self.e_factor(a) as f64;
+        let c_si = 2.99792458e8_f64;
+        let mpc_to_m = 3.08567758e22_f64;
+
+        let h_si = self.hubble_si(a) as f64;
+        let r_h_m = c_si / h_si;
+        let v_h_m3 = (4.0 / 3.0) * std::f64::consts::PI * r_h_m.powi(3);
+
+        let cell_com_m = (self.l_box_mpc as f64 * mpc_to_m) / (self.n_grid as f64);
+        let cell_phys_m = (a as f64) * cell_com_m;
+        let v_cell_m3 = cell_phys_m.powi(3);
+
+        let vol_ratio = v_cell_m3 / v_h_m3;
+        ((self.gamma_cft as f64) * (h_ratio * h_ratio) * vol_ratio * self.n_sat) as f32
+    }
+
+    /// Calculates velocity dispersion floor in (m/s)^2 at saturation
+    #[inline]
+    pub fn sigma_vir_squared(&self) -> f32 {
+        let k_b = 1.380649e-23_f64;
+        ((k_b * self.t_vir_kelvin as f64) / self.particle_mass_kg) as f32
+    }
+}
+
+pub struct AdaptiveViewport {
+    pub params: CosmoParams,
+}
+
+impl AdaptiveViewport {
+    pub fn new(params: CosmoParams) -> Self {
+        Self { params }
+    }
+
+    /// Maps normalized supercomoving coordinates [0, 1]^3 to physical coordinates (Mpc)
+    #[inline]
+    pub fn supercomoving_to_physical(&self, x_tilde: Vec3, a: f32) -> Vec3 {
+        let centered = x_tilde - Vec3::splat(0.5);
+        centered * (a * self.params.l_box_mpc)
+    }
+
+    /// Maps physical coordinates (Mpc) to supercomoving grid coordinates [0, 1]^3
+    #[inline]
+    pub fn physical_to_supercomoving(&self, x_phys: Vec3, a: f32) -> Vec3 {
+        let box_phys = a * self.params.l_box_mpc;
+        (x_phys / box_phys) + Vec3::splat(0.5)
+    }
+
+    /// Dynamically computes camera orbital radius r_cam(a) in physical Mpc
+    pub fn compute_camera_radius(&self, a: f32) -> f32 {
+        let r_halo_ref = 0.8; // Sub-Mpc halo anchoring scale in Mpc
+        let a_trans = 1.0;
+        let beta_early = 0.28;
+        let beta_late = 0.35;
+        let t = 1.0 / (1.0 + (a / a_trans).powf(-1.2));
+        let beta = beta_early + (beta_late - beta_early) * t;
+
+        let r_box_scaled = 1.5 * self.params.l_box_mpc * a.powf(beta);
+        (r_halo_ref * r_halo_ref + r_box_scaled * r_box_scaled).sqrt()
+    }
+
+    /// Builds camera view matrix looking at simulation center
+    pub fn build_view_matrix(&self, a: f32, azimuth_rad: f32, elevation_rad: f32, target: Vec3) -> Mat4 {
+        let r = self.compute_camera_radius(a);
+        let cos_el = elevation_rad.cos();
+        let eye_offset = Vec3::new(
+            r * cos_el * azimuth_rad.sin(),
+            r * elevation_rad.sin(),
+            r * cos_el * azimuth_rad.cos(),
+        );
+        let eye = target + eye_offset;
+        Mat4::look_at_rh(eye, target, Vec3::Y)
+    }
+
+    /// Builds logarithmic depth projection matrix matching WebGPU clip space [0, 1]
+    pub fn build_logarithmic_projection(&self, a: f32, fov_y_rad: f32, aspect: f32) -> (Mat4, f32, f32) {
+        let r = self.compute_camera_radius(a);
+        let z_near = (1e-6 * r).max(1e-18);
+        let z_far = 50.0 * r;
+
+        let proj = Mat4::perspective_rh(fov_y_rad, aspect, z_near, z_far);
+        (proj, z_near, z_far)
+    }
+
+    /// Computes dynamic physical grid reference tick interval in Mpc
+    pub fn dynamic_grid_tick_spacing(&self, a: f32) -> f32 {
+        let l_phys = a * self.params.l_box_mpc;
+        let exponent = (0.2 * l_phys).log10().floor();
+        10.0_f32.powf(exponent)
+    }
+}
+
+pub const K_L: f64 = 26.0;
+pub const K_Q: f64 = 8.0;
+pub const TOTAL_AFFINE_LEVEL: f64 = K_L + K_Q - 1.0;
+pub const ETA_V: f32 = ((K_Q + 2.0) / TOTAL_AFFINE_LEVEL) as f32; // 10/33
+pub const ETA_D: f32 = ((K_L - 3.0) / TOTAL_AFFINE_LEVEL) as f32; // 23/33
+
+#[derive(Debug, Clone, Copy)]
+pub struct CosmologicalBackground {
+    pub h0_kms_mpc: f64,
+    pub omega_r: f64,
+    pub omega_m: f64,
+    pub omega_lambda: f64,
+    pub rho_b0_si: f64,
+    pub rho_gamma0_si: f64,
+    pub r0_momentum_ratio: f64,
+}
+
+impl Default for CosmologicalBackground {
+    fn default() -> Self {
+        let omega_m = 10.0 / 33.0;
+        let omega_r = 9.0e-5;
+        let omega_lambda = 1.0 - omega_m - omega_r;
+        let h0_si = 67.4 * 1000.0 / 3.085_677_581e22;
+        let rho_crit_0 = (3.0 * h0_si * h0_si) / (8.0 * std::f64::consts::PI * 6.674_30e-11);
+        let rho_b0 = 0.049 * rho_crit_0;
+        let c_si = 299_792_458.0;
+        let rho_gamma0 = (4.0 * 5.670_374_419e-8 / (c_si * c_si * c_si)) * 2.7255_f64.powi(4);
+        let r0 = (3.0 * rho_b0) / (4.0 * rho_gamma0);
+
+        Self {
+            h0_kms_mpc: 67.4,
+            omega_r,
+            omega_m,
+            omega_lambda,
+            rho_b0_si: rho_b0,
+            rho_gamma0_si: rho_gamma0,
+            r0_momentum_ratio: r0,
+        }
+    }
+}
+
+impl CosmologicalBackground {
+    #[inline]
+    pub fn scale_factor(&self, z: f64) -> f64 {
+        1.0 / (1.0 + z.max(-0.999))
+    }
+
+    #[inline]
+    pub fn redshift(&self, a: f64) -> f64 {
+        (1.0 / a.max(1.0e-4)) - 1.0
+    }
+
+    pub fn hubble_rate_si(&self, a: f64) -> f64 {
+        let a_clamped = a.max(1.0e-4);
+        let term_r = self.omega_r / a_clamped.powi(4);
+        let term_m = self.omega_m / a_clamped.powi(3);
+        let term_l = self.omega_lambda;
+        let h0_si = 67.4 * 1000.0 / 3.085_677_581e22;
+        h0_si * (term_r + term_m + term_l).sqrt()
+    }
+
+    pub fn hubble_rate_kms_mpc(&self, a: f64) -> f64 {
+        let a_clamped = a.max(1.0e-4);
+        let term_r = self.omega_r / a_clamped.powi(4);
+        let term_m = self.omega_m / a_clamped.powi(3);
+        let term_l = self.omega_lambda;
+        self.h0_kms_mpc * (term_r + term_m + term_l).sqrt()
+    }
+
+    pub fn baryon_temperature(&self, z: f64) -> f64 {
+        let z_eff = z.max(-0.999);
+        if z_eff > 137.0 {
+            2.7255 * (1.0 + z_eff)
+        } else {
+            2.7255 * (1.0 + z_eff).powi(2) / (1.0 + 137.0)
+        }
+    }
+
+    pub fn mean_molecular_weight(&self, z: f64) -> f64 {
+        let z_eff = z.max(-0.999);
+        let mu_ion = 0.59;
+        let mu_neutral = 1.22;
+        let arg = ((z_eff - 1080.0) / 50.0).clamp(-50.0, 50.0);
+        mu_ion + (mu_neutral - mu_ion) / (1.0 + arg.exp())
+    }
+
+    pub fn baryon_sound_speed(&self, z: f64) -> f64 {
+        let z_eff = z.max(-0.999);
+        let tb = self.baryon_temperature(z_eff);
+        let mu = self.mean_molecular_weight(z_eff);
+        let r_z = self.r0_momentum_ratio / (1.0 + z_eff);
+
+        let k_b = 1.380_649e-23;
+        let m_p = 1.672_621_92e-27;
+        let c_si = 299_792_458.0;
+        let gamma = 5.0 / 3.0;
+
+        let cs2_thermal = (gamma * k_b * tb) / (mu * m_p * (1.0 + r_z));
+        let cs_thermal = cs2_thermal.max(0.0).sqrt();
+
+        let cs_relativistic = (c_si / 3.0_f64.sqrt()) / (1.0 + r_z).sqrt();
+        cs_thermal.min(cs_relativistic)
+    }
+
+    pub fn comoving_event_horizon_mpc(&self, a: f64) -> f64 {
+        let a_start = a.max(1.0e-4);
+        let c_si = 299_792_458.0;
+        let c_over_h0_mpc = (c_si / 1000.0) / self.h0_kms_mpc;
+        let u_upper = 1.0 / a_start;
+
+        const GL_X: [f64; 8] = [
+            0.0950125098376374, 0.2816035507792589, 0.4580167776572274, 0.6178762444026438,
+            0.7554044083550030, 0.8656312023878318, 0.9445750230732326, 0.9894009349916499,
+        ];
+        const GL_W: [f64; 8] = [
+            0.1894506104550685, 0.1826034150449236, 0.1691565193950025, 0.1495959888165767,
+            0.1246289712555339, 0.0951585116824928, 0.0622535239386479, 0.0271524594117541,
+        ];
+
+        let half_u = 0.5 * u_upper;
+        let mut integral = 0.0;
+        for i in 0..8 {
+            let u1 = half_u * (1.0 - GL_X[i]);
+            let u2 = half_u * (1.0 + GL_X[i]);
+
+            let e1 = (self.omega_r * u1.powi(4) + self.omega_m * u1.powi(3) + self.omega_lambda).sqrt();
+            let e2 = (self.omega_r * u2.powi(4) + self.omega_m * u2.powi(3) + self.omega_lambda).sqrt();
+
+            integral += GL_W[i] * (1.0 / e1 + 1.0 / e2);
+        }
+        integral *= half_u;
+
+        c_over_h0_mpc * integral
+    }
+
+    pub fn forward_capacity_load(&self, a: f64) -> f64 {
+        let chi_present = self.comoving_event_horizon_mpc(1.0);
+        let chi_a = self.comoving_event_horizon_mpc(a);
+        let ratio = chi_a / chi_present;
+        (1.0 - ratio * ratio).clamp(0.0, 1.0)
+    }
+
+    pub fn entropy_reserve(&self, a: f64) -> f64 {
+        let f_load = self.forward_capacity_load(a);
+        1.0 - f_load - 1.0e-6
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct SimUnits {
+    pub box_size_mpc: f32,
+    pub grid_resolution: u32,
+    pub cell_size_mpc: f32,
+    pub velocity_unit_kms: f32,
+    pub time_unit_gyr: f32,
+}
+
+impl SimUnits {
+    pub fn new(box_size_mpc: f32, grid_resolution: u32) -> Self {
+        Self {
+            box_size_mpc,
+            grid_resolution,
+            cell_size_mpc: box_size_mpc / (grid_resolution as f32),
+            velocity_unit_kms: 100.0,
+            time_unit_gyr: (box_size_mpc / 100.0) * 0.9778,
+        }
+    }
+
+    #[inline]
+    pub fn sound_speed_to_code(&self, cs_si: f64) -> f32 {
+        let cs_kms = (cs_si / 1000.0) as f32;
+        cs_kms / self.velocity_unit_kms
+    }
+
+    #[inline]
+    pub fn event_horizon_to_code(&self, chi_mpc: f64) -> f32 {
+        (chi_mpc as f32) / self.box_size_mpc
+    }
+
+    pub fn generate_cosmo_uniforms(
+        &self,
+        cosmo: &CosmologicalBackground,
+        a: f64,
+    ) -> CosmoShaderUniforms {
+        let z = cosmo.redshift(a);
+        let cs_si = cosmo.baryon_sound_speed(z);
+        let chi_mpc = cosmo.comoving_event_horizon_mpc(a);
+        let f_load = cosmo.forward_capacity_load(a);
+        let r_entropy = cosmo.entropy_reserve(a);
+
+        CosmoShaderUniforms {
+            scale_factor: a as f32,
+            hubble_param: cosmo.hubble_rate_kms_mpc(a) as f32,
+            chi_event_code: self.event_horizon_to_code(chi_mpc),
+            sound_speed_code: self.sound_speed_to_code(cs_si),
+            eta_v: ETA_V,
+            eta_d: ETA_D,
+            r_entropy: r_entropy as f32,
+            f_load: f_load as f32,
+            box_size_mpc: self.box_size_mpc,
+            grid_dim: self.grid_resolution as f32,
+            _padding: [0.0; 2],
+        }
+    }
+}
+
+#[repr(C)]
+#[derive(Debug, Clone, Copy, Pod, Zeroable)]
+pub struct CosmoShaderUniforms {
+    pub scale_factor: f32,
+    pub hubble_param: f32,
+    pub chi_event_code: f32,
+    pub sound_speed_code: f32,
+    pub eta_v: f32,
+    pub eta_d: f32,
+    pub r_entropy: f32,
+    pub f_load: f32,
+    pub box_size_mpc: f32,
+    pub grid_dim: f32,
+    pub _padding: [f32; 2],
 }

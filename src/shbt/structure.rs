@@ -485,3 +485,79 @@ impl CosmologicalGrid {
         k1 < 0.05
     }
 }
+
+use crate::shbt::cosmology::{CosmologicalBackground, ETA_D, ETA_V as ETA_V_COSMO, Z_DRAG};
+
+#[derive(Debug, Clone)]
+pub struct TwoFluidDrift {
+    pub cosmo: CosmologicalBackground,
+    pub sound_horizon_drag_mpc: f64,
+}
+
+impl TwoFluidDrift {
+    pub fn new(cosmo: CosmologicalBackground) -> Self {
+        let rs_drag = Self::compute_sound_horizon_drag(&cosmo);
+        Self {
+            cosmo,
+            sound_horizon_drag_mpc: rs_drag,
+        }
+    }
+
+    fn compute_sound_horizon_drag(cosmo: &CosmologicalBackground) -> f64 {
+        let z_min = Z_DRAG;
+        let z_max: f64 = 1.0e6;
+        let n_steps = 1000;
+        let log_z_min = z_min.ln();
+        let log_z_max = z_max.ln();
+        let d_log_z = (log_z_max - log_z_min) / (n_steps as f64);
+
+        let mut sum = 0.0;
+        for i in 0..n_steps {
+            let log_z1 = log_z_min + (i as f64) * d_log_z;
+            let log_z2 = log_z1 + d_log_z;
+            let z1 = log_z1.exp();
+            let z2 = log_z2.exp();
+
+            let cs1 = cosmo.baryon_sound_speed(z1) / 1000.0; // km/s
+            let cs2 = cosmo.baryon_sound_speed(z2) / 1000.0;
+            let a1 = cosmo.scale_factor(z1);
+            let a2 = cosmo.scale_factor(z2);
+            let h1 = cosmo.hubble_rate_kms_mpc(a1);
+            let h2 = cosmo.hubble_rate_kms_mpc(a2);
+
+            let integrand1 = (cs1 / h1) * z1;
+            let integrand2 = (cs2 / h2) * z2;
+            sum += 0.5 * (integrand1 + integrand2) * d_log_z;
+        }
+        sum
+    }
+
+    #[inline]
+    pub fn is_causally_disconnected(&self, comoving_dist_mpc: f64, a: f64) -> bool {
+        let chi_event = self.cosmo.comoving_event_horizon_mpc(a);
+        comoving_dist_mpc >= chi_event
+    }
+
+    pub fn compute_two_fluid_transfer(&self, k_mpc: f64, a: f64) -> (f64, f64) {
+        let z = self.cosmo.redshift(a);
+        let s = self.sound_horizon_drag_mpc;
+        let ks = k_mpc * s;
+
+        // Channel B: Collisionless dark matter transfer function
+        let q = k_mpc / (self.cosmo.h0_kms_mpc / 100.0);
+        let t_dm = (1.0 + (1.7 * q).powi(2) + (0.5 * q).powi(4)).powf(-0.25);
+
+        // Channel A: Collisional baryonic fluid with acoustic oscillations
+        let t_b = if z > Z_DRAG {
+            let omega_ratio = ETA_V_COSMO / ETA_D;
+            (ks.sin() / ks.max(1.0e-5)) * (-0.5 * (k_mpc * 0.1).powi(2)).exp()
+                + omega_ratio * t_dm
+        } else {
+            // Post-recombination relaxation into gravitational potential wells
+            let delta_decay = (a / self.cosmo.scale_factor(Z_DRAG)).min(1.0);
+            t_dm + (ks.sin() / ks.max(1.0e-5)) * (1.0 - delta_decay)
+        };
+
+        (t_b, t_dm)
+    }
+}

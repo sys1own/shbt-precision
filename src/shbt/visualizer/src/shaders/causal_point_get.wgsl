@@ -147,6 +147,13 @@ fn apply_get_acceleration(@builtin(global_invocation_id) global_id: vec3<u32>) {
     var p = particles[p_idx];
     var total_a_get = vec3<f32>(0.0);
 
+    // Cardy capacity limit per cell: N_limit(z) = gamma_CFT * ((1+z)/18)^7.5
+    let rel_z = clamp((1.0 + params.redshift) / 18.0, 1.0e-3, 50.0);
+    let n_limit = (params.c_eff / 6.0) * pow(rel_z, 7.5);
+
+    // Virial velocity dispersion at holographic saturation: sigma_vir^2 ~ 0.05
+    let sigma_vir_sq = 0.05;
+
     for (var i = 0u; i < params.causal_point_count; i = i + 1u) {
         let cp = causal_points[i];
         if (cp.active_flag == 1u) {
@@ -156,12 +163,28 @@ fn apply_get_acceleration(@builtin(global_invocation_id) global_id: vec3<u32>) {
             if (dist < cp.radius && dist > 1e-5) {
                 let rho = sample_density(p.pos, params.mesh_dim);
                 let grad_rho = sample_density_gradient(p.pos, params.mesh_dim);
-                let grad_ln_rho = grad_rho / (rho + 1e-4);
+
+                // Cardy holographic capacity saturation ratio: eta_sat = N_local / N_limit
+                let eta_sat = clamp(rho / max(n_limit, 1.0e-4), 0.0, 1.0);
+
+                // Screen capacity bounded bulk density
+                let rho_eff = max(rho, 1.0e-4);
+                let grad_ln_rho = grad_rho / rho_eff;
+
+                // Emergent velocity dispersion floor: sigma_v^2 = sigma_vir^2 * eta_sat
+                let sigma_v_sq = sigma_vir_sq * eta_sat;
 
                 let window = 1.0 - smoothstep(0.0, cp.radius, dist);
                 let kappa_get = compute_kappa_get(params.load_fraction);
+
+                // Inward entropic clustering kick
                 let a_collapse = -kappa_get * cp.collapse_phase * grad_ln_rho * window;
-                total_a_get += a_collapse;
+
+                // Outward dispersion pressure kick balancing inward collapse:
+                // a_disp = -2 * sigma_v^2 * grad ln rho
+                let a_disp = -2.0 * sigma_v_sq * cp.collapse_phase * grad_ln_rho * window;
+
+                total_a_get += (a_collapse + a_disp);
 
                 p.vis_weight = mix(p.vis_weight, 1.0, 0.02 * cp.collapse_phase);
             }
@@ -343,13 +366,16 @@ fn cs_sandbox_get(@builtin(global_invocation_id) global_id: vec3<u32>) {
             // Entropic clustering pull toward the measurement cone.
             let entropic_pull = sandbox_params.kappa_get * dir *
                 (kw / dist) * 0.01;
+            // Virial stabilization counter-balancing inward entropic clustering
+            let sigma_vir_sq = 0.05;
+            let a_disp = -2.0 * sigma_vir_sq * dir * (kw / dist) * 0.005;
             // Canonical Landauer erasure dissipation rate:
             // gamma_obs = P_debt / (M_seed * c^2) = 906 GW / M_sun / c^2 ~ 5.068e-24 s^-1.
             // Pure first-principles boundary invariants govern trajectory evolution.
             let v_proj = dot(p.velocity, dir);
             let gamma_obs: f32 = 5.068e-24;
             let stabilization = -gamma_obs * v_proj * dir;
-            a_get = a_get + entropic_pull + stabilization;
+            a_get = a_get + entropic_pull + a_disp + stabilization;
         }
     }
 

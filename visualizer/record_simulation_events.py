@@ -18,6 +18,7 @@ Spec milestones (canonical capture names, shbt12 visual checklist):
 from __future__ import annotations
 
 import asyncio
+from dataclasses import dataclass
 import http.server
 import math
 import os
@@ -81,10 +82,64 @@ Z_KEYFRAMES: List[Tuple[float, float]] = [
 ]
 
 
+@dataclass
+class SimTimeStep:
+    step: int
+    scale_factor: float
+    redshift: float
+    box_size_mpc: float
+    camera_radius_mpc: float
+    grid_spacing_mpc: float
+    cardy_ceiling_n: float
+
+
+class SimulationEventRecorder:
+    def __init__(self, l_box_mpc: float = 100.0, n_grid: int = 256, n_sat: float = 1.0e122):
+        self.l_box_mpc = l_box_mpc
+        self.n_grid = n_grid
+        self.n_sat = n_sat
+        self.gamma_cft = 1.0
+        self.omega_m = 0.30
+        self.omega_r = 8.5e-5
+        self.omega_l = 0.70
+        self.h_ref_si = 2.2e-18  # s^-1
+        self.c_si = 2.99792458e8
+        self.mpc_to_m = 3.08567758e22
+
+    def e_factor(self, a: float) -> float:
+        return math.sqrt(self.omega_r * a**(-4) + self.omega_m * a**(-3) + self.omega_l)
+
+    def compute_cardy_ceiling(self, a: float) -> float:
+        h_ratio = self.e_factor(a)
+        h_si = self.h_ref_si * h_ratio
+        r_h_m = self.c_si / max(h_si, 1e-30)
+        v_h_m3 = (4.0 / 3.0) * math.pi * (r_h_m ** 3)
+        cell_com_m = (self.l_box_mpc * self.mpc_to_m) / float(self.n_grid)
+        cell_phys_m = a * cell_com_m
+        v_cell_m3 = cell_phys_m ** 3
+        return self.gamma_cft * (h_ratio ** 2) * (v_cell_m3 / max(v_h_m3, 1e-50)) * self.n_sat
+
+    def compute_camera_radius(self, a: float) -> float:
+        r_halo_ref = 0.8  # Mpc
+        t = 1.0 / (1.0 + (a / 1.0) ** (-1.2))
+        beta = 0.28 + (0.35 - 0.28) * t
+        r_box = 1.5 * self.l_box_mpc * (a ** beta)
+        return math.sqrt(r_halo_ref ** 2 + r_box ** 2)
+
+    def compute_grid_spacing(self, a: float) -> float:
+        l_phys = a * self.l_box_mpc
+        exponent = math.floor(math.log10(max(1e-16, 0.2 * l_phys)))
+        return 10.0 ** exponent
+
+
+_recorder_instance = SimulationEventRecorder(l_box_mpc=BOX_SIZE)
+
+
 def compute_camera_trajectory(z: float, progress: float = 0.0) -> Tuple[List[float], List[float]]:
     """
     Computes smooth 3D isometric camera trajectory locked to the diagonal vantage.
     Frames the cosmic web symmetrically across the entire viewport.
+    Incorporates physical metric dilation and adaptive scale-factor camera orbit.
     """
     target = np.array([0.0, 0.0, 0.0])
     theta = np.radians(35.264)
@@ -92,6 +147,7 @@ def compute_camera_trajectory(z: float, progress: float = 0.0) -> Tuple[List[flo
     # Gentle symmetric diagonal orbit around phi = 45 degrees
     phi = np.radians(45.0 + 6.0 * math.sin(progress * math.pi))
 
+    a = 1.0 / (1.0 + max(z, -0.999))
     if z > 30.0:  # Primordial & Baryogenesis eras
         u = float(np.clip((14.0 - np.log10(max(z, 30.0))) / (14.0 - np.log10(30.0)), 0.0, 1.0))
         r = 1.18 - 0.05 * u

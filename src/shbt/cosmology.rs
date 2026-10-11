@@ -663,3 +663,162 @@ impl CosmologicalEngine {
     }
 }
 
+pub const K_L: f64 = 26.0;
+pub const K_Q: f64 = 8.0;
+pub const TOTAL_AFFINE_LEVEL: f64 = K_L + K_Q - 1.0; // 33.0
+pub const ETA_V: f64 = (K_Q + 2.0) / TOTAL_AFFINE_LEVEL; // 10.0 / 33.0
+pub const ETA_D: f64 = (K_L - 3.0) / TOTAL_AFFINE_LEVEL; // 23.0 / 33.0
+
+pub const C_SI: f64 = 299_792_458.0; // m/s
+pub const K_B_SI: f64 = 1.380_649e-23; // J/K
+pub const M_P_SI: f64 = 1.672_621_92e-27; // kg
+pub const G_SI: f64 = 6.674_30e-11; // m^3 / (kg s^2)
+pub const T_CMB_0: f64 = 2.7255; // K
+pub const GAMMA_ADIABATIC: f64 = 5.0 / 3.0;
+pub const SIGMA_SB_SI: f64 = 5.670_374_419e-8; // W / (m^2 K^4)
+
+pub const H0_SI: f64 = 67.4 * 1000.0 / 3.085_677_581e22; // s^-1
+pub const MPC_TO_METERS: f64 = 3.085_677_581e22;
+
+pub const Z_COMPTON: f64 = 137.0;
+pub const Z_REC: f64 = 1080.0;
+pub const Z_DRAG: f64 = 1060.0;
+pub const Z_FREEZE: f64 = -0.999;
+pub const EPSILON_FREEZE: f64 = 1.0e-6;
+
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub struct CosmologicalBackground {
+    pub h0_kms_mpc: f64,
+    pub omega_r: f64,
+    pub omega_m: f64,
+    pub omega_lambda: f64,
+    pub rho_b0_si: f64,
+    pub rho_gamma0_si: f64,
+    pub r0_momentum_ratio: f64,
+}
+
+impl Default for CosmologicalBackground {
+    fn default() -> Self {
+        let omega_m = ETA_V; // 10.0 / 33.0
+        let omega_r = 9.0e-5;
+        let omega_lambda = 1.0 - omega_m - omega_r; // Maintain flat geometry
+
+        let rho_crit_0 = (3.0 * H0_SI * H0_SI) / (8.0 * std::f64::consts::PI * G_SI);
+        let rho_b0 = 0.049 * rho_crit_0;
+        let rho_gamma0 = (4.0 * SIGMA_SB_SI / (C_SI * C_SI * C_SI)) * T_CMB_0.powi(4);
+        let r0 = (3.0 * rho_b0) / (4.0 * rho_gamma0);
+
+        Self {
+            h0_kms_mpc: 67.4,
+            omega_r,
+            omega_m,
+            omega_lambda,
+            rho_b0_si: rho_b0,
+            rho_gamma0_si: rho_gamma0,
+            r0_momentum_ratio: r0,
+        }
+    }
+}
+
+impl CosmologicalBackground {
+    #[inline]
+    pub fn scale_factor(&self, z: f64) -> f64 {
+        1.0 / (1.0 + z.max(Z_FREEZE))
+    }
+
+    #[inline]
+    pub fn redshift(&self, a: f64) -> f64 {
+        (1.0 / a.max(1.0e-4)) - 1.0
+    }
+
+    pub fn hubble_rate_si(&self, a: f64) -> f64 {
+        let a_clamped = a.max(1.0e-4);
+        let term_r = self.omega_r / a_clamped.powi(4);
+        let term_m = self.omega_m / a_clamped.powi(3);
+        let term_l = self.omega_lambda;
+        H0_SI * (term_r + term_m + term_l).sqrt()
+    }
+
+    pub fn hubble_rate_kms_mpc(&self, a: f64) -> f64 {
+        let a_clamped = a.max(1.0e-4);
+        let term_r = self.omega_r / a_clamped.powi(4);
+        let term_m = self.omega_m / a_clamped.powi(3);
+        let term_l = self.omega_lambda;
+        self.h0_kms_mpc * (term_r + term_m + term_l).sqrt()
+    }
+
+    pub fn baryon_temperature(&self, z: f64) -> f64 {
+        let z_eff = z.max(Z_FREEZE);
+        if z_eff > Z_COMPTON {
+            T_CMB_0 * (1.0 + z_eff)
+        } else {
+            T_CMB_0 * (1.0 + z_eff).powi(2) / (1.0 + Z_COMPTON)
+        }
+    }
+
+    pub fn mean_molecular_weight(&self, z: f64) -> f64 {
+        let z_eff = z.max(Z_FREEZE);
+        let mu_ion = 0.59;
+        let mu_neutral = 1.22;
+        let arg = ((z_eff - Z_REC) / 50.0).clamp(-50.0, 50.0);
+        mu_ion + (mu_neutral - mu_ion) / (1.0 + arg.exp())
+    }
+
+    pub fn baryon_sound_speed(&self, z: f64) -> f64 {
+        let z_eff = z.max(Z_FREEZE);
+        let tb = self.baryon_temperature(z_eff);
+        let mu = self.mean_molecular_weight(z_eff);
+        let r_z = self.r0_momentum_ratio / (1.0 + z_eff);
+
+        let cs2_thermal = (GAMMA_ADIABATIC * K_B_SI * tb) / (mu * M_P_SI * (1.0 + r_z));
+        let cs_thermal = cs2_thermal.max(0.0).sqrt();
+
+        // Enforce the relativistic acoustic ceiling for the radiation-dominated era
+        let cs_relativistic = (C_SI / 3.0_f64.sqrt()) / (1.0 + r_z).sqrt();
+        cs_thermal.min(cs_relativistic)
+    }
+
+    pub fn comoving_event_horizon_mpc(&self, a: f64) -> f64 {
+        let a_start = a.max(1.0e-4);
+        let c_over_h0_mpc = (C_SI / 1000.0) / self.h0_kms_mpc;
+        let u_upper = 1.0 / a_start;
+
+        // 16-point Gauss-Legendre Quadrature over [0, u_upper]
+        const GL_X: [f64; 8] = [
+            0.0950125098376374, 0.2816035507792589, 0.4580167776572274, 0.6178762444026438,
+            0.7554044083550030, 0.8656312023878318, 0.9445750230732326, 0.9894009349916499,
+        ];
+        const GL_W: [f64; 8] = [
+            0.1894506104550685, 0.1826034150449236, 0.1691565193950025, 0.1495959888165767,
+            0.1246289712555339, 0.0951585116824928, 0.0622535239386479, 0.0271524594117541,
+        ];
+
+        let half_u = 0.5 * u_upper;
+        let mut integral = 0.0;
+        for i in 0..8 {
+            let u1 = half_u * (1.0 - GL_X[i]);
+            let u2 = half_u * (1.0 + GL_X[i]);
+
+            let e1 = (self.omega_r * u1.powi(4) + self.omega_m * u1.powi(3) + self.omega_lambda).sqrt();
+            let e2 = (self.omega_r * u2.powi(4) + self.omega_m * u2.powi(3) + self.omega_lambda).sqrt();
+
+            integral += GL_W[i] * (1.0 / e1 + 1.0 / e2);
+        }
+        integral *= half_u;
+
+        c_over_h0_mpc * integral
+    }
+
+    pub fn forward_capacity_load(&self, a: f64) -> f64 {
+        let chi_present = self.comoving_event_horizon_mpc(1.0);
+        let chi_a = self.comoving_event_horizon_mpc(a);
+        let ratio = chi_a / chi_present;
+        (1.0 - ratio * ratio).clamp(0.0, 1.0)
+    }
+
+    pub fn entropy_reserve(&self, a: f64) -> f64 {
+        let f_load = self.forward_capacity_load(a);
+        1.0 - f_load - EPSILON_FREEZE
+    }
+}
+

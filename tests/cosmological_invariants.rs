@@ -508,4 +508,57 @@ fn test_anomaly_closure_error_at_redshift_boundary() {
     }
 }
 
+#[test]
+fn test_shbt19_baryon_sound_speed_and_thermal_history() {
+    use shbt_simulator::shbt::cosmology::CosmologicalBackground;
+    let cosmo = CosmologicalBackground::default();
+
+    // 1. Primordial radiation era (z = 1e14): cs / c ~ 1 / sqrt(3) ~ 0.5773
+    let cs_prim = cosmo.baryon_sound_speed(1.0e14);
+    let ratio_prim = cs_prim / 299_792_458.0;
+    assert!((ratio_prim - 0.57735).abs() < 1e-4, "cs/c at z=1e14: {}", ratio_prim);
+
+    // 2. Drag epoch (z = 1060): cs ~ 5013 m/s
+    let cs_drag = cosmo.baryon_sound_speed(1060.0);
+    assert!((cs_drag - 5013.8).abs() < 200.0, "cs at z=1060: {} m/s", cs_drag);
+
+    // 3. Compton thermal decoupling (z = 137): cs ~ 848 m/s
+    let cs_comp = cosmo.baryon_sound_speed(137.0);
+    assert!((cs_comp - 848.4).abs() < 50.0, "cs at z=137: {} m/s", cs_comp);
+
+    // 4. Modern epoch (z = 0.0): cs ~ 0.57 m/s
+    let cs_0 = cosmo.baryon_sound_speed(0.0);
+    assert!((cs_0 - 0.574).abs() < 0.1, "cs at z=0: {} m/s", cs_0);
+
+    // 5. Asymptotic horizon freeze (z = -0.999): cs -> ~ 1.8e-5 m/s
+    let cs_freeze = cosmo.baryon_sound_speed(-0.999);
+    assert!(cs_freeze < 1e-4, "cs at freeze: {} m/s", cs_freeze);
+}
+
+#[test]
+fn test_shbt19_event_horizon_contraction_and_freeze() {
+    use shbt_simulator::shbt::cosmology::CosmologicalBackground;
+    let cosmo = CosmologicalBackground::default();
+
+    // chi_event at a = 1.0 is ~ 5081.89 Mpc
+    let chi_1 = cosmo.comoving_event_horizon_mpc(1.0);
+    assert!((chi_1 - 5081.89).abs() < 50.0, "chi_event(1.0) = {}", chi_1);
+
+    // chi_event at a = 1000.0 (z -> -0.999) contracts to ~ 5.33 Mpc
+    let chi_1000 = cosmo.comoving_event_horizon_mpc(1000.0);
+    assert!((chi_1000 - 5.33).abs() < 0.1, "chi_event(1000) = {}", chi_1000);
+
+    // Forward capacity load at a = 1.0 is 0.0
+    let f_load_1 = cosmo.forward_capacity_load(1.0);
+    assert!(f_load_1 < 1e-6, "f_load(1.0) = {}", f_load_1);
+
+    // Forward capacity load at a = 1000.0 saturates to 1.0
+    let f_load_1000 = cosmo.forward_capacity_load(1000.0);
+    assert!((f_load_1000 - 1.0).abs() < 1e-4, "f_load(1000) = {}", f_load_1000);
+
+    // Entropy reserve at a = 1000.0 is exhausted (< 1e-6)
+    let r_entropy = cosmo.entropy_reserve(1000.0);
+    assert!(r_entropy < 1e-6, "R_entropy(1000) = {}", r_entropy);
+}
+
 

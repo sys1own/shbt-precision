@@ -552,4 +552,32 @@ The holographic softening length regularizing the Particle-Mesh solver scales as
 \end{equation}
 yielding time-invariant comoving resolution $\epsilon_{\mathrm{comov}} = \text{const}$.
 
+\section{Boundary Affine Quantization, Cardy Virialization, and Horizon Freeze Hydrodynamics}
+\label{app:affine-quantization-cardy-freeze}
+
+\subsection{Affine Level Partition and Invariant Ratios}
+The boundary algebra decomposition $SO(10)_{312} \supset SU(2)_{26} \times SU(3)_8$ fixes the central charges and conductor $N = 33$. The capacity fractions:
+\begin{equation}
+\eta_V = \frac{k_\ell + k_q - 24}{N} = \frac{26 + 8 - 24}{33} = \frac{10}{33}, \quad \eta_D = 1 - \eta_V = \frac{23}{33},
+\end{equation}
+dictate the exact partitioning of baryonic and topological dark degrees of freedom.
+
+\subsection{Cardy Virialization and Phase-Space Capacity Saturation}
+In local overdensities where the operational bit requirement exceeds the Cardy limit $N_{\mathrm{limit}}(z) = \gamma_{\mathrm{CFT}} (H/H_{\mathrm{ref}})^2 (V_{\mathrm{cell}}/V_H) N_{\mathrm{sat}}$ ($\gamma_{\mathrm{CFT}} = 1325/924$), information crowding creates velocity dispersion:
+\begin{equation}
+\sigma_v^2 = \sigma_{\mathrm{vir}}^2 \, \frac{N_{\mathrm{local}}}{N_{\mathrm{limit}}(z)}, \quad \sigma_{\mathrm{vir}} = 1.25 \times 10^{-2} \, c.
+\end{equation}
+The associated dispersion gradient $\mathbf{a}_{\mathrm{disp}} = - 2 \sigma_v^2 \nabla \ln \rho$ balances the holographic entropic pull $\mathbf{a}_{\mathrm{GET}}$, halting artificial unphysical collapse into monolithic singular pancakes.
+
+\subsection{Horizon Contraction and Terminal State Crystallization}
+The forward cosmological loading fraction:
+\begin{equation}
+f_{\mathrm{load}}(a) = \frac{\int_{a_0}^a \frac{da'}{a'^2 H(a')}}{\int_{a_0}^\infty \frac{da'}{a'^2 H(a')}}
+\end{equation}
+converges asymptotically to unity as $a \to 1000$ ($z \to -0.999$). The entropy reserve:
+\begin{equation}
+R_{\mathrm{entropy}}(a) = 1 - f_{\mathrm{load}}(a) - 10^{-6}
+\end{equation}
+is strictly zero when exhausted. All physical peculiar motion ceases ($\mathbf{v}=0, \mathbf{a}=0$), and node splats transition via Hermite interpolation to the ground-state topological invariant $[0.12, 0.18, 0.28, 0.35]$.
+
 \end{document}

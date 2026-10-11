@@ -219,10 +219,22 @@ fn grad_ln_rho(x_tilde: vec3<f32>) -> vec3<f32> {
     return vec3<f32>(gx, gy, gz) / (2.0 * eps * max(rho_c, 1.0e-3));
 }
 
-// GET entropic transport (shbt7 Thm 9.8 / shbt8 Eq. 7):
-//   F_GET = -kappa_GET(f_load) * grad ln rho_proj(x_tilde)
+// GET entropic transport and Cardy velocity dispersion floor (shbt19):
+//   F_GET  = -kappa_GET(f_load) * grad ln rho_proj(x_tilde)
+//   F_disp = -2 * sigma_v^2 * grad ln rho_proj(x_tilde), where sigma_v^2 = sigma_vir^2 * eta_sat
+// As eta_sat -> 1, the outward dispersion pressure halts monolithic caustic collapse.
 fn compute_get_force(x_tilde: vec3<f32>, kappa_get: f32) -> vec3<f32> {
-    return -kappa_get * grad_ln_rho(x_tilde) * 0.01;
+    let rho = pm_rho(x_tilde);
+    let z = (1.0 / max(cosmo.a, 1.0e-4)) - 1.0;
+    let n_limit = cardy_limit_norm(z);
+    let eta_sat = clamp(rho / max(n_limit, 1.0e-4), 0.0, 1.0);
+    let sigma_vir_sq: f32 = 0.05;
+    let sigma_v_sq = sigma_vir_sq * eta_sat;
+
+    let grad_ln_r = grad_ln_rho(x_tilde);
+    let a_get = -kappa_get * grad_ln_r * 0.01;
+    let a_disp = -2.0 * sigma_v_sq * grad_ln_r * 0.01;
+    return a_get + a_disp;
 }
 
 // Conservative P-PM baryon pressure force (shbt9 Thm 9.13):
@@ -385,20 +397,30 @@ fn cs_advance_particles(@builtin(global_invocation_id) global_id: vec3<u32>) {
         tethers[v_base + 1u].alpha_decay = tethers[v_base + 1u].alpha_decay * tether_fade;
     }
 
-    // Martel-Shapiro supercomoving KDK step (shbt8 Eq. 3-8):
-    //   Stage 1: half-kick at (x_n, a_n)
-    //   Stage 2: drift x_{n+1} = fract(x_n + dtau * p_{n+1/2})
-    //   Stage 3: half-kick at (x_{n+1}, a_{n+1})
+    // Martel-Shapiro supercomoving KDK step (shbt8 Eq. 3-8 / shbt19):
+    // Asymptotic Horizon Freeze Graceful Shutdown Check:
+    // When forward load saturates (f_load >= 1.0 - 1e-4) or z <= -0.999,
+    // residual entropy reserve extinguishes; freeze kinematic propagation to zero.
+    if (cosmo.f_load >= 0.9999 || z_current <= -0.998) {
+        p.velocity = vec3<f32>(0.0);
+        particles[idx] = p;
+        return;
+    }
+
     var x_tilde = fract(p.position / cosmo.box_size);
     var p_tilde = p.velocity;
 
+    // Cosmological Event Horizon Causal Screening:
+    // As the comoving event horizon contracts (1 - (10/33)*f_load), forces screen out.
+    let causal_screen = clamp(1.0 - cosmo.f_load, 0.0, 1.0);
+
     // Kick 1 (x_n, a_n)
     let is_visible = p.channel == 0u;
-    p_tilde = p_tilde + cosmo.half_dtau * compute_total_force(x_tilde, cosmo.a, is_visible, hydro_gate);
+    p_tilde = p_tilde + cosmo.half_dtau * compute_total_force(x_tilde, cosmo.a, is_visible, hydro_gate) * causal_screen;
     // Drift
     x_tilde = fract(x_tilde + vec3<f32>(1.0) + cosmo.dtau * p_tilde);
     // Kick 2 (x_{n+1}, a_{n+1})
-    p_tilde = p_tilde + cosmo.half_dtau * compute_total_force(x_tilde, cosmo.a_next, is_visible, hydro_gate);
+    p_tilde = p_tilde + cosmo.half_dtau * compute_total_force(x_tilde, cosmo.a_next, is_visible, hydro_gate) * causal_screen;
 
     // Numerical bound: cap the supercomoving momentum so a single
     // soft-kernel fluctuation cannot send the particle to NaN (register
