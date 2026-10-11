@@ -706,3 +706,40 @@ impl TwoFluidDrift {
         (t_b, t_dm)
     }
 }
+
+// ----------------------------------------------------------------------------
+// Particle Storage Buffer Layout and 2LPT Ingestion (shbt22.txt)
+// ----------------------------------------------------------------------------
+
+/// 32-byte WebGPU std430 particle storage buffer record
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Pod, Zeroable)]
+pub struct ParticleRecord {
+    pub pos: [f32; 4], // pos.xyz = comoving position, pos.w = mass weight
+    pub vel: [f32; 4], // vel.xyz = supercomoving momentum, vel.w = particle ID
+}
+
+pub struct SimulationBufferManager {
+    pub particle_count: u32,
+    pub raw_data: Vec<u8>,
+}
+
+impl SimulationBufferManager {
+    /// Ingests and validates a precomputed 2LPT initial condition binary buffer.
+    pub fn new_from_binary(
+        raw_bytes: &[u8],
+        grid_dim: u32,
+    ) -> Result<Self, &'static str> {
+        let particle_count = grid_dim * grid_dim * grid_dim;
+        let expected_bytes = (particle_count as usize) * std::mem::size_of::<ParticleRecord>();
+
+        if raw_bytes.len() != expected_bytes {
+            return Err("Binary particle buffer size does not match target grid dimension.");
+        }
+
+        Ok(Self {
+            particle_count,
+            raw_data: raw_bytes.to_vec(),
+        })
+    }
+}

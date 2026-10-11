@@ -35,6 +35,7 @@ import subprocess
 import sys
 import time
 import math
+import struct
 import numpy as np
 from pathlib import Path
 from typing import Any, Iterable
@@ -136,8 +137,126 @@ def precompute_weil_character_phases_at_tau_i(n_modules: int = NUM_CFT_MODULES) 
     return weil_phases
 
 
-# Global precomputed register phases for FFT initialization
-WEIL_PHASES_TABLE = precompute_weil_character_phases_at_tau_i()
+def generate_2lpt_particles(
+    n_grid: int = 64,
+    box_size: float = 1.0,
+    z_init: float = 100.0,
+    omega_m: float = 0.315,
+    omega_l: float = 0.685,
+    h0: float = 67.4,
+    seed: int = 42
+) -> bytes:
+    """
+    Computes 3D 2LPT displacement fields and supercomoving momentum on a periodic 3-torus,
+    exporting a WebGPU-compliant storage buffer (shbt22).
+    """
+    a_init = 1.0 / (1.0 + z_init)
+    h_a = np.sqrt(omega_m * (a_init ** -3.0) + omega_l)
+
+    # Growth factors and logarithmic rates deep in the matter-dominated regime
+    d1 = a_init
+    d2 = (3.0 / 7.0) * (a_init ** 2.0)
+    f1 = 1.0
+    f2 = 2.0
+
+    # Continuous reciprocal frequency mesh
+    k_1d = 2.0 * np.pi * np.fft.fftfreq(n_grid, d=box_size / n_grid)
+    kx_grid, ky_grid, kz_grid = np.meshgrid(k_1d, k_1d, k_1d, indexing='ij')
+
+    k_sq = kx_grid**2 + ky_grid**2 + kz_grid**2
+    k_nyquist = np.pi * n_grid / box_size
+
+    # Initialize density perturbations using isotropic modular Weil phase distributions
+    rng = np.random.default_rng(seed)
+    white_noise = rng.standard_normal((n_grid, n_grid, n_grid))
+    delta_k = np.fft.fftn(white_noise)
+
+    # Scale primordial power spectrum: P(k) ~ k^(n_s) with n_s = 0.9667
+    k_mag = np.sqrt(k_sq)
+    k_mag[0, 0, 0] = 1.0  # Safeguard DC division
+    pk_amp = np.where(k_sq > 0.0, (k_mag ** (0.9667 * 0.5)), 0.0)
+    delta_k *= pk_amp
+
+    # Enforce spherical Nyquist truncation and zero-mode neutralization
+    delta_k[k_mag > k_nyquist] = 0.0
+    delta_k[0, 0, 0] = 0.0
+
+    # Solve first-order Poisson equation: phi_1(k) = - delta(k) / k^2
+    inv_k_sq = np.zeros_like(k_sq)
+    inv_k_sq[k_sq > 0.0] = 1.0 / k_sq[k_sq > 0.0]
+    phi1_k = -delta_k * inv_k_sq
+
+    # Compute six unique components of the tidal shear tensor psi_ij
+    psi_xx = np.real(np.fft.ifftn(-kx_grid * kx_grid * phi1_k))
+    psi_yy = np.real(np.fft.ifftn(-ky_grid * ky_grid * phi1_k))
+    psi_zz = np.real(np.fft.ifftn(-kz_grid * kz_grid * phi1_k))
+    psi_xy = np.real(np.fft.ifftn(-kx_grid * ky_grid * phi1_k))
+    psi_xz = np.real(np.fft.ifftn(-kx_grid * kz_grid * phi1_k))
+    psi_yz = np.real(np.fft.ifftn(-ky_grid * kz_grid * phi1_k))
+
+    # Evaluate second-order source term in configuration space
+    source2 = (
+        (psi_xx * psi_yy + psi_yy * psi_zz + psi_zz * psi_xx) -
+        (psi_xy**2 + psi_xz**2 + psi_yz**2)
+    )
+
+    # Solve second-order Poisson equation: phi_2(k) = - S_2(k) / k^2
+    source2_k = np.fft.fftn(source2)
+    source2_k[0, 0, 0] = 0.0
+    phi2_k = -source2_k * inv_k_sq
+
+    # Spectral displacement gradients
+    grad_phi1_x = np.real(np.fft.ifftn(1j * kx_grid * phi1_k))
+    grad_phi1_y = np.real(np.fft.ifftn(1j * ky_grid * phi1_k))
+    grad_phi1_z = np.real(np.fft.ifftn(1j * kz_grid * phi1_k))
+
+    grad_phi2_x = np.real(np.fft.ifftn(1j * kx_grid * phi2_k))
+    grad_phi2_y = np.real(np.fft.ifftn(1j * ky_grid * phi2_k))
+    grad_phi2_z = np.real(np.fft.ifftn(1j * kz_grid * phi2_k))
+
+    # Construct unperturbed Lagrangian grid q in [0, 1)^3
+    coords_1d = np.linspace(0.0, box_size, n_grid, endpoint=False)
+    qx, qy, qz = np.meshgrid(coords_1d, coords_1d, coords_1d, indexing='ij')
+
+    # Eulerian comoving position: x(q) = q - D_1 * grad(phi_1) + D_2 * grad(phi_2)
+    pos_x = np.mod(qx - d1 * grad_phi1_x + d2 * grad_phi2_x, box_size)
+    pos_y = np.mod(qy - d1 * grad_phi1_y + d2 * grad_phi2_y, box_size)
+    pos_z = np.mod(qz - d1 * grad_phi1_z + d2 * grad_phi2_z, box_size)
+
+    # Supercomoving momentum: u(q) = -a^2 * H(a) * [ f_1 * D_1 * grad(phi_1) - f_2 * D_2 * grad(phi_2) ]
+    pref_mom = -(a_init ** 2.0) * h_a
+    vel_x = pref_mom * (f1 * d1 * grad_phi1_x - f2 * d2 * grad_phi2_x)
+    vel_y = pref_mom * (f1 * d1 * grad_phi1_y - f2 * d2 * grad_phi2_y)
+    vel_z = pref_mom * (f1 * d1 * grad_phi1_z - f2 * d2 * grad_phi2_z)
+
+    # Pack into binary format matching WebGPU std430 storage buffer layout
+    n_particles = n_grid ** 3
+    px_flat = pos_x.astype(np.float32).ravel()
+    py_flat = pos_y.astype(np.float32).ravel()
+    pz_flat = pos_z.astype(np.float32).ravel()
+    vx_flat = vel_x.astype(np.float32).ravel()
+    vy_flat = vel_y.astype(np.float32).ravel()
+    vz_flat = vel_z.astype(np.float32).ravel()
+
+    buffer = bytearray(n_particles * 32)
+    for i in range(n_particles):
+        offset = i * 32
+        struct.pack_into(
+            '<4f4f',
+            buffer,
+            offset,
+            px_flat[i], py_flat[i], pz_flat[i], 1.0,         # pos: xyz, mass=1.0
+            vx_flat[i], vy_flat[i], vz_flat[i], float(i)     # vel: ux, uy, uz, id
+        )
+    return bytes(buffer)
+
+
+def export_2lpt_binary(filename: str = 'particles_init_z100.bin', n_grid: int = 64, z_init: float = 100.0) -> str:
+    """Exports precomputed 2LPT initial conditions binary buffer to disk."""
+    data = generate_2lpt_particles(n_grid=n_grid, z_init=z_init)
+    with open(filename, 'wb') as f:
+        f.write(data)
+    return filename
 
 
 def generate_weil_modular_phases(k_grid: np.ndarray) -> np.ndarray:

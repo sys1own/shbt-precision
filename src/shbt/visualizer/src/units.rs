@@ -734,6 +734,126 @@ impl UnitConverter {
     }
 }
 
+// ----------------------------------------------------------------------------
+// 3D 2LPT Cosmological Context and Invariant Uniforms (shbt22.txt)
+// ----------------------------------------------------------------------------
+
+#[derive(Clone, Copy, Debug)]
+pub struct CosmologicalContext2Lpt {
+    pub omega_m: f32,
+    pub omega_l: f32,
+    pub h0: f32,
+    pub z_init: f32,
+    pub a_init: f32,
+    pub d1: f32,
+    pub d2: f32,
+    pub f1: f32,
+    pub f2: f32,
+    pub h_a: f32,
+}
+
+impl CosmologicalContext2Lpt {
+    pub fn new(omega_m: f32, omega_l: f32, h0: f32, z_init: f32) -> Self {
+        let a_init = 1.0 / (1.0 + z_init);
+        let h_a = (omega_m * a_init.powi(-3) + omega_l).sqrt();
+
+        // Deep matter-domination EdS scaling approximations
+        let d1 = a_init;
+        let d2 = (3.0 / 7.0) * a_init * a_init;
+        let f1 = 1.0;
+        let f2 = 2.0;
+
+        Self {
+            omega_m,
+            omega_l,
+            h0,
+            z_init,
+            a_init,
+            d1,
+            d2,
+            f1,
+            f2,
+            h_a,
+        }
+    }
+
+    /// Evaluates the supercomoving momentum prefactor: prefactor = -a^2 * H(a)
+    #[inline(always)]
+    pub fn momentum_prefactor(&self) -> f32 {
+        -(self.a_init * self.a_init) * self.h_a
+    }
+}
+
+/// WebGPU-aligned Uniform buffer representation matching std140 layout (shbt22)
+/// Total size: 64 bytes (aligned to 16 bytes).
+#[repr(C, align(16))]
+#[derive(Copy, Clone, Debug, PartialEq, Pod, Zeroable)]
+pub struct GpuSimulationUniforms64 {
+    /// Grid dimensions (nx, ny, nz, padding)
+    pub grid_dim: [u32; 4],
+    /// Physical simulation boundaries and time step (lx, ly, lz, dt)
+    pub box_params: [f32; 4],
+    /// Theoretical speed of sound c_s(z)
+    pub c_s: f32,
+    /// Generalized Entropic Transport coupling constant
+    pub kappa_get: f32,
+    /// Cardy formula entropy floor density
+    pub rho_cardy_floor: f32,
+    /// Cosmological redshift parameter
+    pub redshift_z: f32,
+    /// Percolation threshold invariant
+    pub eta_perc: f32,
+    /// Gravitational lensing invariant
+    pub lambda_lens: f32,
+    /// Dispersion parameter invariant
+    pub delta_disp: f32,
+    /// Admissible Causal-Point observer count (R_adm = 1024)
+    pub r_adm: u32,
+}
+
+impl Default for GpuSimulationUniforms64 {
+    fn default() -> Self {
+        Self::from_theory_invariants(64, 64, 64, 1100.0)
+    }
+}
+
+impl GpuSimulationUniforms64 {
+    /// Constructs immutable GPU uniforms derived strictly from SHBT boundary theory
+    pub fn from_theory_invariants(nx: u32, ny: u32, nz: u32, z: f32) -> Self {
+        let baryon_photon_ratio = 0.044 / (2.47e-5 * (1.0 + z));
+        let c_s = (1.0 / (3.0 * (1.0 + 0.75 * baryon_photon_ratio))).sqrt();
+
+        let rho_cardy_floor = 0.0052359877;
+        let kappa_get = 0.0435;
+        let eta_perc = 1.854;
+        let lambda_lens = 0.0245;
+        let delta_disp = 1.000;
+        let r_adm = 1024;
+
+        Self {
+            grid_dim: [nx, ny, nz, 0],
+            box_params: [1.0, 1.0, 1.0, 0.0005],
+            c_s,
+            kappa_get,
+            rho_cardy_floor,
+            redshift_z: z,
+            eta_perc,
+            lambda_lens,
+            delta_disp,
+            r_adm,
+        }
+    }
+
+    /// Update simulation time step and redshift without altering theoretical invariants
+    pub fn update_epoch(&mut self, z: f32, dt: f32) {
+        self.redshift_z = z;
+        self.box_params[3] = dt;
+
+        let baryon_photon_ratio = 0.044 / (2.47e-5 * (1.0 + z));
+        self.c_s = (1.0 / (3.0 * (1.0 + 0.75 * baryon_photon_ratio))).sqrt();
+    }
+}
+
 use glam::{Mat4, Vec3};
 
 #[derive(Debug, Clone, Copy)]
@@ -1296,5 +1416,11 @@ mod tests {
         let chi_1000 = params.comoving_event_horizon(1000.0);
         // At a = 1000, chi_event ~ 5.33 Mpc
         assert!((chi_1000 - 5.33).abs() < 0.2);
+    }
+
+    #[test]
+    fn test_uniform_alignment_and_size() {
+        assert_eq!(std::mem::size_of::<GpuSimulationUniforms64>(), 64);
+        assert_eq!(std::mem::align_of::<GpuSimulationUniforms64>(), 16);
     }
 }

@@ -602,3 +602,34 @@ mod lensing_tests {
         assert_eq!(engine.uniforms.lensing_strength, 5.0);
     }
 }
+
+// ----------------------------------------------------------------------------
+// Synchronized Telemetry State and Invariant Readout (shbt22)
+// ----------------------------------------------------------------------------
+
+#[allow(dead_code)]
+#[derive(Clone, Copy, Debug)]
+pub struct HudTelemetryState {
+    pub is_visible: bool,
+    pub frame_counter: u64,
+    pub frame_time_ms: f32,
+    pub observer_drift_norm: f32,
+}
+
+impl Default for HudTelemetryState {
+    fn default() -> Self {
+        Self {
+            is_visible: true,
+            frame_counter: 0,
+            frame_time_ms: 0.0,
+            observer_drift_norm: 0.0,
+        }
+    }
+}
+
+impl HudTelemetryState {
+    #[allow(dead_code)]
+    pub fn is_drift_zero(&self) -> bool {
+        self.observer_drift_norm < 1e-6
+    }
+}

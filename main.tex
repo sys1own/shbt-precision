@@ -9793,6 +9793,43 @@ The phase-space $(x, v_x)$ projection kernel in \texttt{diagnostics.wgsl} operat
     driving a continuous pseudocolor ramp spanning deep void blue, caustic sheet cyan, high-density amber, and virialized white, resolving single-stream caustic folds and dense virial cores with zero visual dropouts.
 \end{enumerate}
 
+\subsection{Second-Order Lagrangian Perturbation Theory and Regularized Poisson Inversion}
+Cosmological $N$-body simulations initialized directly on Cartesian lattice configurations 
+excite spurious decaying transients and artificial caustics. To suppress these numerical 
+errors, particles are mapped from initial Lagrangian coordinates $\mathbf{q} \in [0, 1)^3$ 
+to Eulerian comoving positions $\mathbf{x}$ and supercomoving momenta $\mathbf{u}$ at 
+$z_{\mathrm{init}} = 100$ via Second-Order Lagrangian Perturbation Theory (2LPT):
+\begin{align}
+\mathbf{x}(\mathbf{q}) &= \mathbf{q} - D_1(a) \nabla_{\mathbf{q}} \phi_1(\mathbf{q}) 
++ D_2(a) \nabla_{\mathbf{q}} \phi_2(\mathbf{q}) \pmod{1.0}, \\
+\mathbf{u}(\mathbf{q}) &= -a^2 H(a) \left[ f_1(a) D_1(a) \nabla_{\mathbf{q}} \phi_1(\mathbf{q}) 
+- f_2(a) D_2(a) \nabla_{\mathbf{q}} \phi_2(\mathbf{q}) \right],
+\end{align}
+where $a = (1 + z)^{-1}$, $D_1(a) \approx a$, $D_2(a) \approx \frac{3}{7}a^2$, $f_1 \approx 1.0$, 
+and $f_2 \approx 2.0$ deep within the matter-dominated regime. The linear potential $\phi_1$ 
+and second-order potential $\phi_2$ satisfy
+\begin{equation}
+\nabla^2 \phi_1(\mathbf{q}) = \delta^{(1)}(\mathbf{q}), \quad 
+\nabla^2 \phi_2(\mathbf{q}) = \frac{1}{2} \left[ (\operatorname{Tr} \mathbf{\Psi})^2 
+- \operatorname{Tr}(\mathbf{\Psi}^2) \right],
+\end{equation}
+where $\psi_{ij} = \partial^2 \phi_1 / \partial q_i \partial q_j$ represents the tidal shear tensor.
+
+To prevent artificial box-scale collapse on the periodic 3-torus, the Poisson Green's 
+function in Fourier space is conditioned to eliminate the singular monopole zero-mode and 
+bound fundamental-mode gain:
+\begin{equation}
+G_{\mathrm{spectral}}(\mathbf{k}) = 
+\begin{cases}
+- \frac{1}{\|\mathbf{k}\|^2} \left[ 1 - \exp\left( - \frac{\sum_{i} \sin^2(\pi k_i / N)}{\sin^2(\pi k_{\mathrm{cut}} / N)} \right) \right] 
+\prod_{i=1}^3 \left( \frac{\pi k_i / N}{\sin(\pi k_i / N)} \right)^4 \left( \frac{3 \Omega_{m,0}}{2a} \right), & \|\mathbf{k}\| > 0, \\
+0, & \|\mathbf{k}\| = 0.
+\end{cases}
+\end{equation}
+Setting $G(\mathbf{0}) \equiv 0$ guarantees mass neutrality, while fundamental mode filtering 
+neutralizes the separable macro-potential $\Phi(\mathbf{x}) \sim -\sum_{i} \cos(2\pi x_i)$, 
+preventing non-physical central caustics.
+
 \begin{thebibliography}{99}
 
 \bibitem{barbieri1988}

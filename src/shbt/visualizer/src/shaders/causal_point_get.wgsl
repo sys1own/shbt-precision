@@ -397,3 +397,118 @@ fn cs_sandbox_get(@builtin(global_invocation_id) global_id: vec3<u32>) {
         }
     }
 }
+
+// ----------------------------------------------------------------------------
+// Isotropic 3D Base-2 Sobol Generator & 3D Toroidal Observer Packing (shbt22)
+// ----------------------------------------------------------------------------
+
+fn generate_sobol_3d(index: u32) -> vec3<f32> {
+    let gray = index ^ (index >> 1u);
+
+    // Dimension 1: Radical inverse in base 2
+    var v1: u32 = 0u;
+    var g1 = gray;
+    for (var bit = 0u; bit < 32u; bit = bit + 1u) {
+        if ((g1 & 1u) != 0u) {
+            v1 = v1 ^ (1u << (31u - bit));
+        }
+        g1 = g1 >> 1u;
+    }
+    let x = f32(v1) * 2.3283064365386963e-10;
+
+    // Dimension 2: Direction numbers for primitive polynomial x + 1
+    var v2: u32 = 0u;
+    var g2 = gray;
+    var d2_tab = array<u32, 10>(
+        2147483648u, 1073741824u, 2684354560u, 1879048192u,
+        3489660928u, 2550136832u, 1912602624u, 3875536896u,
+        1858076672u, 3716153344u
+    );
+    for (var bit = 0u; bit < 10u; bit = bit + 1u) {
+        if ((g2 & (1u << bit)) != 0u) {
+            v2 = v2 ^ d2_tab[bit];
+        }
+    }
+    let y = f32(v2) * 2.3283064365386963e-10;
+
+    // Dimension 3: Direction numbers for primitive polynomial x^2 + x + 1
+    var v3: u32 = 0u;
+    var g3 = gray;
+    var d3_tab = array<u32, 10>(
+        2147483648u, 3221225472u, 1610612736u, 3489660928u,
+        2550136832u, 3758096384u, 2046820352u, 3959422976u,
+        1442840576u, 2885681152u
+    );
+    for (var bit = 0u; bit < 10u; bit = bit + 1u) {
+        if ((g3 & (1u << bit)) != 0u) {
+            v3 = v3 ^ d3_tab[bit];
+        }
+    }
+    let z = f32(v3) * 2.3283064365386963e-10;
+
+    return vec3<f32>(x, y, z);
+}
+
+// 3D Finite-Difference Bulk Density Gradient with Cardy Regularization on 3-Torus
+fn sample_3d_density_and_gradient(pos: vec3<f32>, dim: u32, box_len: f32) -> vec4<f32> {
+    let nx = f32(dim);
+    let ny = f32(dim);
+    let nz = f32(dim);
+
+    let grid_pos = vec3<f32>(
+        fract(pos.x) * nx,
+        fract(pos.y) * ny,
+        fract(pos.z) * nz
+    );
+
+    let base_idx = vec3<i32>(floor(grid_pos));
+    let frac_val = grid_pos - floor(grid_pos);
+
+    let dx = box_len / nx;
+    let dy = box_len / ny;
+    let dz = box_len / nz;
+
+    var rho_accum = 0.0;
+    var grad_accum = vec3<f32>(0.0, 0.0, 0.0);
+
+    for (var cz = 0; cz <= 1; cz = cz + 1) {
+        for (var cy = 0; cy <= 1; cy = cy + 1) {
+            for (var cx = 0; cx <= 1; cx = cx + 1) {
+                let weight = (select(1.0 - frac_val.x, frac_val.x, cx == 1)) *
+                             (select(1.0 - frac_val.y, frac_val.y, cy == 1)) *
+                             (select(1.0 - frac_val.z, frac_val.z, cz == 1));
+
+                let cur_x = (base_idx.x + cx + i32(dim)) % i32(dim);
+                let cur_y = (base_idx.y + cy + i32(dim)) % i32(dim);
+                let cur_z = (base_idx.z + cz + i32(dim)) % i32(dim);
+
+                let val_local = density_grid[get_grid_index(vec3<u32>(u32(cur_x), u32(cur_y), u32(cur_z)), dim)];
+                rho_accum = rho_accum + weight * val_local;
+
+                let px_x = (cur_x + 1) % i32(dim);
+                let mx_x = (cur_x - 1 + i32(dim)) % i32(dim);
+                let py_y = (cur_y + 1) % i32(dim);
+                let my_y = (cur_y - 1 + i32(dim)) % i32(dim);
+                let pz_z = (cur_z + 1) % i32(dim);
+                let mz_z = (cur_z - 1 + i32(dim)) % i32(dim);
+
+                let val_px = density_grid[get_grid_index(vec3<u32>(u32(px_x), u32(cur_y), u32(cur_z)), dim)];
+                let val_mx = density_grid[get_grid_index(vec3<u32>(u32(mx_x), u32(cur_y), u32(cur_z)), dim)];
+                let val_py = density_grid[get_grid_index(vec3<u32>(u32(cur_x), u32(py_y), u32(cur_z)), dim)];
+                let val_my = density_grid[get_grid_index(vec3<u32>(u32(cur_x), u32(my_y), u32(cur_z)), dim)];
+                let val_pz = density_grid[get_grid_index(vec3<u32>(u32(cur_x), u32(cur_y), u32(pz_z)), dim)];
+                let val_mz = density_grid[get_grid_index(vec3<u32>(u32(cur_x), u32(cur_y), u32(mz_z)), dim)];
+
+                let grad_node = vec3<f32>(
+                    (val_px - val_mx) / (2.0 * dx),
+                    (val_py - val_my) / (2.0 * dy),
+                    (val_pz - val_mz) / (2.0 * dz)
+                );
+
+                grad_accum = grad_accum + weight * grad_node;
+            }
+        }
+    }
+
+    return vec4<f32>(grad_accum, rho_accum);
+}

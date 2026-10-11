@@ -659,3 +659,40 @@ fn cs_seed_merge() {
         }
     }
 }
+
+// ----------------------------------------------------------------------------
+// Isotropic Emergence of Seed Density Fluctuations on the 3-Torus (shbt22)
+// ----------------------------------------------------------------------------
+
+fn wrap_axis_torus(val: i32, max_val: i32) -> i32 {
+    let m = val % max_val;
+    if (m < 0) {
+        return m + max_val;
+    }
+    return m;
+}
+
+fn index_3d_torus(x: i32, y: i32, z: i32, dim: i32) -> u32 {
+    let wx = wrap_axis_torus(x, dim);
+    let wy = wrap_axis_torus(y, dim);
+    let wz = wrap_axis_torus(z, dim);
+    return u32(wx + wy * dim + wz * (dim * dim));
+}
+
+fn evaluate_3d_torus_laplacian(ix: i32, iy: i32, iz: i32, dim: i32, dx: f32) -> f32 {
+    let idx_center = index_3d_torus(ix, iy, iz, dim);
+    let rho_c = f32(atomicLoad(&grid_density[idx_center])) / params.fixed_point_scale;
+
+    let rho_px = f32(atomicLoad(&grid_density[index_3d_torus(ix + 1, iy, iz, dim)])) / params.fixed_point_scale;
+    let rho_mx = f32(atomicLoad(&grid_density[index_3d_torus(ix - 1, iy, iz, dim)])) / params.fixed_point_scale;
+    let rho_py = f32(atomicLoad(&grid_density[index_3d_torus(ix, iy + 1, iz, dim)])) / params.fixed_point_scale;
+    let rho_my = f32(atomicLoad(&grid_density[index_3d_torus(ix, iy - 1, iz, dim)])) / params.fixed_point_scale;
+    let rho_pz = f32(atomicLoad(&grid_density[index_3d_torus(ix, iy, iz + 1, dim)])) / params.fixed_point_scale;
+    let rho_mz = f32(atomicLoad(&grid_density[index_3d_torus(ix, iy, iz - 1, dim)])) / params.fixed_point_scale;
+
+    let d2x = (rho_px - 2.0 * rho_c + rho_mx) / (dx * dx);
+    let d2y = (rho_py - 2.0 * rho_c + rho_my) / (dx * dx);
+    let d2z = (rho_pz - 2.0 * rho_c + rho_mz) / (dx * dx);
+
+    return d2x + d2y + d2z;
+}

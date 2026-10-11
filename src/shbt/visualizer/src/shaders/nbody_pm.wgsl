@@ -521,3 +521,81 @@ fn compute_thermodynamic_pressure(@builtin(global_invocation_id) gid: vec3<u32>)
     let t_b = cosmo.t_cmb_0 * (1.0 + z) * (zz / (zz + cosmo.z_dec));
     grid_pressure_baryon[idx] = cosmo.pressure_norm * t_b * rho_b;
 }
+
+// ----------------------------------------------------------------------------
+// Symmetrized Poisson Inversion and Fundamental-Mode Regulation (shbt22)
+// ----------------------------------------------------------------------------
+
+fn sinc_sq_spectral(val: f32) -> f32 {
+    if (abs(val) < 1.0e-6) {
+        return 1.0;
+    }
+    let s = sin(val) / val;
+    return s * s;
+}
+
+struct PoissonUniforms {
+    box_size: f32,
+    grid_dim: u32,
+    omega_m: f32,
+    scale_factor: f32,
+    k_cutoff: f32, // Recommended cutoff parameter: 2.0
+};
+
+@compute @workgroup_size(8, 8, 8)
+fn cs_solve_poisson(@builtin(global_invocation_id) global_id: vec3<u32>) {
+    let N = u32(cosmo.grid_size);
+    if (global_id.x >= N || global_id.y >= N || global_id.z >= N) {
+        return;
+    }
+
+    let flat_idx = global_id.x * N * N + global_id.y * N + global_id.z;
+
+    // Convert grid coordinates to signed reciprocal modes m in [-N/2, N/2 - 1]
+    var mx = f32(global_id.x);
+    var my = f32(global_id.y);
+    var mz = f32(global_id.z);
+
+    if (mx >= f32(N) * 0.5) { mx = mx - f32(N); }
+    if (my >= f32(N) * 0.5) { my = my - f32(N); }
+    if (mz >= f32(N) * 0.5) { mz = mz - f32(N); }
+
+    let m_sq = mx * mx + my * my + mz * mz;
+
+    // ZERO-MODE NEUTRALIZATION: Enforce G(0) = 0 identically to preserve mass neutrality.
+    if (m_sq < 0.25) {
+        grid_pressure_baryon[flat_idx] = 0.0;
+        return;
+    }
+
+    // Physical continuous wavenumbers k = (2*pi/L) * m
+    let k_fac = 6.28318530718 / cosmo.box_size;
+    let k_sq = m_sq * (k_fac * k_fac);
+
+    // Discrete finite-difference harmonic variables
+    let pi_val: f32 = 3.14159265359;
+    let sin_x = sin(pi_val * mx / f32(N));
+    let sin_y = sin(pi_val * my / f32(N));
+    let sin_z = sin(pi_val * mz / f32(N));
+    let sin2_sum = sin_x * sin_x + sin_y * sin_y + sin_z * sin_z;
+
+    // FUNDAMENTAL MODE FILTER: Suppress box-spanning dipole modes (|m| = 1) with k_cutoff = 2.0.
+    let k_cut: f32 = 2.0;
+    let sin_cut = sin(pi_val * k_cut / f32(N));
+    let sin2_cut = max(sin_cut * sin_cut, 1.0e-7);
+    let filter_fund = 1.0 - exp(-sin2_sum / sin2_cut);
+
+    // CLOUD-IN-CELL DECONVOLUTION: Correct for assignment smoothing.
+    let w_cic_x = sinc_sq_spectral(pi_val * mx / f32(N));
+    let w_cic_y = sinc_sq_spectral(pi_val * my / f32(N));
+    let w_cic_z = sinc_sq_spectral(pi_val * mz / f32(N));
+    let w_cic_total = max(w_cic_x * w_cic_y * w_cic_z, 1.0e-5);
+    let inv_w_cic_sq = 1.0 / (w_cic_total * w_cic_total);
+
+    // Comoving Poisson prefactor: 1.5 * Omega_m / a
+    let phys_factor = 1.5 * cosmo.omega_m0 / max(cosmo.a, 1.0e-4);
+    let g_kernel = - (1.0 / k_sq) * filter_fund * inv_w_cic_sq * phys_factor;
+
+    let rho_val = grid_rho_baryon[flat_idx];
+    grid_pressure_baryon[flat_idx] = g_kernel * rho_val;
+}
