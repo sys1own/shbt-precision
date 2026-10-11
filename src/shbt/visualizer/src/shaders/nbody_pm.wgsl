@@ -216,8 +216,8 @@ fn grad_ln_rho(x_tilde: vec3<f32>) -> vec3<f32> {
         - pm_rho(x_tilde - vec3<f32>(0.0, eps, 0.0));
     let gz = pm_rho(x_tilde + vec3<f32>(0.0, 0.0, eps))
         - pm_rho(x_tilde - vec3<f32>(0.0, 0.0, eps));
-    // Scale-dependent Cardy vacuum density floor rho_cardy_floor = 1 / (39 * a)
-    let rho_cardy_floor = (8.0 / 312.0) / max(cosmo.a, 0.001);
+    // Scale-dependent Cardy vacuum density floor rho_cardy_floor = max(0.00696738, 1 / (39 * a))
+    let rho_cardy_floor = max(0.00696738, 1.0 / (39.0 * max(cosmo.a, 0.001)));
     return vec3<f32>(gx, gy, gz) / (2.0 * eps * (rho_c + rho_cardy_floor));
 }
 

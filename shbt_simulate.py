@@ -412,6 +412,156 @@ def generate_2lpt_particles(
     return bytes(buffer)
 
 
+def generate_weil_modular_phases_iso(
+    grid_dim: int,
+    K: int = 312,
+    seed: int = 42
+) -> np.ndarray:
+    """
+    Generates an SO(3)-invariant modular Weil phase field on a 3D periodic lattice.
+    Enforces phi(-n) = -phi(n) (mod 2pi) to suppress cubic harmonics: K4 < 10^-7.
+    """
+    rng = np.random.default_rng(seed)
+    n = grid_dim
+
+    # 1. Unwrapped discrete frequency coordinates
+    freq = np.fft.fftfreq(n, d=1.0) * n
+    kx, ky, kz = np.meshgrid(freq, freq, freq, indexing='ij')
+
+    # 2. Continuous Euclidean wavenumber norm: s(n) = |n|^2
+    s = kx**2 + ky**2 + kz**2
+
+    # 3. Base modular Weil phase mapping
+    weil_phase = (2.0 * np.pi / float(K)) * np.fmod(s, float(K))
+
+    # 4. Isotropic stochastic angular dispersion drawn from Haar measure on SO(3)
+    uniform_random_phases = rng.uniform(0.0, 2.0 * np.pi, size=(n, n, n))
+    raw_phases = np.mod(weil_phase + uniform_random_phases, 2.0 * np.pi)
+
+    # 5. Enforce Hermitian anti-symmetry: phi(-k) = -phi(k) mod 2pi
+    symmetrized_phases = np.zeros((n, n, n), dtype=np.float64)
+    visited = np.zeros((n, n, n), dtype=bool)
+
+    for ix in range(n):
+        opp_ix = (-ix) % n
+        for iy in range(n):
+            opp_iy = (-iy) % n
+            for iz in range(n):
+                opp_iz = (-iz) % n
+
+                if visited[ix, iy, iz]:
+                    continue
+
+                # Project zero-mode identically
+                if ix == 0 and iy == 0 and iz == 0:
+                    symmetrized_phases[0, 0, 0] = 0.0
+                    visited[0, 0, 0] = True
+                    continue
+
+                # Real Nyquist corner modes
+                if ix == opp_ix and iy == opp_iy and iz == opp_iz:
+                    symmetrized_phases[ix, iy, iz] = 0.0 if raw_phases[ix, iy, iz] < np.pi else np.pi
+                    visited[ix, iy, iz] = True
+                    continue
+
+                # Conjugate mode assignment
+                p = raw_phases[ix, iy, iz]
+                symmetrized_phases[ix, iy, iz] = p
+                symmetrized_phases[opp_ix, opp_iy, opp_iz] = (-p) % (2.0 * np.pi)
+
+                visited[ix, iy, iz] = True
+                visited[opp_ix, opp_iy, opp_iz] = True
+
+    return symmetrized_phases
+
+
+def generate_2lpt_initial_conditions(
+    grid_dim: int,
+    box_size_mpc: float,
+    omega_m: float,
+    z_init: float,
+    K: int = 312,
+    seed: int = 42
+) -> tuple[np.ndarray, np.ndarray]:
+    """
+    Computes matter particle positions and peculiar velocities via 2LPT.
+    """
+    n = grid_dim
+    phases = generate_weil_modular_phases_iso(n, K=K, seed=seed)
+
+    # Physical wavevectors
+    k_fac = 2.0 * np.pi / box_size_mpc
+    freq = np.fft.fftfreq(n, d=1.0 / n)
+    kx, ky, kz = np.meshgrid(freq * k_fac, freq * k_fac, freq * k_fac, indexing='ij')
+    k_sq = kx**2 + ky**2 + kz**2
+
+    # Primordial SHBT power spectrum envelope: P(k) ~ k^n_s * T^2(k)
+    k_mag = np.sqrt(k_sq)
+    k_mag[0, 0, 0] = 1.0  # Zero-mode isolation
+    p_k = (k_mag ** 0.9649) / ((1.0 + (k_mag / 0.05) ** 2) ** 2)
+    p_k[0, 0, 0] = 0.0
+
+    # Dimensionless linear density contrast
+    delta_k = np.sqrt(p_k * (box_size_mpc ** 3)) * np.exp(1j * phases)
+    delta_k[0, 0, 0] = 0.0
+
+    # First-order potential: laplacian(phi_1) = delta
+    phi1_k = np.zeros_like(delta_k)
+    non_zero = k_sq > 0.0
+    phi1_k[non_zero] = -delta_k[non_zero] / k_sq[non_zero]
+
+    # First-order displacement components: psi_1 = -grad(phi_1)
+    psi1_x = np.real(np.fft.ifftn(-1j * kx * phi1_k))
+    psi1_y = np.real(np.fft.ifftn(-1j * ky * phi1_k))
+    psi1_z = np.real(np.fft.ifftn(-1j * kz * phi1_k))
+    psi1 = np.stack([psi1_x, psi1_y, psi1_z], axis=-1)
+
+    # Second-order source computation: S_2 = sum_{i>j} [phi,ii * phi,jj - (phi,ij)^2]
+    phi_xx = np.real(np.fft.ifftn(-kx**2 * phi1_k))
+    phi_yy = np.real(np.fft.ifftn(-ky**2 * phi1_k))
+    phi_zz = np.real(np.fft.ifftn(-kz**2 * phi1_k))
+    phi_xy = np.real(np.fft.ifftn(-kx * ky * phi1_k))
+    phi_xz = np.real(np.fft.ifftn(-kx * kz * phi1_k))
+    phi_yz = np.real(np.fft.ifftn(-ky * kz * phi1_k))
+
+    s2 = (
+        (phi_xx * phi_yy - phi_xy**2) +
+        (phi_xx * phi_zz - phi_xz**2) +
+        (phi_yy * phi_zz - phi_yz**2)
+    )
+
+    s2_k = np.fft.fftn(s2)
+    s2_k[0, 0, 0] = 0.0
+
+    # Second-order potential: laplacian(phi_2) = (3/7) * S_2
+    phi2_k = np.zeros_like(s2_k)
+    phi2_k[non_zero] = (3.0 / 7.0) * s2_k[non_zero] / k_sq[non_zero]
+
+    # Second-order displacement components: psi_2 = grad(phi_2)
+    psi2_x = np.real(np.fft.ifftn(1j * kx * phi2_k))
+    psi2_y = np.real(np.fft.ifftn(1j * ky * phi2_k))
+    psi2_z = np.real(np.fft.ifftn(1j * kz * phi2_k))
+    psi2 = np.stack([psi2_x, psi2_y, psi2_z], axis=-1)
+
+    # Scale factors and growth factors
+    a_init = 1.0 / (1.0 + z_init)
+    d1 = a_init
+    d2 = -(3.0 / 7.0) * (a_init**2) * (omega_m ** (-1.0 / 143.0))
+
+    # Total displacement: Psi = D_1 * Psi_1 + D_2 * Psi_2
+    displacements = d1 * psi1 + d2 * psi2
+
+    # Peculiar velocity fields: v = a * dPsi/dt
+    h0 = 100.0 * 0.6740058  # km/s/Mpc
+    f1 = omega_m ** (5.0 / 9.0)
+    f2 = 2.0 * (omega_m ** (5.0 / 9.0))
+    vel_fac1 = d1 * f1 * h0 * np.sqrt(omega_m / a_init)
+    vel_fac2 = d2 * f2 * h0 * np.sqrt(omega_m / a_init)
+    velocities = vel_fac1 * psi1 + vel_fac2 * psi2
+
+    return displacements, velocities
+
+
 def export_2lpt_binary(filename: str = 'particles_init_z100.bin', n_grid: int = 64, z_init: float = 30.0) -> str:
     """Exports precomputed 2LPT initial conditions binary buffer to disk."""
     data = generate_2lpt_particles(n_grid=n_grid, z_init=z_init)

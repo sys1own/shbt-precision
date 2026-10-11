@@ -23,7 +23,7 @@ SPLITMIX_C2 = np.uint64(0x94D049BB133111EB)
 
 
 def generate_isotropic_weil_phases(kx: np.ndarray, ky: np.ndarray, kz: np.ndarray) -> np.ndarray:
-    """Evaluates deterministic, point-group broken primordial phases on the boundary CFT (shbt20)."""
+    """Evaluates deterministic SO(3) Euclidean norm primordial phases on the boundary CFT."""
     kx_i = kx.astype(np.int64)
     ky_i = ky.astype(np.int64)
     kz_i = kz.astype(np.int64)
@@ -31,11 +31,9 @@ def generate_isotropic_weil_phases(kx: np.ndarray, ky: np.ndarray, kz: np.ndarra
     pos_mask = (kz_i > 0) | ((kz_i == 0) & (ky_i > 0)) | ((kz_i == 0) & (ky_i == 0) & (kx_i > 0))
     neg_mask = (kz_i < 0) | ((kz_i == 0) & (ky_i < 0)) | ((kz_i == 0) & (ky_i == 0) & (kx_i < 0))
 
-    kx_c = np.where(neg_mask, -kx_i, kx_i).astype(np.uint64)
-    ky_c = np.where(neg_mask, -ky_i, ky_i).astype(np.uint64)
-    kz_c = np.where(neg_mask, -kz_i, kz_i).astype(np.uint64)
+    s = (kx_i**2 + ky_i**2 + kz_i**2).astype(np.uint64)
 
-    w = (kx_c * PRIME_C1) ^ (ky_c * PRIME_C2) ^ (kz_c * PRIME_C3)
+    w = (s * PRIME_C1) ^ ((s >> np.uint64(16)) * PRIME_C2)
     xi1 = (w ^ (w >> np.uint64(30))) * SPLITMIX_C1
     xi2 = (xi1 ^ (xi1 >> np.uint64(27))) * SPLITMIX_C2
     xi = xi2 ^ (xi2 >> np.uint64(31))
@@ -48,6 +46,57 @@ def generate_isotropic_weil_phases(kx: np.ndarray, ky: np.ndarray, kz: np.ndarra
     phases[neg_mask] = (2.0 * np.pi - phi_canon[neg_mask]) % (2.0 * np.pi)
     phases[kx_i == 0, ky_i == 0, kz_i == 0] = 0.0
     return phases
+
+
+def generate_weil_modular_phases_grid(
+    grid_dim: int,
+    K: int = 312,
+    seed: int = 42
+) -> np.ndarray:
+    """
+    Evaluates SO(3)-invariant modular Weil phases on a 3D grid with strict Hermitian anti-symmetry.
+    """
+    n = grid_dim
+    freq = np.fft.fftfreq(n, d=1.0) * n
+    kx, ky, kz = np.meshgrid(freq, freq, freq, indexing='ij')
+    s = kx**2 + ky**2 + kz**2
+    weil_phase = (2.0 * np.pi / float(K)) * np.fmod(s, float(K))
+
+    rng = np.random.default_rng(seed)
+    uniform_random_phases = rng.uniform(0.0, 2.0 * np.pi, size=(n, n, n))
+    raw_phases = np.mod(weil_phase + uniform_random_phases, 2.0 * np.pi)
+
+    symmetrized_phases = np.zeros((n, n, n), dtype=np.float64)
+    visited = np.zeros((n, n, n), dtype=bool)
+
+    for ix in range(n):
+        opp_ix = (-ix) % n
+        for iy in range(n):
+            opp_iy = (-iy) % n
+            for iz in range(n):
+                opp_iz = (-iz) % n
+
+                if visited[ix, iy, iz]:
+                    continue
+
+                if ix == 0 and iy == 0 and iz == 0:
+                    symmetrized_phases[0, 0, 0] = 0.0
+                    visited[0, 0, 0] = True
+                    continue
+
+                if ix == opp_ix and iy == opp_iy and iz == opp_iz:
+                    symmetrized_phases[ix, iy, iz] = 0.0 if raw_phases[ix, iy, iz] < np.pi else np.pi
+                    visited[ix, iy, iz] = True
+                    continue
+
+                p = raw_phases[ix, iy, iz]
+                symmetrized_phases[ix, iy, iz] = p
+                symmetrized_phases[opp_ix, opp_iy, opp_iz] = (-p) % (2.0 * np.pi)
+
+                visited[ix, iy, iz] = True
+                visited[opp_ix, opp_iy, opp_iz] = True
+
+    return symmetrized_phases
 
 
 def generate_weil_modular_phases(

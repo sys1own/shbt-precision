@@ -122,7 +122,7 @@ fn cs_causal_point_get(@builtin(global_invocation_id) global_id: vec3<u32>) {
     let kappa_get = compute_kappa_get(params.load_fraction);
 
     let a_scale = 1.0 / (1.0 + max(params.redshift, -0.999));
-    let rho_cardy_floor = (8.0 / 312.0) / max(a_scale, 0.001);
+    let rho_cardy_floor = max(0.00696738, 1.0 / (39.0 * max(a_scale, 0.001)));
 
     if (r_entropy >= 0.0 && params.redshift > -0.99) {
         cp.active_flag = 1u;
@@ -170,9 +170,9 @@ fn apply_get_acceleration(@builtin(global_invocation_id) global_id: vec3<u32>) {
                 // Cardy holographic capacity saturation ratio: eta_sat = N_local / N_limit
                 let eta_sat = clamp(rho / max(n_limit, 1.0e-4), 0.0, 2.0);
 
-                // Scale-dependent Cardy vacuum density floor rho_floor = 1 / (39 * a)
+                // Dynamic Cardy capacity floor: rho_floor = max(0.00696738, 1 / (39 * a))
                 let a_curr = 1.0 / (1.0 + max(params.redshift, -0.999));
-                let rho_floor = (8.0 / 312.0) / max(a_curr, 0.001);
+                let rho_floor = max(0.00696738, 1.0 / (39.0 * max(a_curr, 0.001)));
                 let grad_ln_rho = grad_rho / (rho + rho_floor);
 
                 // Emergent velocity dispersion floor via quartic Cardy activation (shbt20):
