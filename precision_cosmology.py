@@ -92,6 +92,123 @@ KAPPA_DIFF: float = 2.0 / (17.0 * math.pi)  # ≈ 0.037447463417
 KM_S_MPC_TO_MYR_INV: float = 1.022712165e-6
 
 
+@dataclass(frozen=True)
+class SHBTConstants:
+    # Boundary CFT Modular Configuration
+    m_modules: int = 2901360  # Primary modules at tau = i
+    delta_c0: float = 0.065602  # 1-sigma visible lattice capacity variance
+    n_sat: float = 3.311998e122  # Screen saturation capacity (bits)
+
+    # Cosmological Parameters
+    h: float = 0.6739962  # Dimensionless Hubble parameter
+    omega_m0: float = 0.3150  # Present matter density fraction
+    omega_b0: float = 0.0490  # Baryon density fraction
+    omega_l0: float = 0.6850  # Dark energy density fraction
+    ns: float = 0.9665  # Primordial spectral index
+
+    # Box Metrology
+    lambda_holo_mpc2: float = 6.05712e-5  # Holographic curvature scale (Mpc^-2)
+    l_box_h_mpc: float = 150.0  # Comoving box size (h^-1 Mpc)
+    delta2_k1_max: float = 0.0120  # Fundamental mode maximum variance
+
+
+def load_shbt_constants() -> SHBTConstants:
+    return SHBTConstants()
+
+
+class HolographicMetrology:
+
+    def __init__(self, constants: SHBTConstants | None = None):
+        if constants is None or not isinstance(constants, SHBTConstants):
+            self.c = SHBTConstants()
+        else:
+            self.c = constants
+
+    @property
+    def l_box_mpc(self) -> float:
+        """Physical comoving box size in Mpc derived from Lambda_holo."""
+        return math.sqrt(3.0 / self.c.lambda_holo_mpc2)
+
+    @property
+    def fundamental_k(self) -> float:
+        """Fundamental mode wavenumber in Mpc^-1."""
+        return (2.0 * math.pi) / self.l_box_mpc
+
+    def linear_growth_d1(self, z: float) -> float:
+        """Approximation for D1(z) in flat LCDM normalized to D1(0) = 1.0."""
+        a = 1.0 / (1.0 + z)
+        om_z = (self.c.omega_m0 * (1.0 + z) ** 3) / (
+            self.c.omega_m0 * (1.0 + z) ** 3 + self.c.omega_l0
+        )
+        ol_z = self.c.omega_l0 / (
+            self.c.omega_m0 * (1.0 + z) ** 3 + self.c.omega_l0
+        )
+        gz = (
+            2.5
+            * om_z
+            / (
+                om_z ** (4.0 / 7.0)
+                - ol_z
+                + (1.0 + om_z / 2.0) * (1.0 + ol_z / 70.0)
+            )
+        )
+        g0 = (
+            2.5
+            * self.c.omega_m0
+            / (
+                self.c.omega_m0 ** (4.0 / 7.0)
+                - self.c.omega_l0
+                + (1.0 + self.c.omega_m0 / 2.0) * (1.0 + self.c.omega_l0 / 70.0)
+            )
+        )
+        return a * (gz / g0)
+
+    def second_order_growth_d2(self, z: float) -> float:
+        """Second-order growth factor D2(z) ~ -3/7 * D1(z)^2 * Omega_m(z)^(-1/143)."""
+        d1 = self.linear_growth_d1(z)
+        om_z = (self.c.omega_m0 * (1.0 + z) ** 3) / (
+            self.c.omega_m0 * (1.0 + z) ** 3 + self.c.omega_l0
+        )
+        return -(3.0 / 7.0) * (d1**2) * (om_z ** (-1.0 / 143.0))
+
+    def eisenstein_hu_transfer(self, k_mpc: float) -> float:
+        """Eisenstein-Hu transfer function T(k)."""
+        k_h = k_mpc / self.c.h
+        theta_cmb = 2.7255 / 2.7
+        s = 44.5 * math.log(9.83 / (self.c.omega_m0 * self.c.h**2)) / math.sqrt(
+            1.0 + 10.0 * (self.c.omega_b0 * self.c.h**2) ** 0.75
+        )
+        alpha_gamma = (
+            1.0
+            - 0.328
+            * math.log(126.0 * self.c.omega_m0 * self.c.h**2)
+            * (self.c.omega_b0 / self.c.omega_m0)
+            + 0.38
+            * math.log(17.0 * self.c.omega_m0 * self.c.h**2)
+            * (self.c.omega_b0 / self.c.omega_m0) ** 2
+        )
+        gamma_eff = (
+            self.c.omega_m0
+            * self.c.h
+            * (alpha_gamma + (1.0 - alpha_gamma) / (1.0 + (0.43 * k_h * s) ** 4))
+        )
+        q = k_h * (theta_cmb**2) / gamma_eff
+        l0 = math.log(2.0 * math.e + 1.8 * q)
+        c0 = 14.2 + 731.0 / (1.0 + 62.5 * q)
+        return l0 / (l0 + c0 * q**2)
+
+    def power_spectrum_lin(self, k_mpc: float) -> float:
+        """Power spectrum normalized so that Delta^2(k1) = delta2_k1_max."""
+        k1 = self.fundamental_k
+        tk1 = self.eisenstein_hu_transfer(k1)
+        p_unnorm_k1 = (k1**self.c.ns) * (tk1**2)
+        norm_a = (2.0 * math.pi**2 * self.c.delta2_k1_max) / (
+            (k1**3) * p_unnorm_k1
+        )
+        tk = self.eisenstein_hu_transfer(k_mpc)
+        return norm_a * (k_mpc**self.c.ns) * (tk**2)
+
+
 def hubble_parameter_h_z(z: float, h0: float = 67.4) -> float:
     """Evaluates the Hubble expansion rate H(z) in km/s/Mpc."""
     zp1 = 1.0 + z

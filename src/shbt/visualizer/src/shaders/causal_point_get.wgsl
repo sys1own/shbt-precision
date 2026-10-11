@@ -121,13 +121,16 @@ fn cs_causal_point_get(@builtin(global_invocation_id) global_id: vec3<u32>) {
     let r_entropy = cp.entropy_budget - cp.get_cost;
     let kappa_get = compute_kappa_get(params.load_fraction);
 
+    let a_scale = 1.0 / (1.0 + max(params.redshift, -0.999));
+    let rho_cardy_floor = (8.0 / 312.0) / max(a_scale, 0.001);
+
     if (r_entropy >= 0.0 && params.redshift > -0.99) {
         cp.active_flag = 1u;
         cp.collapse_phase = min(1.0, cp.collapse_phase + params.dt * 1.8);
         // Entropic erasure rate scales with the derived GET coupling.
         cp.entropy_budget -= cp.get_cost * kappa_get * params.dt;
         let grad_ln_rho = sample_density_gradient(cp.center, params.mesh_dim)
-            / (sample_density(cp.center, params.mesh_dim) + 1e-4);
+            / (sample_density(cp.center, params.mesh_dim) + rho_cardy_floor);
         cp.center -= params.dt * kappa_get * grad_ln_rho * 1e-3;
     } else {
         cp.active_flag = 0u;
@@ -167,9 +170,10 @@ fn apply_get_acceleration(@builtin(global_invocation_id) global_id: vec3<u32>) {
                 // Cardy holographic capacity saturation ratio: eta_sat = N_local / N_limit
                 let eta_sat = clamp(rho / max(n_limit, 1.0e-4), 0.0, 2.0);
 
-                // Boundary vacuum capacity floor rho_soft = c_bdry^(-1/3) ~ 0.00697
-                let rho_soft: f32 = 0.006967;
-                let grad_ln_rho = grad_rho / (rho + rho_soft);
+                // Scale-dependent Cardy vacuum density floor rho_floor = 1 / (39 * a)
+                let a_curr = 1.0 / (1.0 + max(params.redshift, -0.999));
+                let rho_floor = (8.0 / 312.0) / max(a_curr, 0.001);
+                let grad_ln_rho = grad_rho / (rho + rho_floor);
 
                 // Emergent velocity dispersion floor via quartic Cardy activation (shbt20):
                 // sigma_v^2 = 0.5 * kappa_GET * (eta_sat^4 / (1 + eta_sat^4))

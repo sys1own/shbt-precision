@@ -216,9 +216,9 @@ fn grad_ln_rho(x_tilde: vec3<f32>) -> vec3<f32> {
         - pm_rho(x_tilde - vec3<f32>(0.0, eps, 0.0));
     let gz = pm_rho(x_tilde + vec3<f32>(0.0, 0.0, eps))
         - pm_rho(x_tilde - vec3<f32>(0.0, 0.0, eps));
-    // Boundary central charge c_bdry = 2901360 -> c_bdry^(-1/3) ~ 0.00697
-    let rho_soft: f32 = 0.006967;
-    return vec3<f32>(gx, gy, gz) / (2.0 * eps * (rho_c + rho_soft));
+    // Scale-dependent Cardy vacuum density floor rho_cardy_floor = 1 / (39 * a)
+    let rho_cardy_floor = (8.0 / 312.0) / max(cosmo.a, 0.001);
+    return vec3<f32>(gx, gy, gz) / (2.0 * eps * (rho_c + rho_cardy_floor));
 }
 
 // GET entropic transport and Cardy velocity dispersion floor (shbt20):
@@ -431,6 +431,26 @@ fn cs_advance_particles(@builtin(global_invocation_id) global_id: vec3<u32>) {
     // SHBT picture). |p_tilde| <= 0.5 keeps the drift sub-box per step.
     p_tilde = clamp(p_tilde, vec3<f32>(-0.5), vec3<f32>(0.5));
 
+    // Phase-space thermalization when local cell capacity saturates (shbt23: eta_sat > 1/12)
+    let rho_bulk_val = pm_rho(x_tilde);
+    let rho_sat_val = 39.0 / (cosmo.a * cosmo.a * cosmo.a);
+    let eta_sat_therm = clamp(rho_bulk_val / max(rho_sat_val, 1e-4), 0.0, 1.0);
+    if (eta_sat_therm > 0.08333) {
+        let speed = length(p_tilde);
+        if (speed > 1e-5) {
+            let p_seed = f32(idx) * 12.9898;
+            let theta = fract(sin(p_seed) * 43758.5453) * 3.14159265;
+            let phi = fract(cos(p_seed) * 23421.631) * 6.2831853;
+            let rand_dir = vec3<f32>(
+                sin(theta) * cos(phi),
+                sin(theta) * sin(phi),
+                cos(theta)
+            );
+            let alpha_mix = clamp(cosmo.dtau * eta_sat_therm * 0.5, 0.0, 0.2);
+            p_tilde = normalize(mix(p_tilde, rand_dir * speed, alpha_mix)) * speed;
+        }
+    }
+
     p.velocity = p_tilde;
     p.position = x_tilde * cosmo.box_size;
 
@@ -592,9 +612,20 @@ fn cs_solve_poisson(@builtin(global_invocation_id) global_id: vec3<u32>) {
     let w_cic_total = max(w_cic_x * w_cic_y * w_cic_z, 1.0e-5);
     let inv_w_cic_sq = 1.0 / (w_cic_total * w_cic_total);
 
+    // Discrete 7-point Laplacian dispersion relation (shbt23)
+    let dx = cosmo.box_size / f32(N);
+    let kx_eff = (2.0 / dx) * sin_x;
+    let ky_eff = (2.0 / dx) * sin_y;
+    let kz_eff = (2.0 / dx) * sin_z;
+    let k_sq_eff = kx_eff * kx_eff + ky_eff * ky_eff + kz_eff * kz_eff;
+
+    // Scale-dependent holographic softening: eps_holo = (2*pi / L_box) * (8 / 312) * a
+    let eps_holo = (6.28318530718 / cosmo.box_size) * (8.0 / 312.0) * cosmo.a;
+    let denom = k_sq_eff + (eps_holo * eps_holo);
+
     // Comoving Poisson prefactor: 1.5 * Omega_m / a
     let phys_factor = 1.5 * cosmo.omega_m0 / max(cosmo.a, 1.0e-4);
-    let g_kernel = - (1.0 / k_sq) * filter_fund * inv_w_cic_sq * phys_factor;
+    let g_kernel = - (phys_factor / denom) * filter_fund * inv_w_cic_sq;
 
     let rho_val = grid_rho_baryon[flat_idx];
     grid_pressure_baryon[flat_idx] = g_kernel * rho_val;

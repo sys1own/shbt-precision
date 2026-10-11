@@ -35,6 +35,90 @@ pub const K_B_SI: f64 = 1.380_649e-23; // Boltzmann constant (J/K)
 pub const M_H_KG: f64 = 1.673_532_84e-27; // Proton mass (kg)
 pub const MU_NEUTRAL: f64 = 1.22; // Mean molecular weight, neutral gas
 
+// Canonical branch invariants of Static Holographic Boundary Theory
+pub const BRANCH_KL: f32 = 26.0;
+pub const BRANCH_KQ: f32 = 8.0;
+pub const BRANCH_K: f32 = 312.0;
+
+// Fundamental holographic constants locked to compile-time invariants
+pub const SOUND_SPEED_HOLO: f32 = 0.16012815; // sqrt(BRANCH_KQ / BRANCH_K)
+pub const KAPPA_GET: f32 = 0.025641026;       // BRANCH_KQ / BRANCH_K
+pub const CARDY_FLOOR_COEFF: f32 = 0.025641026;// BRANCH_KQ / BRANCH_K
+pub const GAMMA_OBS: f32 = 1.0;               // Strict vanishing framing defect (delta_fr = 0.0)
+
+pub const M_MODULES: u64 = 2_901_360;
+pub const N_SAT: f64 = 3.311998e122; // bits
+pub const DELTA_C0: f64 = 0.065602; // 1-sigma capacity variance
+pub const HUBBLE_H: f64 = 0.6739962;
+pub const L_BOX_H_MPC: f64 = 150.0; // h^-1 Mpc
+
+#[derive(Debug, Clone, Copy)]
+pub struct HolographicMetrology {
+    pub l_box_mpc: f64,
+    pub fundamental_k: f64,
+    pub volume_mpc3: f64,
+}
+
+impl Default for HolographicMetrology {
+    fn default() -> Self {
+        let l_box_mpc = (3.0 / LAMBDA_HOLO).sqrt();
+        let fundamental_k = (2.0 * std::f64::consts::PI) / l_box_mpc;
+        let volume_mpc3 = l_box_mpc.powi(3);
+        Self {
+            l_box_mpc,
+            fundamental_k,
+            volume_mpc3,
+        }
+    }
+}
+
+impl HolographicMetrology {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Converts comoving physical coordinates (Mpc) to normalized WebGPU box units [0.0, 1.0].
+    #[inline(always)]
+    pub fn mpc_to_normalized(&self, x_mpc: f32) -> f32 {
+        (x_mpc / self.l_box_mpc as f32).rem_euclid(1.0)
+    }
+
+    /// Converts normalized box units [0.0, 1.0] to WebGPU Normalized Device Coordinates (NDC) [-1.0, 1.0].
+    #[inline(always)]
+    pub fn normalized_to_ndc(u: f32) -> f32 {
+        u * 2.0 - 1.0
+    }
+
+    /// Converts comoving physical coordinates directly to NDC for rendering shaders.
+    #[inline(always)]
+    pub fn mpc_to_ndc(&self, x_mpc: f32) -> f32 {
+        Self::normalized_to_ndc(self.mpc_to_normalized(x_mpc))
+    }
+
+    /// Evaluates linear growth factor D1(z) for flat LCDM (Omega_m = 0.315, Omega_L = 0.685).
+    pub fn growth_factor_d1(&self, z: f64) -> f64 {
+        let a = 1.0 / (1.0 + z);
+        let om_m = 0.315;
+        let om_l = 0.685;
+        let om_z = (om_m * (1.0 + z).powi(3)) / (om_m * (1.0 + z).powi(3) + om_l);
+        let ol_z = om_l / (om_m * (1.0 + z).powi(3) + om_l);
+
+        let gz = 2.5 * om_z / (om_z.powf(4.0 / 7.0) - ol_z + (1.0 + om_z / 2.0) * (1.0 + ol_z / 70.0));
+        let g0 = 2.5 * om_m / (om_m.powf(4.0 / 7.0) - om_l + (1.0 + om_m / 2.0) * (1.0 + om_l / 70.0));
+        a * (gz / g0)
+    }
+
+    /// Evaluates second-order growth factor D2(z).
+    pub fn growth_factor_d2(&self, z: f64) -> f64 {
+        let d1 = self.growth_factor_d1(z);
+        let om_m = 0.315;
+        let om_l = 0.685;
+        let om_z = (om_m * (1.0 + z).powi(3)) / (om_m * (1.0 + z).powi(3) + om_l);
+        -(3.0 / 7.0) * d1.powi(2) * om_z.powf(-1.0 / 143.0)
+    }
+}
+
+
 /// Cosmological context converting physical scales to dimensionless
 /// code units. The canonical Tier-1 parameters are
 /// (h, Omega_m0, Omega_r0) = (0.674, 0.315, 9.2e-5) with the SHBT

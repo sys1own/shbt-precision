@@ -9828,7 +9828,101 @@ G_{\mathrm{spectral}}(\mathbf{k}) =
 \end{equation}
 Setting $G(\mathbf{0}) \equiv 0$ guarantees mass neutrality, while fundamental mode filtering 
 neutralizes the separable macro-potential $\Phi(\mathbf{x}) \sim -\sum_{i} \cos(2\pi x_i)$, 
-preventing non-physical central caustics.
+\section{Precision Primordial Initial Conditions and SO(3) Isotropy Restoration}
+
+\subsection{Pathology of Cartesian Phase Discretization}
+In numerical implementations of the holographic boundary correspondence, the generation of 
+primordial initial conditions on a periodic Cartesian torus $\mathbb{T}^3 = (\mathbb{R} / L_{\text{box}}\mathbb{Z})^3$ 
+frequently induces unphysical geometric artifacts, notably central density evacuations and 
+hyperoctahedral star-cusp caustics. These artifacts originate from two distinct mathematical failures:
+\begin{enumerate}
+    \item \textbf{Hyperoctahedral Harmonic Leakage:} Truncating continuous rotational invariance 
+    $SO(3)$ to the point group of the cubic lattice $O_h \cong S_4 \times \mathbb{Z}_2$ introduces non-vanishing 
+    cubic harmonic components $K_\ell(\hat{\mathbf{k}})$ into the Fourier phase field, producing anisotropic 
+    gravitational acceleration along the principal axes.
+    \item \textbf{Fundamental Mode Non-Linearity:} An uncalibrated power spectrum normalization 
+    violating the bound $\Delta^2(k_1) \le 0.0120$ drives the fundamental box mode $k_1 = 2\pi / L_{\text{box}}$ 
+    into premature shell crossing ($\Delta^2(k_1) > 1$), evacuating the central region of the simulation domain.
+\end{enumerate}
+
+\subsection{Modular Weil Representation Phase Seeding}
+Under Static Holographic Boundary Theory (SHBT), the primordial scalar perturbation field 
+is generated deterministically from the boundary CFT partition function evaluated at the 
+self-dual modular point $\tau = i$. The boundary modular register possesses exactly 
+$M = 2{,}901{,}360$ primary CFT modules.
+
+\begin{definition}[Scalar Invariant Modular Phase Map]
+Let $\mathbf{n} = (n_x, n_y, n_z) \in \mathbb{Z}^3 \setminus \{\mathbf{0}\}$ denote the discrete wavevector 
+index. The scalar invariant norm is defined by the quadratic form $s(\mathbf{n}) = |\mathbf{n}|^2 = n_x^2 + n_y^2 + n_z^2$. 
+The deterministic Weil phase assignment $\phi: \mathbb{Z}^3 \to [0, 2\pi)$ is given on the upper 
+hemisphere $\mathcal{H}^+$ by:
+\begin{equation}
+    \phi(\mathbf{n}) = \frac{2\pi}{M} \left[ \left( \sum_{p=1}^3 \kappa_p s(\mathbf{n})^p + \mathcal{J}(\mathbf{n}) \right) \pmod M \right], \quad \mathbf{n} \in \mathcal{H}^+
+\end{equation}
+where $\mathcal{J}(\mathbf{n}) = (|312 n_x + 26 n_y + 8 n_z| \oplus 157 s) \pmod M$, with Hermitian anti-symmetry 
+enforced across the complementary hemisphere:
+\begin{equation}
+    \phi(-\mathbf{n}) = -\phi(\mathbf{n}) \pmod{2\pi}, \quad \forall \, \mathbf{n} \in \mathcal{H}^-.
+\end{equation}
+\end{definition}
+
+\begin{lemma}[Hermitian Real-Valued Bulk Field]
+The configuration-space perturbation field $\delta(\mathbf{x}) = \mathcal{F}^{-1}[\delta(\mathbf{k})]$ 
+is strictly real-valued, $\Im[\delta(\mathbf{x})] \equiv 0$, if and only if the phase assignment 
+satisfies $\phi(-\mathbf{k}) = -\phi(\mathbf{k}) \pmod{2\pi}$ and $\phi(\mathbf{n}_{\text{Nyq}}) \in \{0, \pi\}$.
+\end{lemma}
+
+\begin{proposition}[Annihilation of Hyperoctahedral Cubic Harmonics]
+The ensemble expectation value of all non-trivial cubic multipoles vanishes identically:
+\begin{equation}
+    \langle a_{\ell m}(k) \rangle = 0 \quad \forall \, \ell \ge 1
+\end{equation}
+Furthermore, the projection of the discrete power distribution onto the lowest-order cubic harmonic 
+$K_4(\hat{\mathbf{k}}) = \hat{k}_x^4 + \hat{k}_y^4 + \hat{k}_z^4 - \frac{3}{5}$ satisfies:
+\begin{equation}
+    \lim_{s \to \infty} \frac{1}{r_3(s)} \sum_{\mathbf{n} \in \mathcal{S}_s} K_4\left( \frac{\mathbf{n}}{\sqrt{s}} \right) = 0
+\end{equation}
+where $\mathcal{S}_s = \{\mathbf{n} \in \mathbb{Z}^3 : |\mathbf{n}|^2 = s\}$ and $r_3(s) = |\mathcal{S}_s|$.
+\end{proposition}
+
+\subsection{Holographic Box Metrology and Second-Order Displacement}
+
+\begin{theorem}[Fundamental Mode Stability]
+Let the comoving box size be fixed by the holographic curvature scale:
+\begin{equation}
+    L_{\text{box}} = \sqrt{\frac{3}{\Lambda_{\text{holo}}}} = 222.5502 \text{ Mpc} = 150.0 \, h^{-1}\text{Mpc} \quad (h = 0.6739962)
+\end{equation}
+with screen saturation capacity $N_{\text{sat}} \approx 3.311998 \times 10^{122} \text{ bits}$. If the 
+primordial power spectrum is normalized such that:
+\begin{equation}
+    \Delta^2(k_1, z=0) \equiv \frac{k_1^3 P(k_1, 0)}{2\pi^2} \le 0.0120
+\end{equation}
+then the fundamental mode remains strictly linear ($\sigma(k_1, z) \ll 1$) for all $z \ge 0$, and 
+the linear turnaround shell-crossing criterion $\delta_{\text{crit}} \approx 1.686$ is never breached.
+\end{theorem}
+
+\begin{proof}
+Evaluating the fundamental wavenumber yields $k_1 = 2\pi / 222.5502 \approx 0.028232 \text{ Mpc}^{-1}$. 
+At $z = 0$, the maximum root-mean-square amplitude is $\sigma(k_1, 0) = \sqrt{0.0120} \approx 0.1095$. 
+At initialization $z_{\text{init}} = 30$, the linear growth factor is $D_1(30) \approx 0.032258$, yielding 
+$\sigma(k_1, 30) = 0.00353$. Because $\sigma(k_1, z) < 0.11 \ll 1.686$ across all epochs, 
+the mode cannot experience non-linear turnaround, proving that large-scale mass evacuation 
+cannot occur.
+\end{proof}
+
+\subsection{Second-Order Lagrangian Displacements (2LPT)}
+Particles are displaced from regular grid locations $\mathbf{q}$ at $z_{\text{init}} = 30$ using the 
+second-order Lagrangian perturbation kernel:
+\begin{equation}
+    \mathbf{x}(\mathbf{q}) = \mathbf{q} - D_1(z_{\text{init}}) \nabla_{\mathbf{q}} \Phi^{(1)}(\mathbf{q}) + D_2(z_{\text{init}}) \nabla_{\mathbf{q}} \Phi^{(2)}(\mathbf{q})
+\end{equation}
+where the gravitational potentials satisfy:
+\begin{align}
+    \nabla_{\mathbf{q}}^2 \Phi^{(1)}(\mathbf{q}) &= \delta^{(1)}(\mathbf{q}) \\
+    \nabla_{\mathbf{q}}^2 \Phi^{(2)}(\mathbf{q}) &= \frac{1}{2} \sum_{i \ne j} \left[ \frac{\partial^2 \Phi^{(1)}}{\partial q_i^2}\frac{\partial^2 \Phi^{(1)}}{\partial q_j^2} - \left( \frac{\partial^2 \Phi^{(1)}}{\partial q_i \partial q_j} \right)^2 \right]
+\end{align}
+normalized to the 1-$\sigma$ visible lattice capacity variance $\delta_{c0} \approx 0.065602$, with 
+growth factors $D_1(30) \approx 0.032258$ and $D_2(30) \approx -\frac{3}{7} D_1(30)^2 \approx -4.4596 \times 10^{-4}$.
 
 \begin{thebibliography}{99}
 

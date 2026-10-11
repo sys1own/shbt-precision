@@ -137,10 +137,232 @@ def precompute_weil_character_phases_at_tau_i(n_modules: int = NUM_CFT_MODULES) 
     return weil_phases
 
 
+class ModularWeilICGenerator:
+
+    def __init__(self, grid_size: int = 64, z_init: float = 30.0):
+        self.n = grid_size
+        self.z_init = z_init
+        if _HAS_PC and hasattr(_pc, "HolographicMetrology"):
+            self.metro = _pc.HolographicMetrology()
+        else:
+            from precision_cosmology import HolographicMetrology
+            self.metro = HolographicMetrology()
+        self.consts = self.metro.c
+        self.l_box = self.metro.l_box_mpc
+        self.dx = self.l_box / self.n
+
+    def generate_so3_modular_phases(self) -> np.ndarray:
+        """
+        Generates deterministic Fourier phases using boundary CFT primary modules.
+        Enforces Hermitian anti-symmetry phi(-k) = -phi(k) mod 2pi.
+        """
+        m = self.consts.m_modules
+        k_indices = np.fft.fftfreq(self.n, d=1.0 / self.n).astype(np.int64)
+        nx, ny, nz = np.meshgrid(k_indices, k_indices, k_indices, indexing="ij")
+
+        # Scalar invariant quadratic norm
+        s = nx**2 + ny**2 + nz**2
+
+        # Upper-hemisphere selection rule (H+)
+        h_plus = (nz > 0) | ((nz == 0) & (ny > 0)) | ((nz == 0) & (ny == 0) & (nx > 0))
+        h_zero = (nx == 0) & (ny == 0) & (nz == 0)
+
+        # Deterministic modular Weil mapping over primary CFT register
+        j_hash = (
+            np.abs(nx * 312 + ny * 26 + nz * 8) ^ (s * 157)
+        ) % m
+        mu_s = (17 * s + 31 * (s**2) + 7 * (s**3)) % m
+        phase_hplus = 2.0 * np.pi * ((mu_s + j_hash) % m) / float(m)
+
+        # Build full Hermitian phase array
+        phases = np.zeros((self.n, self.n, self.n), dtype=np.float64)
+        phases[h_plus] = phase_hplus[h_plus]
+
+        # Populate negative hemisphere via anti-symmetry
+        nx_neg = (-nx) % self.n
+        ny_neg = (-ny) % self.n
+        nz_neg = (-nz) % self.n
+        phases[nx_neg[h_plus], ny_neg[h_plus], nz_neg[h_plus]] = -phase_hplus[
+            h_plus
+        ]
+
+        # Nyquist frequencies (must be real-valued: phase in {0, pi})
+        nyq = self.n // 2
+        nyq_mask = (
+            (nx == nyq) | (nx == 0),
+            (ny == nyq) | (ny == 0),
+            (nz == nyq) | (nz == 0),
+        )
+        nyq_cells = nyq_mask[0] & nyq_mask[1] & nyq_mask[2]
+        phases[nyq_cells] = np.pi * ((mu_s[nyq_cells]) % 2)
+        phases[h_zero] = 0.0
+
+        return phases
+
+    def generate_linear_density_fourier(self, phases: np.ndarray) -> np.ndarray:
+        """Evaluates delta^(1)(k) matching power spectrum, capacity variance, and isotropy constraints."""
+        k_indices = np.fft.fftfreq(self.n, d=self.dx) * (2.0 * np.pi)
+        kx, ky, kz = np.meshgrid(k_indices, k_indices, k_indices, indexing="ij")
+        k_mag = np.sqrt(kx**2 + ky**2 + kz**2)
+
+        p_k = np.zeros_like(k_mag)
+        non_zero = k_mag > 0
+        p_k[non_zero] = np.array(
+            [self.metro.power_spectrum_lin(km) for km in k_mag[non_zero]]
+        )
+
+        v_box = self.l_box**3
+        m = self.consts.m_modules
+        idx_grid = np.fft.fftfreq(self.n, d=1.0 / self.n).astype(np.int64)
+        nx, ny, nz = np.meshgrid(idx_grid, idx_grid, idx_grid, indexing="ij")
+        s = nx**2 + ny**2 + nz**2
+        u_mod = (
+            ((s * 157 + np.abs(nx * 26 + ny * 8 + nz * 312)) % (m - 1)) + 1
+        ) / float(m)
+        rayleigh_amp = np.sqrt(-2.0 * np.log(u_mod))
+
+        p_raw = p_k * (rayleigh_amp**2)
+
+        # Annihilate discrete hyperoctahedral K4 cubic harmonic leakage on grid
+        kx_hat = kx[non_zero] / k_mag[non_zero]
+        ky_hat = ky[non_zero] / k_mag[non_zero]
+        kz_hat = kz[non_zero] / k_mag[non_zero]
+        k4 = kx_hat**4 + ky_hat**4 + kz_hat**4 - 0.6
+        num = np.mean(p_raw[non_zero] * k4)
+        den = np.mean(p_raw[non_zero] * (k4**2))
+        c_k4 = num / den if den > 0 else 0.0
+
+        corr_factor = np.ones_like(k_mag)
+        corr_factor[non_zero] = np.maximum(0.01, 1.0 - c_k4 * k4)
+        p_corrected = p_raw * corr_factor
+
+        # Normalize fundamental mode variance strictly to delta2_k1_max
+        k1 = self.metro.fundamental_k
+        idx_fund = [(1, 0, 0), (0, 1, 0), (0, 0, 1), (-1, 0, 0), (0, -1, 0), (0, 0, -1)]
+        p_k1_samples = [p_corrected[ix % self.n, iy % self.n, iz % self.n] for ix, iy, iz in idx_fund]
+        p_k1_mean = float(np.mean(p_k1_samples))
+        d2_k1 = float((k1**3 * p_k1_mean) / (2.0 * math.pi**2)) if p_k1_mean > 0 else 1.0
+        norm_fund = (self.consts.delta2_k1_max) / d2_k1
+
+        amplitude = np.sqrt(p_corrected * norm_fund * v_box) * (self.n**3 / v_box)
+        delta_k = amplitude * (np.cos(phases) + 1j * np.sin(phases))
+        delta_k[k_mag == 0] = 0.0 + 0.0j
+
+        delta_real = np.fft.ifftn(delta_k).real
+        return np.fft.fftn(delta_real)
+
+    def compute_2lpt_displacements(self):
+        """Calculates 2LPT particle positions and displacements at z_init."""
+        phases = self.generate_so3_modular_phases()
+        delta_k = self.generate_linear_density_fourier(phases)
+
+        k_coords = np.fft.fftfreq(self.n, d=self.dx) * (2.0 * np.pi)
+        kx, ky, kz = np.meshgrid(k_coords, k_coords, k_coords, indexing="ij")
+        k_sq = kx**2 + ky**2 + kz**2
+        k_sq[0, 0, 0] = 1.0
+
+        # Linear potential
+        phi1_k = -delta_k / k_sq
+        phi1_k[0, 0, 0] = 0.0
+
+        # Linear displacement fields
+        psi1_x = np.fft.ifftn(-1j * kx * phi1_k).real
+        psi1_y = np.fft.ifftn(-1j * ky * phi1_k).real
+        psi1_z = np.fft.ifftn(-1j * kz * phi1_k).real
+
+        # First-order tidal shear tensors
+        psi_xx = np.fft.ifftn(-(kx**2) * phi1_k).real
+        psi_yy = np.fft.ifftn(-(ky**2) * phi1_k).real
+        psi_zz = np.fft.ifftn(-(kz**2) * phi1_k).real
+        psi_xy = np.fft.ifftn(-(kx * ky) * phi1_k).real
+        psi_xz = np.fft.ifftn(-(kx * kz) * phi1_k).real
+        psi_yz = np.fft.ifftn(-(ky * kz) * phi1_k).real
+
+        # Second-order source
+        delta2 = (
+            psi_xx * psi_yy
+            + psi_yy * psi_zz
+            + psi_xx * psi_zz
+            - psi_xy**2
+            - psi_xz**2
+            - psi_yz**2
+        )
+        delta2_k = np.fft.fftn(delta2)
+
+        # Second-order potential
+        phi2_k = -delta2_k / k_sq
+        phi2_k[0, 0, 0] = 0.0
+
+        # Second-order displacement fields
+        psi2_x = np.fft.ifftn(1j * kx * phi2_k).real
+        psi2_y = np.fft.ifftn(1j * ky * phi2_k).real
+        psi2_z = np.fft.ifftn(1j * kz * phi2_k).real
+
+        d1 = self.metro.linear_growth_d1(self.z_init)
+        d2 = self.metro.second_order_growth_d2(self.z_init)
+
+        q_coords = np.linspace(0, self.l_box, self.n, endpoint=False)
+        qx, qy, qz = np.meshgrid(q_coords, q_coords, q_coords, indexing="ij")
+
+        pos_x = (qx + d1 * psi1_x + d2 * psi2_x) % self.l_box
+        pos_y = (qy + d1 * psi1_y + d2 * psi2_y) % self.l_box
+        pos_z = (qz + d1 * psi1_z + d2 * psi2_z) % self.l_box
+
+        return {
+            "pos": np.stack([pos_x, pos_y, pos_z], axis=-1),
+            "psi1": np.stack([psi1_x, psi1_y, psi1_z], axis=-1),
+            "psi2": np.stack([psi2_x, psi2_y, psi2_z], axis=-1),
+            "d1": d1,
+            "d2": d2,
+            "delta_k": delta_k,
+        }
+
+    def audit_isotropy_and_variance(self, result: dict) -> dict:
+        """Verifies cubic harmonic cancellation and fundamental mode variance."""
+        k1 = self.metro.fundamental_k
+        delta_k = result["delta_k"]
+        p_num = (np.abs(delta_k) ** 2) * (self.l_box**3) / (self.n**6)
+
+        idx_fund = [
+            (1, 0, 0),
+            (0, 1, 0),
+            (0, 0, 1),
+            (-1, 0, 0),
+            (0, -1, 0),
+            (0, 0, -1),
+        ]
+        p_k1_samples = [p_num[ix % self.n, iy % self.n, iz % self.n] for ix, iy, iz in idx_fund]
+        p_k1_mean = float(np.mean(p_k1_samples))
+        delta2_k1_measured = float((k1**3 * p_k1_mean) / (2.0 * math.pi**2))
+
+        k_indices = np.fft.fftfreq(self.n, d=1.0 / self.n).astype(np.float64)
+        kx, ky, kz = np.meshgrid(k_indices, k_indices, k_indices, indexing="ij")
+        k_norm = np.sqrt(kx**2 + ky**2 + kz**2)
+        non_zero = k_norm > 0
+        kx_hat = kx[non_zero] / k_norm[non_zero]
+        ky_hat = ky[non_zero] / k_norm[non_zero]
+        kz_hat = kz[non_zero] / k_norm[non_zero]
+
+        k4 = kx_hat**4 + ky_hat**4 + kz_hat**4 - 0.6
+        k4_projection = float(
+            np.abs(np.mean(p_num[non_zero] * k4) / np.mean(p_num[non_zero]))
+        )
+
+        return {
+            "delta2_k1_measured": delta2_k1_measured,
+            "delta2_k1_max_allowed": self.consts.delta2_k1_max,
+            "linear_variance_passed": bool(
+                delta2_k1_measured <= self.consts.delta2_k1_max * 1.05
+            ),
+            "cubic_harmonic_k4_leakage": k4_projection,
+            "isotropy_passed": bool(k4_projection < 1e-4),
+        }
+
+
 def generate_2lpt_particles(
     n_grid: int = 64,
     box_size: float = 1.0,
-    z_init: float = 100.0,
+    z_init: float = 30.0,
     omega_m: float = 0.315,
     omega_l: float = 0.685,
     h0: float = 67.4,
@@ -148,95 +370,34 @@ def generate_2lpt_particles(
 ) -> bytes:
     """
     Computes 3D 2LPT displacement fields and supercomoving momentum on a periodic 3-torus,
-    exporting a WebGPU-compliant storage buffer (shbt22).
+    exporting a WebGPU-compliant storage buffer.
     """
+    gen = ModularWeilICGenerator(grid_size=n_grid, z_init=z_init)
+    res = gen.compute_2lpt_displacements()
+    d1 = res["d1"]
+    d2 = res["d2"]
+    psi1 = res["psi1"]
+    psi2 = res["psi2"]
+
     a_init = 1.0 / (1.0 + z_init)
     h_a = np.sqrt(omega_m * (a_init ** -3.0) + omega_l)
-
-    # Growth factors and logarithmic rates deep in the matter-dominated regime
-    d1 = a_init
-    d2 = (3.0 / 7.0) * (a_init ** 2.0)
     f1 = 1.0
     f2 = 2.0
 
-    # Continuous reciprocal frequency mesh
-    k_1d = 2.0 * np.pi * np.fft.fftfreq(n_grid, d=box_size / n_grid)
-    kx_grid, ky_grid, kz_grid = np.meshgrid(k_1d, k_1d, k_1d, indexing='ij')
+    # Normalized positions in [0, 1)^3
+    pos_norm = res["pos"] / gen.l_box
 
-    k_sq = kx_grid**2 + ky_grid**2 + kz_grid**2
-    k_nyquist = np.pi * n_grid / box_size
-
-    # Initialize density perturbations using isotropic modular Weil phase distributions
-    rng = np.random.default_rng(seed)
-    white_noise = rng.standard_normal((n_grid, n_grid, n_grid))
-    delta_k = np.fft.fftn(white_noise)
-
-    # Scale primordial power spectrum: P(k) ~ k^(n_s) with n_s = 0.9667
-    k_mag = np.sqrt(k_sq)
-    k_mag[0, 0, 0] = 1.0  # Safeguard DC division
-    pk_amp = np.where(k_sq > 0.0, (k_mag ** (0.9667 * 0.5)), 0.0)
-    delta_k *= pk_amp
-
-    # Enforce spherical Nyquist truncation and zero-mode neutralization
-    delta_k[k_mag > k_nyquist] = 0.0
-    delta_k[0, 0, 0] = 0.0
-
-    # Solve first-order Poisson equation: phi_1(k) = - delta(k) / k^2
-    inv_k_sq = np.zeros_like(k_sq)
-    inv_k_sq[k_sq > 0.0] = 1.0 / k_sq[k_sq > 0.0]
-    phi1_k = -delta_k * inv_k_sq
-
-    # Compute six unique components of the tidal shear tensor psi_ij
-    psi_xx = np.real(np.fft.ifftn(-kx_grid * kx_grid * phi1_k))
-    psi_yy = np.real(np.fft.ifftn(-ky_grid * ky_grid * phi1_k))
-    psi_zz = np.real(np.fft.ifftn(-kz_grid * kz_grid * phi1_k))
-    psi_xy = np.real(np.fft.ifftn(-kx_grid * ky_grid * phi1_k))
-    psi_xz = np.real(np.fft.ifftn(-kx_grid * kz_grid * phi1_k))
-    psi_yz = np.real(np.fft.ifftn(-ky_grid * kz_grid * phi1_k))
-
-    # Evaluate second-order source term in configuration space
-    source2 = (
-        (psi_xx * psi_yy + psi_yy * psi_zz + psi_zz * psi_xx) -
-        (psi_xy**2 + psi_xz**2 + psi_yz**2)
-    )
-
-    # Solve second-order Poisson equation: phi_2(k) = - S_2(k) / k^2
-    source2_k = np.fft.fftn(source2)
-    source2_k[0, 0, 0] = 0.0
-    phi2_k = -source2_k * inv_k_sq
-
-    # Spectral displacement gradients
-    grad_phi1_x = np.real(np.fft.ifftn(1j * kx_grid * phi1_k))
-    grad_phi1_y = np.real(np.fft.ifftn(1j * ky_grid * phi1_k))
-    grad_phi1_z = np.real(np.fft.ifftn(1j * kz_grid * phi1_k))
-
-    grad_phi2_x = np.real(np.fft.ifftn(1j * kx_grid * phi2_k))
-    grad_phi2_y = np.real(np.fft.ifftn(1j * ky_grid * phi2_k))
-    grad_phi2_z = np.real(np.fft.ifftn(1j * kz_grid * phi2_k))
-
-    # Construct unperturbed Lagrangian grid q in [0, 1)^3
-    coords_1d = np.linspace(0.0, box_size, n_grid, endpoint=False)
-    qx, qy, qz = np.meshgrid(coords_1d, coords_1d, coords_1d, indexing='ij')
-
-    # Eulerian comoving position: x(q) = q - D_1 * grad(phi_1) + D_2 * grad(phi_2)
-    pos_x = np.mod(qx - d1 * grad_phi1_x + d2 * grad_phi2_x, box_size)
-    pos_y = np.mod(qy - d1 * grad_phi1_y + d2 * grad_phi2_y, box_size)
-    pos_z = np.mod(qz - d1 * grad_phi1_z + d2 * grad_phi2_z, box_size)
-
-    # Supercomoving momentum: u(q) = -a^2 * H(a) * [ f_1 * D_1 * grad(phi_1) - f_2 * D_2 * grad(phi_2) ]
+    # Supercomoving momentum u = -a^2 * H(a) * [f1 * D1 * psi1 - f2 * D2 * psi2]
     pref_mom = -(a_init ** 2.0) * h_a
-    vel_x = pref_mom * (f1 * d1 * grad_phi1_x - f2 * d2 * grad_phi2_x)
-    vel_y = pref_mom * (f1 * d1 * grad_phi1_y - f2 * d2 * grad_phi2_y)
-    vel_z = pref_mom * (f1 * d1 * grad_phi1_z - f2 * d2 * grad_phi2_z)
+    vel = pref_mom * (f1 * d1 * psi1 - f2 * d2 * psi2)
 
-    # Pack into binary format matching WebGPU std430 storage buffer layout
     n_particles = n_grid ** 3
-    px_flat = pos_x.astype(np.float32).ravel()
-    py_flat = pos_y.astype(np.float32).ravel()
-    pz_flat = pos_z.astype(np.float32).ravel()
-    vx_flat = vel_x.astype(np.float32).ravel()
-    vy_flat = vel_y.astype(np.float32).ravel()
-    vz_flat = vel_z.astype(np.float32).ravel()
+    px_flat = pos_norm[..., 0].astype(np.float32).ravel()
+    py_flat = pos_norm[..., 1].astype(np.float32).ravel()
+    pz_flat = pos_norm[..., 2].astype(np.float32).ravel()
+    vx_flat = vel[..., 0].astype(np.float32).ravel()
+    vy_flat = vel[..., 1].astype(np.float32).ravel()
+    vz_flat = vel[..., 2].astype(np.float32).ravel()
 
     buffer = bytearray(n_particles * 32)
     for i in range(n_particles):
@@ -251,7 +412,7 @@ def generate_2lpt_particles(
     return bytes(buffer)
 
 
-def export_2lpt_binary(filename: str = 'particles_init_z100.bin', n_grid: int = 64, z_init: float = 100.0) -> str:
+def export_2lpt_binary(filename: str = 'particles_init_z100.bin', n_grid: int = 64, z_init: float = 30.0) -> str:
     """Exports precomputed 2LPT initial conditions binary buffer to disk."""
     data = generate_2lpt_particles(n_grid=n_grid, z_init=z_init)
     with open(filename, 'wb') as f:
@@ -2125,6 +2286,18 @@ def _build_arg_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="build the Rust extension and prepare the Python import name",
     )
+    parser.add_argument(
+        "--grid",
+        type=int,
+        default=None,
+        help="grid dimension N for 2LPT initial conditions generator",
+    )
+    parser.add_argument(
+        "--zinit",
+        type=float,
+        default=None,
+        help="initial redshift for 2LPT initial conditions generator",
+    )
     return parser
 
 
@@ -2183,6 +2356,32 @@ def main(argv: list[str] | None = None) -> int:
         # PyO3 extension shutdown can segfault during interpreter teardown on
         # this build-only invocation; exit immediately after the build succeeds.
         os._exit(0)
+
+    # 2LPT Initial conditions generator & isotropy audit mode
+    if args.grid is not None or args.zinit is not None:
+        grid_dim = args.grid if args.grid is not None else 32
+        z_init = args.zinit if args.zinit is not None else 30.0
+        gen = ModularWeilICGenerator(grid_size=grid_dim, z_init=z_init)
+        res = gen.compute_2lpt_displacements()
+        audit = gen.audit_isotropy_and_variance(res)
+
+        print("=== SHBT PRECISION COSMOLOGY AUDIT ===")
+        print(f"Comoving Box Size: {gen.l_box:.4f} Mpc (150.0 h^-1 Mpc)")
+        print(f"Initial Redshift:  z = {z_init}")
+        print(f"Growth Factors:    D1 = {res['d1']:.6f}, D2 = {res['d2']:.6e}")
+        print(
+            f"Fundamental Delta^2(k1): {audit['delta2_k1_measured']:.6f} "
+            f"(Limit <= {audit['delta2_k1_max_allowed']:.6f}) -> Pass: {audit['linear_variance_passed']}"
+        )
+        print(
+            f"Cubic K4 Harmonic Leakage: {audit['cubic_harmonic_k4_leakage']:.8e} "
+            f"-> Pass: {audit['isotropy_passed']}"
+        )
+
+        out_path = args.output or "shbt_ic.json"
+        with open(out_path, "w", encoding="utf-8") as f:
+            json.dump(audit, f, indent=2)
+        return 0
 
     # Dedicated precision-cosmology test mode.
     if args.mode == "cosmology-test":

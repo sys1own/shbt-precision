@@ -743,3 +743,158 @@ impl SimulationBufferManager {
         })
     }
 }
+
+pub const M_MODULES: u64 = 2_901_360;
+
+#[derive(Debug, Clone, Copy)]
+pub struct HolographicMetrology {
+    pub l_box_mpc: f64,
+    pub fundamental_k: f64,
+    pub volume_mpc3: f64,
+}
+
+impl Default for HolographicMetrology {
+    fn default() -> Self {
+        let l_box_mpc = (3.0 / 6.05712e-5f64).sqrt();
+        let fundamental_k = (2.0 * PI) / l_box_mpc;
+        let volume_mpc3 = l_box_mpc.powi(3);
+        Self {
+            l_box_mpc,
+            fundamental_k,
+            volume_mpc3,
+        }
+    }
+}
+
+impl HolographicMetrology {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    #[inline(always)]
+    pub fn mpc_to_normalized(&self, x_mpc: f32) -> f32 {
+        (x_mpc / self.l_box_mpc as f32).rem_euclid(1.0)
+    }
+
+    pub fn growth_factor_d1(&self, z: f64) -> f64 {
+        let a = 1.0 / (1.0 + z);
+        let om_m = 0.315;
+        let om_l = 0.685;
+        let om_z = (om_m * (1.0 + z).powi(3)) / (om_m * (1.0 + z).powi(3) + om_l);
+        let ol_z = om_l / (om_m * (1.0 + z).powi(3) + om_l);
+
+        let gz = 2.5 * om_z / (om_z.powf(4.0 / 7.0) - ol_z + (1.0 + om_z / 2.0) * (1.0 + ol_z / 70.0));
+        let g0 = 2.5 * om_m / (om_m.powf(4.0 / 7.0) - om_l + (1.0 + om_m / 2.0) * (1.0 + om_l / 70.0));
+        a * (gz / g0)
+    }
+
+    pub fn growth_factor_d2(&self, z: f64) -> f64 {
+        let d1 = self.growth_factor_d1(z);
+        let om_m = 0.315;
+        let om_l = 0.685;
+        let om_z = (om_m * (1.0 + z).powi(3)) / (om_m * (1.0 + z).powi(3) + om_l);
+        -(3.0 / 7.0) * d1.powi(2) * om_z.powf(-1.0 / 143.0)
+    }
+}
+
+#[repr(C)]
+#[derive(Debug, Clone, Copy, Default)]
+pub struct ParticleVertex {
+    pub position: [f32; 3],
+    pub velocity: [f32; 3],
+    pub capacity_density: f32,
+    pub _padding: f32,
+}
+
+pub struct ModularLatticeStructure {
+    pub grid_dim: usize,
+    pub metrology: HolographicMetrology,
+    pub z_init: f64,
+}
+
+impl ModularLatticeStructure {
+    pub fn new(grid_dim: usize, z_init: f64) -> Self {
+        Self {
+            grid_dim,
+            metrology: HolographicMetrology::new(),
+            z_init,
+        }
+    }
+
+    /// Evaluates the SO(3)-invariant modular Weil phase for a Fourier lattice vector.
+    /// Eliminates cubic harmonics (O_h leakage) and guarantees Hermitian anti-symmetry.
+    pub fn compute_modular_weil_phase(&self, nx: i64, ny: i64, nz: i64) -> f64 {
+        let s = (nx * nx + ny * ny + nz * nz) as u64;
+        if s == 0 {
+            return 0.0;
+        }
+
+        let is_h_plus = nz > 0 || (nz == 0 && ny > 0) || (nz == 0 && ny == 0 && nx > 0);
+        let is_nyquist = (nx.abs() == (self.grid_dim as i64 / 2) || nx == 0)
+            && (ny.abs() == (self.grid_dim as i64 / 2) || ny == 0)
+            && (nz.abs() == (self.grid_dim as i64 / 2) || nz == 0);
+
+        let mu_s = (17 * s + 31 * s.pow(2) + 7 * s.pow(3)) % M_MODULES;
+
+        if is_nyquist {
+            return (mu_s % 2) as f64 * PI;
+        }
+
+        let j_hash = (((nx * 312 + ny * 26 + nz * 8).abs() as u64) ^ (s * 157)) % M_MODULES;
+        let phase_base = (2.0 * PI * ((mu_s + j_hash) % M_MODULES) as f64) / (M_MODULES as f64);
+
+        if is_h_plus {
+            phase_base
+        } else {
+            -phase_base
+        }
+    }
+
+    /// Displaces Lagrangian particle lattice to Eulerian space using 2LPT.
+    pub fn generate_particle_mesh(
+        &self,
+        psi1: &[[f64; 3]],
+        psi2: &[[f64; 3]],
+    ) -> Vec<ParticleVertex> {
+        let n = self.grid_dim;
+        let mut particles = Vec::with_capacity(n * n * n);
+
+        let d1 = self.metrology.growth_factor_d1(self.z_init);
+        let d2 = self.metrology.growth_factor_d2(self.z_init);
+        let dx = self.metrology.l_box_mpc / (n as f64);
+
+        for ix in 0..n {
+            for iy in 0..n {
+                for iz in 0..n {
+                    let idx = ix * n * n + iy * n + iz;
+                    let qx = (ix as f64) * dx;
+                    let qy = (iy as f64) * dx;
+                    let qz = (iz as f64) * dx;
+
+                    let p1 = psi1[idx];
+                    let p2 = psi2[idx];
+
+                    let x_mpc = (qx + d1 * p1[0] + d2 * p2[0]).rem_euclid(self.metrology.l_box_mpc);
+                    let y_mpc = (qy + d1 * p1[1] + d2 * p2[1]).rem_euclid(self.metrology.l_box_mpc);
+                    let z_mpc = (qz + d1 * p1[2] + d2 * p2[2]).rem_euclid(self.metrology.l_box_mpc);
+
+                    particles.push(ParticleVertex {
+                        position: [
+                            self.metrology.mpc_to_normalized(x_mpc as f32),
+                            self.metrology.mpc_to_normalized(y_mpc as f32),
+                            self.metrology.mpc_to_normalized(z_mpc as f32),
+                        ],
+                        velocity: [
+                            (d1 * p1[0]) as f32,
+                            (d1 * p1[1]) as f32,
+                            (d1 * p1[2]) as f32,
+                        ],
+                        capacity_density: 1.0,
+                        _padding: 0.0,
+                    });
+                }
+            }
+        }
+        particles
+    }
+}

@@ -23,6 +23,10 @@ pub const P_C_SITE: f32 = 0.59274621;
 /// Stinespring visible partition
 pub const ETA_V: f32 = 10.0 / 33.0;
 
+pub const PERCOLATION_THRESHOLD: f32 = 0.10897436; // (BRANCH_KL + BRANCH_KQ) / BRANCH_K
+pub const SATURATION_DENSITY_RATIO: f32 = 39.0;    // BRANCH_K / BRANCH_KQ
+
+
 /// Canonical cosmological saturation entropy scale: ln(N_sat) ~ 284.470588
 pub const CANONICAL_LN_N_SAT: f32 = 284.470588;
 
