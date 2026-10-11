@@ -35,3 +35,10 @@ pub use stability_audit::*;
 pub use structure::*;
 pub use thermal_history::*;
 pub use uniqueness::*;
+
+// Disambiguate glob re-exports:
+pub use structure::K_L;
+pub use higgs::K_Q;
+pub use thermal_history::{BOLTZMANN_K, ETA_V};
+
+

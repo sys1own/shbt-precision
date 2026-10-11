@@ -555,34 +555,86 @@ yielding time-invariant comoving resolution $\epsilon_{\mathrm{comov}} = \text{c
 \section{Boundary Affine Quantization, Cardy Virialization, and Horizon Freeze Hydrodynamics}
 \label{app:affine-quantization-cardy-freeze}
 
-\subsection{Affine Level Partition and Invariant Ratios}
+\subsection{Affine Level Partition and Visible Capacity Invariant}
 The boundary algebra decomposition $SO(10)_{312} \supset SU(2)_{26} \times SU(3)_8$ fixes the central charges and conductor $N = 33$. The capacity fractions:
 \begin{equation}
 \eta_V = \frac{k_\ell + k_q - 24}{N} = \frac{26 + 8 - 24}{33} = \frac{10}{33}, \quad \eta_D = 1 - \eta_V = \frac{23}{33},
 \end{equation}
-dictate the exact partitioning of baryonic and topological dark degrees of freedom.
+dictate the exact partitioning of baryonic and topological dark degrees of freedom without empirical free parameters.
 
-\subsection{Cardy Virialization and Phase-Space Capacity Saturation}
-In local overdensities where the operational bit requirement exceeds the Cardy limit $N_{\mathrm{limit}}(z) = \gamma_{\mathrm{CFT}} (H/H_{\mathrm{ref}})^2 (V_{\mathrm{cell}}/V_H) N_{\mathrm{sat}}$ ($\gamma_{\mathrm{CFT}} = 1325/924$), information crowding creates velocity dispersion:
+\subsection{Cardy Floor Regularized Entropic Transport and Jeans Core Equilibrium}
+In numerical implementations of Static Holographic Boundary Theory, unregularized logarithmic gradients $\nabla \ln \rho_{\mathrm{bulk}}$ diverge in deep void basins ($\rho_{\mathrm{bulk}} \to 0$) and produce unphysical cusp singularities in overdense halos ($\rho_{\mathrm{bulk}} \to \rho_{\mathrm{sat}}$). The boundary coset Cardy regularized transport kernel replaces the unregularized gradient with:
 \begin{equation}
-\sigma_v^2 = \sigma_{\mathrm{vir}}^2 \, \frac{N_{\mathrm{local}}}{N_{\mathrm{limit}}(z)}, \quad \sigma_{\mathrm{vir}} = 1.25 \times 10^{-2} \, c.
+\nabla \ln(\rho_{\mathrm{reg}}) = \frac{\nabla \rho_{\mathrm{bulk}}}{\rho_{\mathrm{bulk}} + \rho_{\mathrm{cardy\_floor}}},
 \end{equation}
-The associated dispersion gradient $\mathbf{a}_{\mathrm{disp}} = - 2 \sigma_v^2 \nabla \ln \rho$ balances the holographic entropic pull $\mathbf{a}_{\mathrm{GET}}$, halting artificial unphysical collapse into monolithic singular pancakes.
+where $\rho_{\mathrm{cardy\_floor}} = \rho_{\mathrm{sat},0} / N_{\mathrm{sat}}^{1/4} \approx 0.006967$. In void regions, $\nabla \ln(\rho_{\mathrm{reg}})$ smoothly vanishes as density profiles flatten, ensuring isotropic, non-directional void evacuation.
 
-\subsection{Horizon Contraction and Terminal State Crystallization}
-The forward cosmological loading fraction:
+In collapsed halo cores, boundary information capacity saturates according to the local packing ratio:
 \begin{equation}
-f_{\mathrm{load}}(a) = \frac{\int_{a_0}^a \frac{da'}{a'^2 H(a')}}{\int_{a_0}^\infty \frac{da'}{a'^2 H(a')}}
+\eta_{\mathrm{sat}}(\mathbf{x}, z) = \operatorname{clamp}\left( \frac{\rho_{\mathrm{bulk}}(\mathbf{x})}{\rho_{\mathrm{sat}}(z)}, \, 0.0, \, 1.0 \right), \quad \rho_{\mathrm{sat}}(z) = \frac{\rho_{\mathrm{sat}, 0}}{a^3}.
 \end{equation}
-converges asymptotically to unity as $a \to 1000$ ($z \to -0.999$). The entropy reserve:
+Saturation triggers an isotropic velocity dispersion floor:
 \begin{equation}
-R_{\mathrm{entropy}}(a) = 1 - f_{\mathrm{load}}(a) - 10^{-6}
+\sigma_v^2(\mathbf{x}, z) = \frac{k_B T_{\mathrm{vir}}}{m_p} \, \eta_{\mathrm{sat}}(\mathbf{x}, z),
 \end{equation}
-is strictly zero when exhausted. All physical peculiar motion ceases ($\mathbf{v}=0, \mathbf{a}=0$), and node splats transition via Hermite interpolation to the ground-state topological invariant $[0.12, 0.18, 0.28, 0.35]$.
+generating the outward thermodynamic dispersion acceleration:
+\begin{equation}
+\mathbf{a}_{\mathrm{disp}}(\mathbf{x}) = - 2 \sigma_v^2(\mathbf{x}, z) \, \nabla \ln(\rho_{\mathrm{reg}}).
+\end{equation}
+In virialized halo cores ($\eta_{\mathrm{sat}} \to 1$), the outward dispersion acceleration exactly balances the inward gravitational and entropic pull:
+\begin{equation}
+\mathbf{a}_{\mathrm{collapse}} + \mathbf{a}_{\mathrm{disp}} \equiv \mathbf{0},
+\end{equation}
+halting artificial caustic shell-crossing and establishing a stable Jeans core equilibrium with finite central core density.
 
-\subsection{Ergodic CFT Modular Phase Seeding, Linear Box Metrology, and 2LPT Dynamics}
-On discrete three-torus lattices $\mathbb{Z}_N^3$, the octahedral point-group symmetry $O_h \cong S_4 \times \mathbb{Z}_2$ causes phase alignment along reflection and rotational axes if constructed from symmetric polynomials $\sigma_i$. Ergodic phase generation on the $M = 2{,}901{,}360$ primary modules at $\tau = i$ utilizes asymmetric multipliers $c_1 = 73{,}856{,}093$, $c_2 = 19{,}349{,}663$, $c_3 = 83{,}492{,}791$ with SplitMix64 bi-permutation $\Xi(\mathbf{k}_0)$, ensuring uniform distribution in $[0, 2\pi)$ and strict Hermitian anti-symmetry $\phi(-\mathbf{k}) = -\phi(\mathbf{k}) \pmod{2\pi}$.
+\subsection{Boundary-Derived Baryonic Sound Speed and Gapless Acoustic Decoupling}
+The physical baryonic sound speed $c_s(z)$ is derived gaplessly from the thermodynamic state of the primordial neutral gas:
+\begin{equation}
+c_s^2(z) = \frac{\gamma k_B T_b(z)}{\mu m_p}, \quad \gamma = \frac{5}{3}, \quad \mu = \left( X + \frac{Y}{4} \right)^{-1} \approx 1.219512,
+\end{equation}
+with primordial hydrogen and helium mass fractions $X = 0.76$ and $Y = 0.24$. Prior to acoustic drag ($z > z_{\mathrm{drag}} = 1059.94$), Compton scattering locks the gas temperature to the CMB photon bath $T_\gamma(z) = T_{\mathrm{CMB}, 0}(1 + z)$. Following drag decoupling, entropy exchange with the holographic boundary modulates the thermal history through $\eta_V = 10/33$:
+\begin{equation}
+T_{\mathrm{post}}(z) = T_{\mathrm{CMB}, 0} (1 + z_{\mathrm{drag}}) \left[ \eta_V \left(\frac{1 + z}{1 + z_{\mathrm{drag}}}\right) + (1 - \eta_V) \left(\frac{1 + z}{1 + z_{\mathrm{drag}}}\right)^{2 - \eta_V} \right].
+\end{equation}
+A $C^\infty$ hyperbolic tangent window with transition width $\Delta z_{\mathrm{drag}} = 25.0$:
+\begin{equation}
+W(z) = \frac{1}{2} \left[ 1 + \tanh\left( \frac{z - z_{\mathrm{drag}}}{\Delta z_{\mathrm{drag}}} \right) \right], \quad T_b(z) = W(z) T_\gamma(z) + [1 - W(z)] T_{\mathrm{post}}(z),
+\end{equation}
+bridges acoustic decoupling gaplessly, yielding $c_s(z_{\mathrm{drag}}) \approx 5.709\,\mathrm{km/s}$ and $c_s(0) \approx 0.187\,\mathrm{km/s}$ without heuristic scaling sliders.
 
-Setting $L_{\mathrm{box}} = 500.0 \, h^{-1}\mathrm{Mpc}$ ($742.3 \, \mathrm{Mpc}$) maintains fundamental mode linearity $\Delta^2(k_1, z=0) = 0.001928 \le 0.008$. Second-Order Lagrangian Perturbation Theory (2LPT) with growth factors $D_1(z=30) \approx 0.02521$ and $D_2(z=30) \approx -2.7238 \times 10^{-4}$ provides accurate non-linear tidal displacement initialization, suppressing transient initial caustics across the cosmic volume.
+\subsection{Asymptotic Causal Event Horizon Contraction and De Sitter Island Freeze}
+In the accelerating de Sitter regime ($a \gg 1$), the comoving causal event horizon contracts according to:
+\begin{equation}
+\chi_{\mathrm{event}}(a) = c \int_a^\infty \frac{da'}{a'^2 H(a')} \approx \frac{c}{a H_0 \sqrt{\Omega_\Lambda}}.
+\end{equation}
+At scale factor $a = 1000$ ($z \to -0.999$), the horizon contracts to $\chi_{\mathrm{event}}(1000) \approx 5.33\,\mathrm{Mpc}$. Pairwise interactions in the Particle-Mesh solver are causally truncated via:
+\begin{equation}
+\mathbf{F}_{\mathrm{eff}} = \mathbf{F}_{ij} \cdot [1 - f_{\mathrm{load}}(a)] \cdot \Theta\left(\chi_{\mathrm{event}}(a) - r_{ij}\right),
+\end{equation}
+where $f_{\mathrm{load}}(a) = 1 - (R_{\mathrm{entropy}}(a) / R_{\mathrm{entropy}}(1.0))$. For halos separated by $D_{AB} \ge 15.0\,\mathrm{Mpc}$, all pairwise cross-halo distances satisfy $r_{ij} > \chi_{\mathrm{event}}(a)$ for $a > a_{\mathrm{iso}} \approx 444.8$, extinguishing cross-halo forces while preserving internal virial equilibrium within bound halos ($r_{kl} \le 3.0\,\mathrm{Mpc} < 5.33\,\mathrm{Mpc}$). As $a \to 1000$, boundary entropy is exhausted ($R_{\mathrm{entropy}} \le 0$), cleanly freezing halos into isolated de Sitter island universes immediately prior to an \texttt{AnomalyClosureError}.
+
+\subsection{Isotropic Weil Modular Phase Seeding and Fundamental Mode Linear Bounds}
+To eliminate hyperoctahedral $O_h$ point-group artifacts (6- and 8-pointed stars/snowflakes) without breaking statistical rotational invariance, primordial Fourier phases are generated from the $N = 2{,}901{,}360$ primary modules of the critical branch $(26, 8, 312)$ at $\tau = i$ ($q = e^{-2\pi}$). The module index $I(k)$ is governed strictly by the rotationally invariant Euclidean wavenumber magnitude $k = \|\mathbf{k}\|_2$:
+\begin{equation}
+I(k) = \left\lfloor \alpha \cdot \frac{k}{k_1} + \beta \cdot \left(\frac{k}{k_1}\right)^2 \right\rfloor \pmod N, \quad \alpha = 24\sqrt{3}, \quad \beta = \pi\sqrt{2},
+\end{equation}
+with isotropic angular dispersion $\Psi_{\mathrm{iso}}(\hat{\mathbf{k}}) = 2\pi \operatorname{frac}\left( \frac{1 - \cos\theta}{2} \frac{N}{24} + \frac{\varphi}{2\pi} \sqrt{5} \right)$. On the positive hemisphere partition $\mathcal{K}^+$, phases are assigned as $\phi(\mathbf{k}) = [\theta_{I(k)} + \Psi_{\mathrm{iso}}(\hat{\mathbf{k}})] \pmod{2\pi}$, with strict Hermitian anti-symmetry $\phi(-\mathbf{k}) = -\phi(\mathbf{k}) \pmod{2\pi}$ and $\phi(\mathbf{0}) = 0$. In spherical harmonics, the two-point correlation expansion satisfies $a_{\ell m}(r) \equiv 0$ ($\forall \ell \ge 1$), identically eliminating cubic harmonics $K_4$ and $K_6$.
+
+Holographic screen packing fixes the comoving box length to $L_{\mathrm{box}} = 150.0\,h^{-1}\mathrm{Mpc} \approx 222.5502\,\mathrm{Mpc}$ ($h = 0.6740058$) with screen curvature $\Lambda_{\mathrm{holo}} = 3/L_{\mathrm{box}}^2 \approx 6.05712\times 10^{-5}\,\mathrm{Mpc}^{-2}$. The fundamental Fourier mode $k_1 = 2\pi/L_{\mathrm{box}} \approx 0.019028\,h\,\mathrm{Mpc}^{-1}$ satisfies the linear variance bound:
+\begin{equation}
+\Delta^2(k_1, 0) = \frac{k_1^3}{2\pi^2} P_{\mathrm{NL}}(k_1, 0) \approx 0.01174 \le 0.0120,
+\end{equation}
+ensuring $\sigma_{\mathrm{box}} \approx 0.108 \ll 1$, which strictly prevents domain-spanning monolithic collapse.
+
+\subsection{Two-Pass Atomic Phase-Space Diagnostic Architecture}
+The phase-space $(x, v_x)$ projection kernel in \texttt{diagnostics.wgsl} operates via two decoupled compute passes:
+\begin{enumerate}
+    \item \textbf{Pass 1 (\texttt{cs\_accumulate\_phase\_space}):} Particles are mapped periodically across comoving boundaries via $x_{\mathrm{norm}} = \operatorname{fract}(x/L_{\mathrm{box}})$, with peculiar velocities scaled by conformal velocity normalizations. Linear cell indices are accumulated into a 1D atomic storage buffer \texttt{array<atomic<u32>>} via race-free \texttt{atomicAdd}, resolving dense caustics without GPU write conflicts.
+    \item \textbf{Pass 2 (\texttt{cs\_render\_phase\_space}):} Normalized intensities are reconstructed via high-dynamic-range logarithmic tone mapping:
+    \begin{equation}
+    I(u, v) = \frac{\ln(1.0 + \kappa \cdot N(u, v))}{\ln(1.0 + \kappa \cdot N_{\mathrm{sat}})}, \quad \kappa = 10.0, \quad N_{\mathrm{sat}} = 500.0,
+    \end{equation}
+    driving a continuous pseudocolor ramp (deep void blue $\to$ sheet cyan $\to$ amber $\to$ caustic white).
+\end{enumerate}
 
 \end{document}

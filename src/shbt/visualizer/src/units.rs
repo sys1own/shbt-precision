@@ -16,9 +16,12 @@
 //! Angular-diameter distances follow Etherington's distance duality
 //! D_A(z) = chi(z)/(1+z) evaluated over the same H_SHBT kernel.
 
+#![allow(dead_code)]
+
 use bytemuck::{Pod, Zeroable};
 
 use crate::telemetry;
+
 
 pub const C_SI: f64 = 2.997_924_58e8; // Speed of light (m/s)
 pub const G_SI: f64 = 6.674_30e-11; // Gravitational constant (m^3/kg/s^2)
@@ -464,12 +467,203 @@ impl MetrologyPipeline {
     }
 }
 
+// ----------------------------------------------------------------------------
+// SHBT Precision Cosmology: Unit Calibration and Isotropic PM Field Initialization (shbt21.txt)
+// ----------------------------------------------------------------------------
+
+/// Hubble parameter h for SHBT branch (26, 8, 312)
+pub const H_LITTLE: f64 = 0.6740058;
+
+/// Comoving box size in h^-1 Mpc
+pub const L_BOX_MPC_H: f64 = 150.0;
+
+/// Physical comoving box scale in Mpc: L_box = 150.0 / h ≈ 222.5502 Mpc
+pub const L_BOX_MPC: f64 = L_BOX_MPC_H / H_LITTLE;
+
+/// Holographic screen curvature scale: Lambda_holo = 3 / L_box^2 ≈ 6.05712e-5 Mpc^-2
+pub const LAMBDA_HOLO: f64 = 3.0 / (L_BOX_MPC * L_BOX_MPC);
+
+/// Fundamental wavevector magnitude k_1 = 2*pi / L_box ≈ 0.028232 Mpc^-1
+pub const K_FUNDAMENTAL: f64 = (2.0 * std::f64::consts::PI) / L_BOX_MPC;
+
+/// Number of primary boundary CFT modules
+pub const NUM_CFT_MODULES: usize = 2_901_360;
+
+/// Linear variance bound on fundamental mode preventing full-box collapse
+pub const DELTA2_K1_MAX: f64 = 0.0120;
+
+/// Cosmological units and holographic screen bounds
+#[derive(Debug, Clone, Copy)]
+pub struct CosmologicalUnits {
+    pub h: f64,
+    pub l_box_mpc: f64,
+    pub lambda_holo: f64,
+    pub k_fundamental: f64,
+}
+
+impl Default for CosmologicalUnits {
+    fn default() -> Self {
+        Self {
+            h: H_LITTLE,
+            l_box_mpc: L_BOX_MPC,
+            lambda_holo: LAMBDA_HOLO,
+            k_fundamental: K_FUNDAMENTAL,
+        }
+    }
+}
+
+impl CosmologicalUnits {
+    /// Validates that the fundamental box mode remains strictly within the linear regime.
+    pub fn validate_linear_stability(&self, power_spectrum_k1: f64) -> Result<f64, String> {
+        let delta2_k1 = (self.k_fundamental.powi(3) / (2.0 * std::f64::consts::PI * std::f64::consts::PI)) * power_spectrum_k1;
+        if delta2_k1 <= DELTA2_K1_MAX {
+            Ok(delta2_k1)
+        } else {
+            Err(format!(
+                "Fundamental mode non-linear saturation: Delta^2(k1) = {:.6} > {:.4}",
+                delta2_k1, DELTA2_K1_MAX
+            ))
+        }
+    }
+
+    /// Converts physical peculiar acceleration into Martel-Shapiro 
+    /// supercomoving momentum increment: Delta u = a^2 * a_phys * Delta t_conf
+    #[inline]
+    pub fn supercomoving_momentum_kick(
+        &self,
+        a_phys: [f32; 3],
+        scale_factor: f32,
+        dt_conf: f32,
+    ) -> [f32; 3] {
+        let a_sq = scale_factor * scale_factor;
+        let factor = a_sq * dt_conf;
+        [
+            a_phys[0] * factor,
+            a_phys[1] * factor,
+            a_phys[2] * factor,
+        ]
+    }
+
+    /// Computes redshift-dependent saturation density floor rho_sat(z) = rho_sat_0 * (1 + z)^3
+    #[inline]
+    pub fn saturation_density(&self, scale_factor: f32) -> f32 {
+        200.0f32 / (scale_factor * scale_factor * scale_factor)
+    }
+}
+
+/// Particle-Mesh (PM) isotropic density grid generator
+pub struct ParticleMeshGrid {
+    pub grid_dim: usize,
+    pub units: CosmologicalUnits,
+}
+
+impl ParticleMeshGrid {
+    pub fn new(grid_dim: usize) -> Self {
+        Self {
+            grid_dim,
+            units: CosmologicalUnits::default(),
+        }
+    }
+
+    /// Computes deterministic Weil character phase at tau = i for a given module index
+    #[inline(always)]
+    pub fn weil_character_phase(module_idx: usize) -> f64 {
+        let c_central = 26.0;
+        let branch_defect = 312.0;
+        let idx = module_idx as f64;
+        let conformal_weight = ((idx * (idx + 1.0)) / (2.0 * branch_defect)).fract();
+        let phase = 2.0 * std::f64::consts::PI * (conformal_weight - (c_central / 24.0));
+        phase.rem_euclid(2.0 * std::f64::consts::PI)
+    }
+
+    /// Evaluates isotropic phase for a specific k-vector without Cartesian directional weights
+    pub fn evaluate_isotropic_phase(&self, kx: f64, ky: f64, kz: f64) -> f64 {
+        let k_mag = (kx * kx + ky * ky + kz * kz).sqrt();
+        if k_mag < 1e-12 {
+            return 0.0;
+        }
+
+        // Canonical hemisphere check: K+ condition
+        let in_k_plus = kz > 1e-12
+            || (kz.abs() <= 1e-12 && ky > 1e-12)
+            || (kz.abs() <= 1e-12 && ky.abs() <= 1e-12 && kx > 1e-12);
+
+        let (eval_kx, eval_ky, eval_kz, sign) = if in_k_plus {
+            (kx, ky, kz, 1.0)
+        } else {
+            (-kx, -ky, -kz, -1.0)
+        };
+
+        // SO(3) invariant scalar indexing
+        let alpha = (1728.0_f64).sqrt(); // 24 * sqrt(3)
+        let beta = std::f64::consts::PI * (2.0_f64).sqrt();
+        let norm_k = k_mag / self.units.k_fundamental;
+        let module_index = (alpha * norm_k + beta * norm_k * norm_k).floor() as usize % NUM_CFT_MODULES;
+
+        let theta_weil = Self::weil_character_phase(module_index);
+
+        // Continuous angular dispersion on S^2
+        let cos_theta = (eval_kz / k_mag).clamp(-1.0, 1.0);
+        let phi_azimuth = eval_ky.atan2(eval_kx).rem_euclid(2.0 * std::f64::consts::PI);
+        let psi_iso = 2.0 * std::f64::consts::PI * (
+            ((1.0 - cos_theta) / 2.0) * (NUM_CFT_MODULES as f64 / 24.0)
+            + (phi_azimuth / (2.0 * std::f64::consts::PI)) * (5.0_f64).sqrt()
+        ).fract();
+
+        let phase_plus = (theta_weil + psi_iso).rem_euclid(2.0 * std::f64::consts::PI);
+        (sign * phase_plus).rem_euclid(2.0 * std::f64::consts::PI)
+    }
+
+    /// Initializes a decentralized, isotropic Gaussian random field on the 3D grid
+    pub fn initialize_isotropic_density<F>(&self, power_spectrum: F) -> Vec<f64>
+    where
+        F: Fn(f64) -> f64,
+    {
+        let n = self.grid_dim;
+        let total_cells = n * n * n;
+        let mut density_field = vec![0.0; total_cells];
+        let dk = (2.0 * std::f64::consts::PI) / self.units.l_box_mpc;
+
+        // Verify fundamental mode bound
+        let delta2_k1 = self.units.validate_linear_stability(power_spectrum(self.units.k_fundamental))
+            .expect("Box-scale non-linear collapse detected during grid initialization");
+
+        eprintln!(
+            "[SHBT] PM Grid initialized: N = {}, L_box = {:.2} Mpc, Delta^2(k1) = {:.5}",
+            n, self.units.l_box_mpc, delta2_k1
+        );
+
+        for ix in 0..n {
+            let kx = if ix <= n / 2 { ix as f64 * dk } else { (ix as f64 - n as f64) * dk };
+            for iy in 0..n {
+                let ky = if iy <= n / 2 { iy as f64 * dk } else { (iy as f64 - n as f64) * dk };
+                for iz in 0..n {
+                    let kz = if iz <= n / 2 { iz as f64 * dk } else { (iz as f64 - n as f64) * dk };
+                    let k_mag = (kx * kx + ky * ky + kz * kz).sqrt();
+
+                    if k_mag > 1e-12 {
+                        let phase = self.evaluate_isotropic_phase(kx, ky, kz);
+                        let pk = power_spectrum(k_mag);
+                        let amplitude = (pk * (total_cells as f64) / self.units.l_box_mpc.powi(3)).sqrt();
+                        
+                        let idx = (ix * n + iy) * n + iz;
+                        density_field[idx] = amplitude * phase.cos();
+                    }
+                }
+            }
+        }
+
+        density_field
+    }
+}
+
 pub struct UnitConverter {
     pub box_size_mpc: f32,
     pub h_hubble: f32,
     pub r_merge_mpc: f32,
     pub kappa_absorption: f32,
     pub i_blackbody: f32,
+    pub cosmology: CosmologicalBackground,
 }
 
 impl UnitConverter {
@@ -486,6 +680,7 @@ impl UnitConverter {
             // Calibrated baryonic opacity saturating cores with delta >= 1e4
             kappa_absorption: 0.045,
             i_blackbody: 1.0,
+            cosmology: CosmologicalBackground::default(),
         }
     }
 
@@ -502,6 +697,40 @@ impl UnitConverter {
     #[inline]
     pub fn normalized_r_merge(&self) -> f32 {
         self.r_merge_mpc / self.box_size_mpc
+    }
+
+    /// Converts physical comoving distance (Mpc) to internal code units [0, 1]
+    #[inline]
+    pub fn mpc_to_code_length(&self, dist_mpc: f64) -> f32 {
+        (dist_mpc / (self.box_size_mpc as f64)) as f32
+    }
+
+    /// Physical baryonic sound speed c_s(z) converted to dimensionless code velocity units
+    /// Normalization: v_code = v_phys / (L_box * H0)
+    pub fn sound_speed_code(&self, a: f32) -> f32 {
+        let z = if a > 0.0 { ((1.0 / a) - 1.0) as f64 } else { 0.0 };
+        let c_s_km_s = self.cosmology.baryon_sound_speed(z) / 1000.0;
+        let v_unit_km_s = (self.box_size_mpc as f64) * self.cosmology.h0_kms_mpc;
+        (c_s_km_s / v_unit_km_s) as f32
+    }
+
+    /// Square of sound speed in code units passed directly to GPU P-PM pressure kernels
+    #[inline]
+    pub fn sound_speed_sq_code(&self, a: f32) -> f32 {
+        let cs = self.sound_speed_code(a);
+        cs * cs
+    }
+
+    /// Contracting comoving causal event horizon mapped to code units [0, 1]
+    pub fn event_horizon_code(&self, a: f32) -> f32 {
+        let chi_mpc = self.cosmology.comoving_event_horizon_mpc(a as f64);
+        self.mpc_to_code_length(chi_mpc)
+    }
+
+    /// Holographic load screening factor
+    pub fn load_factor(&self, a: f32) -> Result<f32, String> {
+        let f = self.cosmology.forward_capacity_load(a as f64);
+        Ok(f as f32)
     }
 }
 

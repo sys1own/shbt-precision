@@ -682,7 +682,7 @@ pub const MPC_TO_METERS: f64 = 3.085_677_581e22;
 
 pub const Z_COMPTON: f64 = 137.0;
 pub const Z_REC: f64 = 1080.0;
-pub const Z_DRAG: f64 = 1060.0;
+pub const Z_DRAG: f64 = 1059.94;
 pub const Z_FREEZE: f64 = -0.999;
 pub const EPSILON_FREEZE: f64 = 1.0e-6;
 
@@ -819,6 +819,162 @@ impl CosmologicalBackground {
     pub fn entropy_reserve(&self, a: f64) -> f64 {
         let f_load = self.forward_capacity_load(a);
         1.0 - f_load - EPSILON_FREEZE
+    }
+}
+
+// ----------------------------------------------------------------------------
+// SHBT Precision Cosmology Module Extensions (shbt21.txt)
+// ----------------------------------------------------------------------------
+
+pub const SPEED_OF_LIGHT_KM_S: f64 = 299_792.458;
+pub const SPEED_OF_LIGHT_M_S: f64 = 299_792_458.0;
+pub const BOLTZMANN_K: f64 = 1.380_649e-23;
+pub const PROTON_MASS_KG: f64 = 1.672_621_923_69e-27;
+pub const GAMMA_GAS: f64 = 5.0 / 3.0;
+
+/// Primordial abundance fractions (neutral gas)
+pub const PRIMORDIAL_X: f64 = 0.76;
+pub const PRIMORDIAL_Y: f64 = 0.24;
+pub const MU_NEUTRAL_SHBT21: f64 = 1.0 / (PRIMORDIAL_X + PRIMORDIAL_Y / 4.0);
+
+#[derive(Debug, Clone, Copy)]
+pub struct CosmologyParameters {
+    pub h0: f64,
+    pub omega_m: f64,
+    pub omega_b: f64,
+    pub omega_lambda: f64,
+    pub a_max_horizon: f64,
+}
+
+impl Default for CosmologyParameters {
+    fn default() -> Self {
+        Self {
+            h0: 67.66,
+            omega_m: 0.3111,
+            omega_b: 0.0490,
+            omega_lambda: 0.6889,
+            a_max_horizon: 1000.0,
+        }
+    }
+}
+
+#[derive(Debug)]
+pub enum CosmologyError {
+    AnomalyClosureError { a: f64, r_entropy: f64 },
+    IntegrationConvergenceError,
+}
+
+impl std::fmt::Display for CosmologyError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            CosmologyError::AnomalyClosureError { a, r_entropy } => {
+                write!(
+                    f,
+                    "AnomalyClosureError: Boundary entropy exhausted (R_entropy = {:.4e} <= 0) at a = {:.3}. De Sitter freeze complete.",
+                    r_entropy, a
+                )
+            }
+            CosmologyError::IntegrationConvergenceError => {
+                write!(f, "CosmologyError: Numerical quadrature failed to converge.")
+            }
+        }
+    }
+}
+
+impl std::error::Error for CosmologyError {}
+
+/// Hubble expansion rate H(a) in km/s/Mpc
+pub fn hubble_parameter(a: f64, params: &CosmologyParameters) -> f64 {
+    let a2 = a * a;
+    let a3 = a2 * a;
+    let a4 = a3 * a;
+    let omega_r = 4.184e-5 / (params.h0 / 100.0).powi(2);
+    let e2 = params.omega_m / a3 + omega_r / a4 + params.omega_lambda;
+    params.h0 * e2.sqrt()
+}
+
+/// Boundary-derived baryon temperature T_b(z) in Kelvin
+/// Bridged gaplessly across acoustic decoupling at z_drag = 1060 via eta_V = 10/33
+pub fn baryon_temperature(z: f64) -> f64 {
+    let t_rad = T_CMB_0 * (1.0 + z);
+    if z >= Z_DRAG + 100.0 {
+        return t_rad;
+    }
+
+    let delta_z = 25.0;
+    let w = 0.5 * (1.0 + ((z - Z_DRAG) / delta_z).tanh());
+
+    let scale = (1.0 + z) / (1.0 + Z_DRAG);
+    let post_drag_scaling = ETA_V * scale + (1.0 - ETA_V) * scale.powf(2.0 - ETA_V);
+    let t_post = T_CMB_0 * (1.0 + Z_DRAG) * post_drag_scaling;
+
+    w * t_rad + (1.0 - w) * t_post
+}
+
+/// Boundary-derived physical baryonic sound speed c_s(z) in km/s
+/// Strictly computed from c_s^2(z) = (gamma * k_B * T_b(z)) / (mu * m_p)
+pub fn baryon_sound_speed_km_s(z: f64) -> f64 {
+    let t_b = baryon_temperature(z);
+    let c_s_sq_si = (GAMMA_GAS * BOLTZMANN_K * t_b) / (MU_NEUTRAL_SHBT21 * PROTON_MASS_KG);
+    (c_s_sq_si.max(0.0).sqrt()) / 1_000.0
+}
+
+/// Comoving causal event horizon chi_event(a) in Mpc:
+/// chi_event(a) = c * \int_a^\infty da' / (a'^2 * H(a'))
+/// Evaluated via substitution u = 1 / a'
+pub fn comoving_event_horizon_mpc(a: f64, params: &CosmologyParameters) -> f64 {
+    let u_max = 1.0 / a;
+    let num_steps = 256;
+    let du = u_max / (num_steps as f64);
+    let mut sum = 0.0;
+
+    for i in 0..num_steps {
+        let u_mid = (i as f64 + 0.5) * du;
+        let a_prime = 1.0 / u_mid;
+        let h_prime = hubble_parameter(a_prime, params);
+        sum += SPEED_OF_LIGHT_KM_S / h_prime;
+    }
+
+    sum * du
+}
+
+/// Boundary entropy margin R_entropy(a) = 1 - (a / a_max)^3
+pub fn boundary_entropy_margin(a: f64, params: &CosmologyParameters) -> f64 {
+    let ratio = a / params.a_max_horizon;
+    1.0 - ratio.powi(3)
+}
+
+/// Holographic load screening factor f_load(a) in [0, 1]
+pub fn holographic_load_factor(a: f64, params: &CosmologyParameters) -> Result<f64, CosmologyError> {
+    let r_entropy = boundary_entropy_margin(a, params);
+    if r_entropy <= 0.0 {
+        return Err(CosmologyError::AnomalyClosureError { a, r_entropy });
+    }
+    let r_initial = boundary_entropy_margin(1.0, params);
+    let f_load = (1.0 - (r_entropy / r_initial)).clamp(0.0, 1.0);
+    Ok(f_load)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_event_horizon_asymptote_a_1000() {
+        let params = CosmologyParameters::default();
+        let chi = comoving_event_horizon_mpc(1000.0, &params);
+        assert!((chi - 5.3384).abs() < 0.02, "Expected chi_event(1000) ~ 5.338 Mpc, got {:.4}", chi);
+    }
+
+    #[test]
+    fn test_gapless_sound_speed_continuity() {
+        let cs_above = baryon_sound_speed_km_s(Z_DRAG + 10.0);
+        let cs_drag = baryon_sound_speed_km_s(Z_DRAG);
+        let cs_below = baryon_sound_speed_km_s(Z_DRAG - 10.0);
+
+        assert!(cs_above > cs_drag);
+        assert!(cs_drag > cs_below);
+        assert!((cs_drag - 5.709).abs() < 0.05);
     }
 }
 

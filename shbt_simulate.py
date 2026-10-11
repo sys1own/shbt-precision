@@ -90,22 +90,197 @@ except Exception:  # pragma: no cover
     _HAS_BOLTZMANN = False
 
 
-# Calibrated Cosmological and Holographic Parameters (shbt20)
-N_MOD = 2901360  # Boundary CFT primary modules at tau = i
-H_HUBBLE = 0.674
-L_BOX = 500.0 / H_HUBBLE  # 741.84 comoving Mpc (500.0 h^-1 Mpc); Delta^2(k1, 0) = 0.001928 <= 0.008
+# Calibrated Cosmological and Holographic Parameters (shbt21)
+NUM_CFT_MODULES = 2_901_360
+BRANCH_INDICES = (26, 8, 312)
+MODULAR_J_I = 1728.0
+
+H_LITTLE = 0.6740058
+L_BOX_MPC_H = 150.0
+L_BOX_MPC = L_BOX_MPC_H / H_LITTLE  # 222.5502 Mpc
+LAMBDA_HOLO = 3.0 / (L_BOX_MPC ** 2)  # 6.05712e-5 Mpc^-2
+K_FUNDAMENTAL = (2.0 * np.pi) / L_BOX_MPC  # 0.028232 Mpc^-1
+DELTA2_K1_MAX = 0.012
+
+# Legacy alias compatibility
+N_MOD = NUM_CFT_MODULES
+H_HUBBLE = H_LITTLE
+L_BOX = L_BOX_MPC
 N_GRID = 256
 DX = L_BOX / N_GRID
 KAPPA_STAR_D5 = 1.0 / np.sqrt(2.0)
-R_MERGE = np.sqrt(2.0) * KAPPA_STAR_D5 * DX  # Saturated Causal Point packing radius
-LAMBDA_HOLO = 3.0 / (L_BOX ** 2)
+R_MERGE = np.sqrt(2.0) * KAPPA_STAR_D5 * DX
 
-CFT_MODULE_COUNT = 2901360
+CFT_MODULE_COUNT = NUM_CFT_MODULES
 PRIME_C1 = np.uint64(73856093)
 PRIME_C2 = np.uint64(19349663)
 PRIME_C3 = np.uint64(83492791)
 SPLITMIX_C1 = np.uint64(0xBF58476D1CE4E5B9)
 SPLITMIX_C2 = np.uint64(0x94D049BB133111EB)
+
+
+def precompute_weil_character_phases_at_tau_i(n_modules: int = NUM_CFT_MODULES) -> np.ndarray:
+    """
+    Evaluates Weil representation character arguments Arg(chi_I(tau = i))
+    across the primary CFT modules without Cartesian directional projection.
+    """
+    indices = np.arange(n_modules, dtype=np.float64)
+    c_central = float(BRANCH_INDICES[0])  # c = 26
+    
+    # Rapidly convergent q-expansion phase at tau = i (q = exp(-2*pi))
+    conformal_weights = (indices * (indices + 1.0) / (2.0 * float(BRANCH_INDICES[2]))) % 1.0
+    effective_phase = 2.0 * np.pi * (conformal_weights - c_central / 24.0)
+    
+    # Arg(chi_I(i)) mapped into [0, 2*pi)
+    weil_phases = np.mod(effective_phase, 2.0 * np.pi)
+    return weil_phases
+
+
+# Global precomputed register phases for FFT initialization
+WEIL_PHASES_TABLE = precompute_weil_character_phases_at_tau_i()
+
+
+def generate_weil_modular_phases(k_grid: np.ndarray) -> np.ndarray:
+    """
+    Generates statistically isotropic, Hermitian-antisymmetric Fourier phases
+    phi(k) for an arbitrary 3D grid of k-vectors.
+
+    Parameters:
+        k_grid: np.ndarray of shape (Nx, Ny, Nz, 3) representing Cartesian k-vectors.
+
+    Returns:
+        phases: np.ndarray of shape (Nx, Ny, Nz) satisfying phi(-k) = -phi(k) mod 2*pi
+                and eliminating all O_h hyperoctahedral directional alignment.
+    """
+    # Handle tuple input for backwards compatibility if passed shape
+    if isinstance(k_grid, (tuple, list)):
+        grid_size = k_grid[0] if len(k_grid) > 0 else 32
+        dk = 2.0 * np.pi / L_BOX_MPC
+        kx_1d = np.fft.fftfreq(grid_size, d=L_BOX_MPC / grid_size) * 2.0 * np.pi
+        ky_1d = np.fft.fftfreq(grid_size, d=L_BOX_MPC / grid_size) * 2.0 * np.pi
+        kz_1d = np.fft.fftfreq(grid_size, d=L_BOX_MPC / grid_size) * 2.0 * np.pi
+        kx, ky, kz = np.meshgrid(kx_1d, ky_1d, kz_1d, indexing='ij')
+        k_grid = np.stack([kx, ky, kz], axis=-1)
+
+    shape = k_grid.shape[:3]
+    phases = np.zeros(shape, dtype=np.float64)
+
+    kx = k_grid[..., 0]
+    ky = k_grid[..., 1]
+    kz = k_grid[..., 2]
+
+    # Strictly rotationally invariant Euclidean norm
+    k_mag = np.sqrt(kx**2 + ky**2 + kz**2)
+
+    # Canonical hemisphere partition: K+ vs K-
+    k_plus_mask = (
+        (kz > 1e-12) |
+        ((np.abs(kz) <= 1e-12) & (ky > 1e-12)) |
+        ((np.abs(kz) <= 1e-12) & (np.abs(ky) <= 1e-12) & (kx > 1e-12))
+    )
+
+    k_zero_mask = np.abs(k_mag) <= 1e-12
+
+    # Extract wavevectors belonging to positive hemisphere
+    k_mag_plus = k_mag[k_plus_mask]
+    kx_plus = kx[k_plus_mask]
+    ky_plus = ky[k_plus_mask]
+    kz_plus = kz[k_plus_mask]
+
+    # Rotationally invariant module indexing based on j(i) = 1728 invariants
+    alpha = np.sqrt(MODULAR_J_I)  # 24 * sqrt(3)
+    beta = np.pi * np.sqrt(2.0)
+    norm_k = k_mag_plus / K_FUNDAMENTAL
+    module_indices = np.floor(alpha * norm_k + beta * (norm_k**2)).astype(np.int64) % NUM_CFT_MODULES
+
+    # Weil representation base phase at tau = i
+    theta_weil = WEIL_PHASES_TABLE[module_indices]
+
+    # Isotropic angular dispersion on S^2 decoupled from Cartesian weights
+    cos_theta = np.clip(kz_plus / k_mag_plus, -1.0, 1.0)
+    phi_azimuth = np.mod(np.arctan2(ky_plus, kx_plus), 2.0 * np.pi)
+    
+    psi_iso = 2.0 * np.pi * np.mod(
+        ((1.0 - cos_theta) / 2.0) * (NUM_CFT_MODULES / 24.0) + (phi_azimuth / (2.0 * np.pi)) * np.sqrt(5.0),
+        1.0
+    )
+
+    # Combine Weil modular phase with isotropic angular dispersion
+    phi_plus = np.mod(theta_weil + psi_iso, 2.0 * np.pi)
+    phases[k_plus_mask] = phi_plus
+
+    # Enforce strict Hermitian anti-symmetry: phi(-k) = -phi(k) mod 2*pi
+    k_minus_mask = (
+        (kz < -1e-12) |
+        ((np.abs(kz) <= 1e-12) & (ky < -1e-12)) |
+        ((np.abs(kz) <= 1e-12) & (np.abs(ky) <= 1e-12) & (kx < -1e-12))
+    )
+    
+    # Invert grid indices across periodic boundaries
+    nx, ny, nz = shape
+    ix, iy, iz = np.meshgrid(np.arange(nx), np.arange(ny), np.arange(nz), indexing='ij')
+    ix_neg = (nx - ix) % nx
+    iy_neg = (ny - iy) % ny
+    iz_neg = (nz - iz) % nz
+
+    phases[k_minus_mask] = np.mod(
+        -phases[ix_neg[k_minus_mask], iy_neg[k_minus_mask], iz_neg[k_minus_mask]],
+        2.0 * np.pi
+    )
+
+    # Mode k = 0 is strictly zero
+    phases[k_zero_mask] = 0.0
+
+    return phases
+
+
+def generate_primordial_density_field(
+    grid_size: int,
+    power_spectrum_func,
+    l_box_mpc: float = L_BOX_MPC
+) -> tuple[np.ndarray, float]:
+    """
+    Constructs an isotropic, decentralized Gaussian random field on the PM grid.
+    Verifies that the fundamental mode variance satisfies Delta^2(k1, 0) <= 0.012.
+    """
+    dk = 2.0 * np.pi / l_box_mpc
+    k1 = dk
+    
+    # Spatial frequency axes
+    kx_1d = np.fft.fftfreq(grid_size, d=l_box_mpc / grid_size) * 2.0 * np.pi
+    ky_1d = np.fft.fftfreq(grid_size, d=l_box_mpc / grid_size) * 2.0 * np.pi
+    kz_1d = np.fft.fftfreq(grid_size, d=l_box_mpc / grid_size) * 2.0 * np.pi
+
+    kx, ky, kz = np.meshgrid(kx_1d, ky_1d, kz_1d, indexing='ij')
+    k_grid = np.stack([kx, ky, kz], axis=-1)
+    k_mag = np.sqrt(kx**2 + ky**2 + kz**2)
+
+    # Verify fundamental mode linear bound
+    p_k1 = power_spectrum_func(k1)
+    delta2_k1 = (k1**3 / (2.0 * np.pi**2)) * p_k1
+    assert delta2_k1 <= DELTA2_K1_MAX, (
+        f"Fundamental mode instability: Delta^2(k1) = {delta2_k1:.6f} > {DELTA2_K1_MAX}"
+    )
+
+    # Modular isotropic phases
+    phases = generate_weil_modular_phases(k_grid)
+
+    # Rayleigh amplitude generation modulated by isotropic matter power spectrum
+    amplitude = np.zeros_like(k_mag)
+    non_zero = k_mag > 0.0
+    amplitude[non_zero] = np.sqrt(
+        power_spectrum_func(k_mag[non_zero]) * (grid_size**3) / (l_box_mpc**3)
+    )
+
+    # Construct Hermitian Fourier field
+    fourier_delta = amplitude * np.exp(1j * phases)
+    fourier_delta[0, 0, 0] = 0.0
+
+    # Real-space density perturbation field
+    delta_x = np.fft.ifftn(fourier_delta).real * (grid_size**3)
+    delta_x = delta_x - np.mean(delta_x)
+
+    return delta_x, float(delta2_k1)
 
 
 def generate_weil_modular_phases_grid(grid_size: int) -> np.ndarray:
@@ -316,12 +491,6 @@ def compute_a_get_3d(grid_rho: np.ndarray, positions: np.ndarray, dx: float, kap
     return a_get
 
 
-def generate_weil_modular_phases(grid_shape: tuple[int, int, int] | tuple[int, ...], box_size: float = 222.55) -> Any:
-    """Evaluates exact deterministic perturbation phases and modular amplitudes from the 2,901,360-module Weil representation."""
-    if _HAS_BOLTZMANN and hasattr(_boltzmann, "generate_weil_modular_phases"):
-        return _boltzmann.generate_weil_modular_phases(grid_shape, box_size)
-    n = grid_shape[0] if isinstance(grid_shape, (tuple, list)) else 32
-    return np.zeros((n, n, n), dtype=np.complex128)
 
 
 

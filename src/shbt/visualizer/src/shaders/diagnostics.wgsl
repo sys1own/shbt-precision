@@ -80,34 +80,63 @@ fn reduce_power_spectrum(
     }
 }
 
+var<workgroup> wg_ps_bins: array<atomic<u32>, 1024>;
+
 @compute @workgroup_size(256)
-fn project_phase_space(@builtin(global_invocation_id) global_id: vec3<u32>) {
-    let idx = global_id.x;
-    if (idx >= uniforms.particle_count) {
-        return;
+fn project_phase_space(@builtin(global_invocation_id) global_id: vec3<u32>, @builtin(local_invocation_id) local_id: vec3<u32>) {
+    // Clear workgroup histogram tiles (1024 bins = 32x32 sub-grid)
+    if (local_id.x < 256u) {
+        atomicStore(&wg_ps_bins[local_id.x], 0u);
+        atomicStore(&wg_ps_bins[local_id.x + 256u], 0u);
+        atomicStore(&wg_ps_bins[local_id.x + 512u], 0u);
+        atomicStore(&wg_ps_bins[local_id.x + 768u], 0u);
     }
+    workgroupBarrier();
 
-    let p = particles[idx];
-    // x axis: box-coordinate x normalized to [0,1); v_x axis: momentum
-    // mapped symmetric about 0 by +/-v_max.
-    let coord_x = clamp(fract(p.position.x * 0.005), 0.0, 0.999);
-    let norm_vx = clamp(
-        (p.velocity.x / (2.0 * uniforms.v_max)) + 0.5,
-        0.0, 0.999,
-    );
+    let idx = global_id.x;
+    if (idx < uniforms.particle_count) {
+        let p = particles[idx];
+        // Comoving periodic wrapping x_norm in [0, 1)
+        let x_norm = fract(p.position.x * 0.005);
+        let bin_x = clamp(u32(x_norm * 256.0), 0u, 255u);
 
-    let tex_coords = vec2<i32>(
-        i32(floor(coord_x * 256.0)),
-        i32(floor(norm_vx * 256.0)),
-    );
+        // Conformal velocity mapping centered at v_norm = 0.5
+        let v_x = p.velocity.x;
+        let v_norm = (v_x / (2.0 * max(uniforms.v_max, 1e-4))) + 0.5;
 
-    // Channel A (baryons) in amber, Channel B (ghosts) in electric blue.
-    let is_visible = p.channel == 0u;
-    let color = select(
-        vec4<f32>(0.05, 0.25, 0.80, 0.35),
-        vec4<f32>(0.95, 0.55, 0.10, 0.60),
-        is_visible
-    );
+        if (v_norm >= 0.0 && v_norm < 1.0) {
+            let bin_v = clamp(u32(v_norm * 256.0), 0u, 255u);
+            let tex_coords = vec2<i32>(i32(bin_x), i32(bin_v));
 
-    textureStore(phase_space_tex, tex_coords, color);
+            // Accumulate locally to estimate density
+            let sub_x = bin_x % 32u;
+            let sub_v = bin_v % 32u;
+            let sub_idx = sub_v * 32u + sub_x;
+            let local_count = f32(atomicAdd(&wg_ps_bins[sub_idx], 1u) + 1u);
+
+            // Logarithmic dynamic range tone mapping: captures single-stream sheets and dense cores
+            // I(u, v) = ln(1 + kappa * N) / ln(1 + kappa * N_sat) with kappa = 10.0, N_sat = 500.0
+            let kappa = 10.0;
+            let log_intensity = log(1.0 + kappa * local_count) / log(1.0 + kappa * 500.0);
+            let intensity = clamp(log_intensity, 0.0, 1.0);
+
+            // Scientific false-color colormap: Deep Void Blue -> Sheet Cyan -> Amber -> Caustic White
+            let c1 = vec3<f32>(0.05, 0.15, 0.45);
+            let c2 = vec3<f32>(0.10, 0.80, 0.75);
+            let c3 = vec3<f32>(0.95, 0.60, 0.10);
+            let c4 = vec3<f32>(1.00, 1.00, 1.00);
+
+            var color = vec3<f32>(0.0);
+            if (intensity < 0.33) {
+                color = mix(c1, c2, intensity / 0.33);
+            } else if (intensity < 0.66) {
+                color = mix(c2, c3, (intensity - 0.33) / 0.33);
+            } else {
+                color = mix(c3, c4, (intensity - 0.66) / 0.34);
+            }
+
+            textureStore(phase_space_tex, tex_coords, vec4<f32>(color, 1.0));
+        }
+    }
 }
+
