@@ -445,6 +445,7 @@ async def capture_milestone_stills_session(p) -> List[Dict]:
     await page.goto(SIMULATION_URL, wait_until="networkidle")
     await page.wait_for_function("() => window.__SHBT_ENGINE__ !== undefined", timeout=120_000)
     await page.wait_for_function("() => window.__particlesLoaded === true", timeout=120_000)
+    await page.wait_for_function("() => window.__ENGINE_INITIALIZED__ === true", timeout=120_000)
 
     # Check for unrecoverable fallback
     is_fallback = await page.evaluate("() => window.__particlesFallback === true")
@@ -529,6 +530,7 @@ async def record_video_session(p) -> Path | None:
     await page.goto(SIMULATION_URL, wait_until="networkidle")
     await page.wait_for_function("() => window.__SHBT_ENGINE__ !== undefined", timeout=120_000)
     await page.wait_for_function("() => window.__particlesLoaded === true", timeout=120_000)
+    await page.wait_for_function("() => window.__ENGINE_INITIALIZED__ === true", timeout=120_000)
 
     # Check for unrecoverable fallback
     is_fallback = await page.evaluate("() => window.__particlesFallback === true")

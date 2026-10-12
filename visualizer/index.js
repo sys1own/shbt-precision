@@ -163,25 +163,37 @@ async function boot() {
     );
 
     // Deterministically load 2LPT initial conditions from particles_init_z100.bin
+    const isRecordMode =
+      window.__RECORDING_MODE__ ||
+      new URLSearchParams(window.location.search).has("record") ||
+      new URLSearchParams(window.location.search).has("capture");
+
     try {
       console.log("[SHBT] Fetching particles_init_z100.bin...");
       let resp = await fetch("/visualizer/particles_init_z100.bin");
       if (!resp.ok) resp = await fetch("/particles_init_z100.bin");
       if (!resp.ok) resp = await fetch("particles_init_z100.bin");
       if (!resp.ok) {
-        throw new Error(`HTTP ${resp.status} fetching particles_init_z100.bin`);
+        throw new Error(`CRITICAL: particles_init_z100.bin failed to fetch: ${resp.status}`);
       }
       const pBuf = await resp.arrayBuffer();
       if (pBuf.byteLength !== 8388624) {
-        throw new Error(`particles_init_z100.bin size ${pBuf.byteLength} != expected 8388624`);
+        throw new Error(
+          `CRITICAL: particles_init_z100.bin invalid byteLength: ${pBuf.byteLength} (expected 8388624)`
+        );
       }
+      window.__FALLBACK_GRID_ALLOWED__ = false;
       const loadedCount = engine.load_particles_binary(new Uint8Array(pBuf));
       console.log(`[SHBT] Successfully loaded ${loadedCount} particles from particles_init_z100.bin`);
       window.__particlesLoaded = true;
+      window.__ENGINE_INITIALIZED__ = true;
     } catch (err) {
       console.error(`[SHBT FATAL] Particle initialization fallback triggered: ${err.message}`);
       window.__particlesFallback = true;
       status(`FATAL: Fallback grid triggered: ${err.message}`);
+      if (isRecordMode) {
+        throw new Error(`CRITICAL recording mode abort: ${err.message}`);
+      }
       throw err;
     }
 
@@ -329,7 +341,20 @@ async function boot() {
   };
 
   // Spec Step 1.2: Expose explicit deterministic synchronous frame advance on window
-  window.advanceSimulationFrame = async function (pos, look) {
+  window.advanceSimulationFrame = async function (arg1, arg2, arg3, arg4) {
+    let pos = null;
+    let look = null;
+    let frameIndex = 0;
+    if (Array.isArray(arg1) && Array.isArray(arg2)) {
+      pos = arg1;
+      look = arg2;
+    } else if (typeof arg1 === "number") {
+      frameIndex = arg1;
+      if (Array.isArray(arg3) && Array.isArray(arg4)) {
+        pos = arg3;
+        look = arg4;
+      }
+    }
     if (pos && look) {
       engine.update_cosmic_state(engine.get_current_redshift(), pos[0], pos[1], pos[2], look[0], look[1], look[2]);
     }
@@ -345,6 +370,7 @@ async function boot() {
     const m = JSON.parse(engine.hud_json());
     refreshHud(m);
     return {
+      frame: frameIndex,
       z: engine.get_current_redshift(),
       a: engine.get_current_scale_factor(),
       f_load: engine.get_current_f_load(),
