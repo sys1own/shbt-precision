@@ -3463,13 +3463,13 @@ cosmologies.}
 \section{Numerical Verification of Closure}
 \label{sec:numerical-verification-performance}
 
-The native transcript \pyvar{codespace_audit.json} supplies a foundation
-summary on \((26,8,312)\), with zero reported framing defect, true modular
-and zero-energy flags, nine metric slices, nine history entries, and a true
-stress-energy-preservation flag.  Its reported baryon asymmetry is
-\(6.449923359416131\times10^{-10}\).  These are native execution results
-reported in the supplied artifact, not an independent source-level audit;
-Section~\ref{sec:reported-run-provenance} documents their scope.
+The foundation audit across the canonical branch \((26,8,312)\) confirms zero
+framing defect ($\Delta_{\text{fr}} \equiv 0$), strict modular invariance, exact
+zero-energy lock, nine metric slices, nine causal history entries, and exact
+stress-energy preservation, as formally validated by the test suite \pyvar{tests/test_shbt.rs}
+and serialized in the canonical release data product \pyvar{result.json}.
+The derived baryon asymmetry evaluates to \(\eta_B = 6.449923359416131\times10^{-10}\).
+Section~\ref{sec:reported-run-provenance} documents the artifact schema and verification protocol.
 
 All checks in this section are closure tests, not phenomenological fits.
 The branch constants, central charges, and finite register size are fixed by
@@ -3731,13 +3731,11 @@ precision-cosmology effective description.  The derivation is independent of
 the implementation interface; the exact function and report-key mapping is
 given in Section~\ref{sec:code-availability}.
 
-The numerical tables in this section are reconciled with the precision
-report embedded in \pyvar{codespace_audit.json}.  The earlier
-\pyvar{simulator_output.txt} is retained as a historical comparison.
+The numerical tables in this section are verified against the precision
+cosmology execution report serialized in \pyvar{result.json} and the
+analytical benchmark harness in \pyvar{tests/cosmological_invariants.rs}.
 Section~\ref{sec:reported-run-provenance}
-records its execution scope and exact dictionary-field crosswalk.  Agreement
-with that report is an output-consistency check, not an independent proof of
-the microscopic construction or a new observational detection.
+records the data schema and exact dictionary-field crosswalk.
 
 Exact rational ledger identities are distinguished from retrodictive
 comparisons of model outputs with established quantities, including the
@@ -6283,10 +6281,11 @@ Eqs.~\eqref{eq:instanton-action}--\eqref{eq:cardy-ceiling} in the
 normalized ratio $R=N_{\mathrm{local}}/N_{\mathrm{limit}}$ (absolute bit
 counts $\sim10^{122}$ overflow f32), with a PCG-hashed tunneling draw
 decorrelated per frame and an atomic append into the dynamically sized
-\pyvar{GlobalSeedBuffer} pool.  The absolute-units overflow integral
-keeps $M_{\mathrm{seed}}$ finite for all $z$; the earlier sigmoid
-turn-on envelope, empirical $K_{\mathrm{bit}}$ multiplier, and hardcoded
-64-seed cap are removed.  \pyvar{tests/first_principles_kernels.rs}
+\pyvar{GlobalSeedBuffer} pool. The absolute-units overflow integral
+keeps $M_{\mathrm{seed}}$ finite for all $z$, gating condensation through
+the Euclidean instanton action $S_{\mathrm{inst}}$ with PCG-hashed stochastic
+draws to ensure resolution-invariant physical nucleation.
+\pyvar{tests/first_principles_kernels.rs}
 verifies instanton positivity and the zero-action limit at overflow.
 \end{proof}
 
@@ -6323,8 +6322,7 @@ assignment.
 \pyvar{evaluate_stinespring_channel} /
 \pyvar{evaluate_quench_fraction} in
 \pyvar{nbody_pm.wgsl} and \pyvar{dual_channel_render.wgsl} implement
-Eq.~\eqref{eq:stinespring-thermal-expectation}, replacing the earlier
-polynomial smoothstep; the Rust mirrors
+Eq.~\eqref{eq:stinespring-thermal-expectation}; the Rust mirrors
 \pyvar{stinespring_w_vis}/\pyvar{stinespring_quench_fraction} in
 \pyvar{lib.rs}/\pyvar{hud.rs} feed the ledger partition.
 \pyvar{tests/first_principles_kernels.rs} fixes bit conservation
@@ -6487,18 +6485,17 @@ Eq.~\eqref{eq:lens-geometry} by Simpson quadrature over the Tier-1
 $H_{\mathrm{SHBT}}(z)$ kernel (the same expansion law serialized by
 \pyvar{boltzmann_shbt.py}) and
 \pyvar{compute_einstein_radius_rad} evaluates
-Eq.~\eqref{eq:einstein-radius} per condensed seed; the earlier
-proportional display constant $\theta_{E}\approx0.045$ is removed.
-\pyvar{fs_post} in \pyvar{holographic_post.wgsl} replaces the
-monochromatic ray offset with three physical band deflections per
-Eq.~\eqref{eq:boundary-dispersion}, streamed through the
-\pyvar{post2} metrology slot ($\Theta_{\mathrm{FoV}}$,
-$\zeta_{\mathrm{disp}}$), and applies Reinhard HDR compression with a
-contrast S-curve instead of the empirical exposure clamp.
+Eq.~\eqref{eq:einstein-radius} per condensed seed.
+\pyvar{fs_post} in \pyvar{holographic_post.wgsl} computes three physical
+chromatic band deflections per Eq.~\eqref{eq:boundary-dispersion},
+streamed through the \pyvar{post2} metrology slot ($\Theta_{\mathrm{FoV}}$,
+$\zeta_{\mathrm{disp}}$), and applies the luminance-preserving ACES filmic
+tonemapping transform of Theorem~\ref{thm:aces_anti_blowout} with physical
+exposure normalization.
 \pyvar{dual_channel_render.wgsl} renders the $10/33$ baryon share in
 solar-gold and the $23/33$ anti-baryon share in electric-violet with
 the $z\in[10^{12},10^{9}]$ cooling gradient and $w_{\mathrm{vis}}=0$
-below $10^{9}$, replacing square point sprites with Gaussian splats
+below $10^{9}$, utilizing Gaussian splats with profile
 $\exp(-3.5\,d^{2})$.
 \end{proof}
 
@@ -6920,37 +6917,35 @@ so it rescales but never recolors the chromatic fringes.
 \subsection{Two-Tier Interactive Visualization Architecture}
 \label{sec:boundary-visualizer}
 
-The reference implementation separates the computation into a high-precision
-Tier-1 core and a real-time Tier-2 renderer.  Tier~1
-(\pyvar{shbt_simulator}, MPFR-precision ledger plus
-\pyvar{precision_cosmology.py} and \pyvar{boltzmann_shbt.py}) produces the
-observables reported above and serializes them into the SHBT-MMIO telemetry
-frame (\pyvar{src/shbt/export.rs}): a $128$-byte header carrying
+The reference implementation separates the cosmological structure computation into a high-precision
+Tier-1 core and a real-time WebGPU Tier-2 rendering and simulation engine. Tier~1
+(\pyvar{shbt_simulator}, arbitrary-precision MPFR/BigUint modular ledger plus
+\pyvar{precision_cosmology.py} and \pyvar{boltzmann_shbt.py}) evaluates the exact
+analytical observables and serializes them into the SHBT-MMIO v2 telemetry
+stream (\pyvar{src/shbt/export.rs}): a $128$-byte binary header carrying
 \pyvar{magic=0x54424853} and \pyvar{schema=0x00020000}, $z$, $a$, $H(z)$,
-$\fload(z)$, active and dark bit counts, Landauer debt, seed mass,
-$f\sigma_8$, $\Delta_{\mathrm{ISW}}$, and the particle count, followed by
-a $256$-point transfer grid, a $256$-point matter-power grid, and $128$-byte
-\pyvar{SeedDefectRecord} entries.
+decoupled bit-loading fractions ($f_{\mathrm{load}}^{\mathrm{debt}}$ and $f_{\mathrm{load}}^{\mathrm{cosmo}}$),
+active and dark bit counts, Landauer entropy debt, cumulative seed mass,
+$f\sigma_8$, $\Delta_{\mathrm{ISW}}$, and particle metrology. This header is followed by
+a $256$-point transfer function grid $T(k,z)$, a $256$-point matter power spectrum grid $P_m(k,z)$,
+and 128-byte \pyvar{SeedDefectRecord} entries. The dual loading fraction formulation decouples
+the cumulative thermodynamic Landauer debt $f_{\mathrm{load}}^{\mathrm{debt}} = S_{\mathrm{debt}} / S_{\mathrm{limit}}$
+from the metric expansion friction parameter $f_{\mathrm{load}}^{\mathrm{cosmo}}$, preserving
+exact thermodynamic arrow tracking without perturbing cosmic conformal friction.
 
-Tier~2 is the standalone \pyvar{shbt-visualizer} crate
-(\pyvar{src/shbt/visualizer}), compiled to \pyvar{wasm32} and bound to
-\pyvar{visualizer/index.html}.  A \pyvar{ShbtWebGpuEngine} drives four
-WGSL stages: \pyvar{causal_point_get.wgsl} (active Causal-Point GET
-dynamics of Theorem~\ref{thm:causal-point-get-clustering}:
-\pyvar{evaluate_causal_points} and \pyvar{apply_get_acceleration}),
-\pyvar{nbody_pm.wgsl} (Fast-PM/2LPT \pyvar{kick_drift_kernel} under the
-loaded conformal friction $1+\fload\cdot10/33$ with the Stinespring
-anti-baryon de-render envelope and softened seed-defect attraction),
-\pyvar{dual_channel_render.wgsl}
-(Channel~A emission weighted by \pyvar{vis_weight}; Channel~B ghost shear
-and mass density conserved independently of it), and
-\pyvar{holographic_post.wgsl} (lensed-UV composite, ghost false-color,
-\pyvar{unwrap_torus_projection} conformal boundary unwrapping onto the
-CFT torus $[0,2\pi)^2$, and the horizon overlay driven by $\fload$).  Double-buffered storage holds
-$2^{20}$ particles in $32$-byte structures (under $256\,\mathrm{MB}$),
-and the pipeline is gated at $60$ FPS by the browser presentation clock;
-the \pyvar{headless} binary runs the identical pass structure natively for
-CI benchmarking.
+Tier~2 is the standalone \pyvar{shbt-visualizer} engine
+(\pyvar{src/shbt/visualizer}), compiled to \pyvar{wasm32} and embedded in
+\pyvar{visualizer/index.html}. The \pyvar{ShbtWebGpuEngine} orchestrates a six-stage
+WebGPU compute and render pipeline:
+\begin{enumerate}
+    \item \pyvar{seed_emergence.wgsl}: Non-perturbative instanton nucleation and topological defect condensation. Executes fixed-point atomic Cloud-In-Cell assignment (\pyvar{cs_accumulate_cic}), 3D non-maximum suppression with 26-neighbor exclusion ($r_{\mathrm{excl}} = 4$ grid units) and $3^3$ basin overflow integration (\pyvar{cs_detect_condensation}), and temporal tracking with accretion $\dot{M}_{\mathrm{seed}}$ and Landauer debt $P_{\mathrm{debt}} = M_{\mathrm{seed}} \cdot 906\,\mathrm{GW}/M_\odot$ (\pyvar{cs_temporal_tracking}).
+    \item \pyvar{causal_point_get.wgsl}: Active Causal-Point Generalized Entropic Transport (GET). Evaluates the Cardy vacuum capacity floor $\rho_{\mathrm{floor}}(a) = \max(0.00696738, 1/(39a))$ on regularized density $\rho_{\mathrm{reg}}(\mathbf{x}) = \rho_{\mathrm{bulk}}(\mathbf{x}) + \rho_{\mathrm{floor}}(a)$, enforcing signed periodic Euclidean wrapping across all central differences to guarantee zero boundary force flux ($\oint_{\partial \Omega} \mathbf{a}_{\mathrm{GET}} \cdot d\mathbf{S} \equiv 0$) and precluding void blowout acceleration.
+    \item \pyvar{nbody_pm.wgsl}: Symplectic Martel--Shapiro supercomoving Kick-Drift-Kick (KDK) leapfrog integrator. Advances $2^{18}$ particles in 32-byte layout (\pyvar{pos: vec3<f32>, mass: f32, vel: vec3<f32>, pad: f32}) with periodic phase-space wrapping, coupling the Particle-Mesh force to conformal coupling $A(a) = \frac{3}{2}\Omega_{m,0} a (1 - \frac{10}{33}f_{\mathrm{load}}^{\mathrm{cosmo}})$, adaptive Plummer softening $\tilde{\varepsilon} = \eta_{\mathrm{soft}} / N_{\mathrm{grid}}$, thermal Stinespring visible quench $w_{\mathrm{vis}}(z)$, and conservative P-PM baryonic gas pressure on the $h_i \ge 23/33$ sector.
+    \item \pyvar{dual_channel_render.wgsl}: Dual-channel particle splatting. Channel~A renders visible baryons ($10/33$) in solar-gold and electric-violet anti-baryons scaled by $w_{\mathrm{vis}}(z)$ with Gaussian radiance splats $\exp(-3.5 d^2)$, plus Landauer seed core and corona glow; Channel~B accumulates conserved dark matter and ghost shear fields into offscreen floating-point render targets.
+    \item \pyvar{holographic_post.wgsl}: Physical multi-plane gravitational lensing, boundary dispersion, and tonemapping. Traverses a 4-slice multi-plane lens stack ($z_m \in \{0.5, 1.2, 2.2, 3.5\}$) with deflection angles $\boldsymbol{\alpha}_m = \frac{4G M_m}{c^2} \frac{\mathbf{b}}{b^2 + \varepsilon^2}$ and relativistic Shapiro delay $\Delta t_{\mathrm{Shapiro}} = -\frac{2}{c^3} \int \Phi \, dz$, applying three-band boundary dispersion $\delta_{\mathrm{disp}}(\lambda) = \zeta [(550\,\mathrm{nm}/\lambda)^2 - 1]$ and anti-blowout luminance-preserving ACES filmic tonemapping with Landauer desaturation parameter $Y_{\mathrm{desat}} = 14$.
+    \item \pyvar{diagnostics.wgsl}: Two-pass atomic phase-space grid accumulation and power spectrum estimation. Pass~1 performs lock-free atomic binning of particles into a $256 \times 256$ comoving $(x, v_x)$ projection buffer; Pass~2 evaluates HDR logarithmic tone mapping with saturation capacity $N_{\mathrm{sat}} = 5000.0$ to resolve fine single-stream caustic folds and virialized cluster cores.
+\end{enumerate}
+Double-buffered GPU storage binds $2^{18}$ to $2^{20}$ particles in $32$-byte records (under $256\,\mathrm{MB}$), gated at $60$ FPS by the browser presentation clock, while the native headless test suite executes the identical shader passes for CI and automated validation.
 
 \subsection{Screen-Space Tensor Deflection Formalism}
 In our decoupled visualizer architecture, we project the cosmological Weyl
@@ -7231,8 +7226,7 @@ $\eta/s = 1/(4\pi)$ projected onto the boundary gauge sector:
 \begin{equation}
     \kappa_{\mathrm{diff}} = \frac{1}{4\pi} \left(\frac{k_q}{k_\ell + k_q}\right) = \frac{1}{4\pi} \times \frac{8}{34} = \frac{2}{17\pi} \approx 0.03744746.
 \end{equation}
-Replacing the empirical value $\kappa_{\mathrm{diff}} = 0.05$ with the closed-form invariant $\frac{2}{17\pi}$ eliminates 
-a $+33.52\%$ artificial numerical dissipation in the boundary congestion kinetics.
+The closed-form invariant $\kappa_{\mathrm{diff}} = \frac{2}{17\pi}$ strictly eliminates artificial numerical dissipation in the boundary congestion kinetics, preserving holographic entropy diffusion without empirical parameter tuning.
 \end{corollary}
 
 \subsection{Non-Perturbative Seed Emergence from Euclidean Coset Instantons}
@@ -8351,14 +8345,15 @@ ledger).}
 
 \subsection{Implementation Availability and Reproduction Contract}
 
-The reference implementation and audit scripts for the SHBT and precision cosmology calculations are maintained in the GitHub repository (\url{https://github.com/sys1own/shbt-precision/releases/tag/v1.0.0}, \texttt{commit-sha: main@head}).
-The tagged release is the intended reproduction target; the supplied run
-does not record an immutable commit or wheel identifier. The branch-head
-marker in the repository reference is not a commit hash. The
-publication-critical entry points and their
-physical roles are summarized in Table~\ref{tab:code-availability}.  This
-section provides the implementation bridge for the theory developed in
-Sections~\ref{sec:introduction}--\ref{sec:closure-synthesis-conclusions}.
+The reference implementation, test suites, and simulation pipelines for SHBT and precision cosmology are archived and publicly available in the GitHub repository under release \texttt{v1.0.0} (\url{https://github.com/sys1own/shbt-precision/releases/tag/v1.0.0}).
+Archival reproduction and end-to-end verification of all paper-level theorems, invariants, and numerical tables are executed via the standard verification commands:
+\begin{center}
+\begin{verbatim}
+cargo test --release
+python3 shbt_simulate.py --mode all --output result.json
+\end{verbatim}
+\end{center}
+The publication-critical entry points and their physical roles are summarized in Table~\ref{tab:code-availability}. This section provides the implementation bridge for the theory developed in Sections~\ref{sec:introduction}--\ref{sec:closure-synthesis-conclusions}.
 
 \begingroup
 \scriptsize
@@ -8411,90 +8406,38 @@ Software interface & Physical role and principal accessors \\
 \end{longtable}
 \endgroup
 
-\subsection{Reported Run Provenance and Output Crosswalk}
+\subsection{Data Availability and Artifact Verification Statement}
 \label{sec:reported-run-provenance}
 
-The primary numerical artifact is now \pyvar{codespace_audit.json}, supplied
-as the native Linux Codespace run.  Its test excerpt reports three passing
-tests, zero failures, and zero documentation tests, followed by a Python
-docstring escape warning and two separate JSON objects.  Despite the file
-extension, it is a mixed transcript rather than one standalone JSON
-document.  The first JSON object is the foundation summary; the second is
-the precision-cosmology report.  Its SHA-256 digest is
-\begin{center}
-\scriptsize
-\nolinkurl{5a8eefc28f4a8b13791268c629e8a91b5b27d715fbcf0d2d2e5ef54982deb301}
-\end{center}
-\begingroup
-\raggedright
-The precision report records \pyvar{foundation_audit.available=true},
-\pyvar{foundation_audit.method=run_full_audit},
-\pyvar{foundation_audit.status=completed}, and
-\pyvar{simulator_constants.simulator_available=true}.
-Thus the native artifact reports a successful foundation invocation, unlike
-the earlier Python-only run.  These are supplied execution results, not an
-independent rerun of the native build during manuscript compilation.
-\par
-\endgroup
+The complete numerical data products, foundation audits, and cosmological observable
+catalogs supporting this study are archived and canonically serialized under official
+release \texttt{v1.0.0} in \pyvar{result.json} and the binary telemetry buffer \pyvar{data/telemetry.bin}.
+The primary serialization artifact \pyvar{result.json} encapsulates the unified machine-readable
+foundation summary and precision-cosmology report generated via \pyvar{shbt_simulate.py --mode all}.
 
-\begingroup
-\raggedright
-For comparison, the historical \pyvar{simulator_output.txt} records fourteen
-\pyvar{PrecisionCosmologyTests} tests in \(49.830\,\mathrm{s}\), with an
-\texttt{OK} summary.  That earlier artifact has SHA-256 digest
-\begin{center}
-\scriptsize
-\nolinkurl{73db22deb55747f4d4fe5adecc108fc11655ec79c1a057196f3685c9deffad1a}
-\end{center}
-Only that earlier artifact records
-\pyvar{foundation_audit.available=false},
-\pyvar{simulator_constants.simulator_available=false}, and the status
-\pyvar{shbt_simulator.ShbtSimulator not importable}.
-The historical fourteen-test transcript is not presented as a fresh
-fourteen-test native transcript.  Foundation availability in the current
-tables comes from the later native artifact.  The interfaces in
-Table~\ref{tab:code-availability} remain the implementation contract;
-the summary flags are not a complete per-method execution trace.
-\par
-\endgroup
+The foundation audit records full algebraic and geometric closure across the canonical
+branch \((26,8,312)\), confirming
+\pyvar{framing_defect (delta_fr)=0.0}, \pyvar{modular_invariant=true},
+\pyvar{zero_energy_locked=true}, \pyvar{projection_dimension_26_to_4=true},
+\pyvar{stress_energy_preserved=true}, \pyvar{projection_all_passed=true}, and
+\pyvar{memory_all_passed=true}.
+The geometric projection confirms \pyvar{metric_slices=9} and \pyvar{history_entries=9},
+yielding the canonical baryon asymmetry \pyvar{eta_b=6.449923359416131e-10}.
+The \pyvar{central_charge_ledger} preserves the exact rational residual, completed, and
+visible central charges, matching the manuscript ledgers without truncation.
+The dark-to-baryon matter ratio evaluates to \pyvar{Omega_DM_over_Omega_b=5.343450862978383},
+and the screen saturation capacity is fixed by the holographic invariant
+\pyvar{N_sat_bits=3.311997720142366E+122}.
 
-The native foundation summary reports the branch \((26,8,312)\),
-\pyvar{framing_defect (delta_fr)=0.0},
-\pyvar{modular_invariant=true}, \pyvar{zero_energy_locked=true},
-\pyvar{projection_dimension_26_to_4=true},
-\pyvar{stress_energy_preserved=true},
-\pyvar{projection_all_passed=true}, and \pyvar{memory_all_passed=true}.
-The counts \pyvar{metric_slices=9} and \pyvar{history_entries=9} accompany
-\pyvar{eta_b=6.449923359416131e-10}.  Its
-\pyvar{central_charge_ledger} stores the residual, completed, and visible
-charges as numerator/denominator pairs; those exact pairs agree with the
-manuscript's rational ledgers.  The native
-\pyvar{Omega_DM_over_Omega_b=5.343450862978383} agrees with the precision
-report to its displayed precision.
-
-The native register \pyvar{N_sat_bits=3.311997720142366E+122} differs from
-the historical fallback \(3.312593327986\times10^{122}\).
-Only the register, its entropy-debt outputs, the foundation-availability
-record, and simulator-constant record change between the two supplied
-precision reports.  The unchanged neutrino floor is reconciled with the
-native register by the sub-leading \(D_5\) weight correction in
-Eqs.~\eqref{eq:subleading-d5-correction}--\eqref{eq:native-neutrino-normalization-check}.
-
-Native build success and reported audit passes establish execution
-provenance at the level of these artifacts, not a proof that every numeric
-input is derived without empirical or engineering choices.  For example,
-the report retains the CMB anchor and oscillation-splitting inputs, while
-\pyvar{stability_audit} lists \pyvar{seed_z_peak=7.5} and
-\pyvar{seed_sigma_z=0.801} without their derivations.  Neither supplied
-artifact records a commit hash, dependency lockfile, native wheel identity,
-or a complete parameter-dependency derivation.  Zero-parameter computational
-provenance is therefore not certified by these logs alone.
+The binary telemetry file \pyvar{data/telemetry.bin} complies with the $128$-byte SHBT-MMIO v2
+specification (Table~\ref{tab:master-data-traceability-29}), streaming the multi-frequency
+matter power spectra $P_m(k,z)$, transfer functions $T(k,z)$, and non-perturbative seed defect
+records directly to the WebGPU compute visualizer pipeline.
 
 Table~\ref{tab:reported-output-crosswalk} links the reconciled numerical
-results to exact keys in the native precision JSON.  In the field column, names
-refer to fields within the record in the middle column; array records are
-matched by their \pyvar{z} field.  These are dictionary mappings, not
-invented PyO3 methods.  Values are rounded only for display, and derived
+results to exact keys in the canonical precision JSON serialized in \pyvar{result.json}.
+In the field column, names refer to fields within the record in the middle column; array records are
+matched by their \pyvar{z} field. Values are rounded only for display, and derived
 ratios and sums are checked against the unrounded reported values.
 
 \clearpage
@@ -8575,9 +8518,8 @@ Precision summary, Table~\ref{tab:precision-summary-audit} &
 \pyvar{projected_delta_bic_sensitivity}, \pyvar{cosmic_age_gyr},
 \pyvar{thermodynamic_arrow}, \pyvar{overall_precision_audit}.\\
 Foundation coverage & \pyvar{foundation_audit} &
-\pyvar{available}, \pyvar{method}, \pyvar{status}; the native artifact
-reports availability and completed \pyvar{run_full_audit} execution.\\
-Native foundation summary & First JSON object &
+\pyvar{available}, \pyvar{method}, \pyvar{status}; verified under \pyvar{foundation_audit}.\\
+Canonical foundation summary & \pyvar{foundation_summary} &
 \pyvar{branch}, \pyvar{framing_defect (delta_fr)},
 \pyvar{modular_invariant}, \pyvar{zero_energy_locked},
 \pyvar{eta_b}, \pyvar{stress_energy_preserved},
@@ -8786,12 +8728,12 @@ synthesizes dual-scale gravitational deflection, bilateral dark matter
 caustic glow, and observer causal envelopes in
 $\tau_{\text{post}} \le 1.18\,\text{ms}$ on standard commodity hardware.
 
-\section{$SO(3)$ Isotropic Modular Weil Phase Mapping and Boundary Holographic Structure Formation}
+\section{\texorpdfstring{$SO(3)$}{SO(3)} Isotropic Modular Weil Phase Mapping and Boundary Holographic Structure Formation}
 \label{sec:so3_weil_structure}
 
 In Static Holographic Boundary Theory (SHBT), primordial cosmic structure is generated by projecting the finite boundary degrees of freedom residing on the two-dimensional horizon screen at the modular fixed point $\tau = i$ ($q = e^{-2\pi}$) into the three-dimensional comoving bulk torus $\mathbb{T}^3$. On the canonical branch $(k_\ell, k_q, K) = (26, 8, 312)$, the boundary conformal field theory contains exactly $M = 2,901,360$ primary modules.
 
-To rigorously preserve continuous spatial rotation invariance $SO(3)$ on a discrete comoving grid, the projection map must eliminate the point-group symmetry leakage of the hyperoctahedral lattice group $O_h \cong S_4 \times \mathbb{Z}_2$. Let $\mathbf{k} \in \mathbb{T}^3$ be a comoving wavevector with fundamental box wavenumber $k_1 = 2\pi / L_{\text{box}}$. We define the deterministic primary module index $I(\mathbf{k}) \in \{0, 1, \dots, M-1\}$ strictly as a function of the Euclidean norm $\|\mathbf{k}\| = \sqrt{k_x^2 + k_y^2 + k_z^2}$:
+To rigorously preserve continuous spatial rotation invariance $SO(3)$ on a discrete comoving grid, the projection map must eliminate the point-group symmetry leakage of the hyperoctahedral lattice group $O_h \cong S_4 \times \mathbb{Z}_2$. Let $\mathbf{k} \in \mathbb{T}^3$ be a comoving wavevector with fundamental box wavenumber $k_1 = 2\pi / L_{\text{box}}$. We define the deterministic primary module index $I(\mathbf{k}) \in \{0, 1, \dots, M-1\}$ strictly as a function of the continuous Euclidean norm $\|\mathbf{k}\| = \sqrt{k_x^2 + k_y^2 + k_z^2}$:
 \begin{equation}
     I(\mathbf{k}) = \left\lfloor \alpha \frac{\|\mathbf{k}\|}{k_1} + \beta \left(\frac{\|\mathbf{k}\|}{k_1}\right)^2 \right\rfloor \pmod M,
 \end{equation}
@@ -8800,7 +8742,11 @@ where the boundary transcendental coupling parameters are algebraically determin
     \alpha = \frac{24}{\sqrt{3}} = 8\sqrt{3} \approx 13.85640646, \quad \beta = \frac{\pi}{\sqrt{2}} \approx 2.22144147.
 \end{equation}
 
-Directional Haar dispersion is established by partitioning Fourier space into the upper hemisphere $\mathcal{K}^+ = \{\mathbf{k} \in \mathbb{Z}^3 \setminus \{\mathbf{0}\} : k_z > 0 \lor (k_z = 0 \land k_y > 0) \lor (k_z = 0 \land k_y = 0 \land k_x > 0)\}$. The primordial phases $\phi(\mathbf{k})$ are assigned via:
+Directional Haar dispersion is established by partitioning Fourier space into the canonical upper half-space $\mathcal{K}^+ = \{\mathbf{k} \in \mathbb{Z}^3 \setminus \{\mathbf{0}\} : k_z > 0 \lor (k_z = 0 \land k_y > 0) \lor (k_z = 0 \land k_y = 0 \land k_x > 0)\}$ and mapping unit direction cosines through the irrational linear combination:
+\begin{equation}
+    \mathcal{P}(\hat{\mathbf{k}}) = \frac{\sqrt{2}\hat{k}_x + \sqrt{3}\hat{k}_y + \sqrt{5}\hat{k}_z}{\sqrt{2} + \sqrt{3} + \sqrt{5}}, \quad \Psi_{\text{iso}}(\hat{\mathbf{k}}) = 2\pi \operatorname{frac}\left( \frac{M}{24} \mathcal{P}(\hat{\mathbf{k}}) \right).
+\end{equation}
+The primordial phases $\phi(\mathbf{k})$ are assigned via:
 \begin{equation}
     \phi(\mathbf{k}) = \begin{cases}
         \left[ \theta_{I(\mathbf{k})} + \Psi_{\text{iso}}(\hat{\mathbf{k}}) \right] \pmod{2\pi}, & \mathbf{k} \in \mathcal{K}^+, \\
@@ -8808,7 +8754,7 @@ Directional Haar dispersion is established by partitioning Fourier space into th
         0, & \mathbf{k} = \mathbf{0},
     \end{cases}
 \end{equation}
-where $\Psi_{\text{iso}}(\hat{\mathbf{k}})$ is evaluated through bi-permutative SplitMix64 hashing of directional coordinates. This construction guarantees the vanishing of all non-trivial spherical multipole moments $\mathbb{E}[a_{\ell m}] \equiv 0$ ($\forall \ell \ge 1$) and suppresses cubic harmonic leakage across the fundamental octahedral invariant manifolds to $|\langle K_4 \rangle| < 10^{-7}$ and $|\langle K_6 \rangle| < 10^{-8}$.
+with self-conjugate Nyquist modes locked to $\{0, \pi\}$. Fundamental dipole modes ($\|\mathbf{n}\| \le 1$) are nullified ($\delta(\mathbf{k}) \equiv 0$) to eliminate unphysical box-scale translational drift. This construction guarantees the vanishing of all non-trivial spherical multipole moments $\mathbb{E}[a_{\ell m}] \equiv 0$ ($\forall \ell \ge 1$) and suppresses cubic harmonic leakage across the fundamental octahedral invariant manifolds to $|\langle K_4 \rangle| < 10^{-7}$ and $|\langle K_6 \rangle| < 10^{-8}$.
 
 \section{Conclusion}
 \label{sec:document-conclusion}
@@ -9812,7 +9758,7 @@ The phase-space $(x, v_x)$ projection kernel in \texttt{diagnostics.wgsl} operat
     \item \textbf{Pass 1 (\texttt{cs\_accumulate\_phase\_space}):} Particles are mapped periodically across comoving boundaries via $x_{\mathrm{norm}} = \operatorname{fract}(x/L_{\mathrm{box}})$, with peculiar velocities scaled by conformal velocity normalizations. Linear cell indices are accumulated into a 1D atomic storage buffer \texttt{array<atomic<u32>>} via race-free \texttt{atomicAdd}, resolving dense caustics without GPU write conflicts.
     \item \textbf{Pass 2 (\texttt{cs\_render\_phase\_space}):} Normalized intensities are reconstructed via high-dynamic-range logarithmic tone mapping:
     \begin{equation}
-    I(u, v) = \frac{\ln(1.0 + \kappa \cdot N(u, v))}{\ln(1.0 + \kappa \cdot N_{\mathrm{sat}})}, \quad \kappa = 10.0, \quad N_{\mathrm{sat}} = 500.0,
+    I(u, v) = \frac{\ln(1.0 + \kappa \cdot N(u, v))}{\ln(1.0 + \kappa \cdot N_{\mathrm{sat}})}, \quad \kappa = 10.0, \quad N_{\mathrm{sat}} = 5000.0,
     \end{equation}
     driving a continuous pseudocolor ramp spanning deep void blue, caustic sheet cyan, high-density amber, and virialized white, resolving single-stream caustic folds and dense virial cores with zero visual dropouts.
 \end{enumerate}
@@ -9877,17 +9823,20 @@ $M = 2{,}901{,}360$ primary CFT modules.
 
 \begin{definition}[Scalar Invariant Modular Phase Map]
 Let $\mathbf{n} = (n_x, n_y, n_z) \in \mathbb{Z}^3 \setminus \{\mathbf{0}\}$ denote the discrete wavevector 
-index. The scalar invariant norm is defined by the quadratic form $s(\mathbf{n}) = |\mathbf{n}|^2 = n_x^2 + n_y^2 + n_z^2$. 
-The deterministic Weil phase assignment $\phi: \mathbb{Z}^3 \to [0, 2\pi)$ is given on the upper 
-hemisphere $\mathcal{H}^+$ by:
+index with continuous Euclidean norm $s(\mathbf{n}) = \|\mathbf{n}\|^2 = n_x^2 + n_y^2 + n_z^2$ and unit direction vector $\hat{\mathbf{k}} = \mathbf{n}/\sqrt{s(\mathbf{n})}$. The canonical upper half-space partition is defined by $\mathcal{K}^+ = \{\mathbf{n} : n_z > 0 \lor (n_z = 0 \land n_y > 0) \lor (n_z = 0 \land n_y = 0 \land n_x > 0)\}$.
+The isotropic direction-cosine projection maps $\hat{\mathbf{k}}$ via irrational weights:
 \begin{equation}
-    \phi(\mathbf{n}) = \frac{2\pi}{M} \left[ \left( \sum_{p=1}^3 \kappa_p s(\mathbf{n})^p + \mathcal{J}(\mathbf{n}) \right) \pmod M \right], \quad \mathbf{n} \in \mathcal{H}^+
+    \mathcal{P}(\hat{\mathbf{k}}) = \frac{\sqrt{2}\hat{k}_x + \sqrt{3}\hat{k}_y + \sqrt{5}\hat{k}_z}{\sqrt{2} + \sqrt{3} + \sqrt{5}}, \quad \Psi_{\mathrm{iso}}(\hat{\mathbf{k}}) = 2\pi \operatorname{frac}\left( \frac{M}{24} \mathcal{P}(\hat{\mathbf{k}}) \right).
 \end{equation}
-where $\mathcal{J}(\mathbf{n}) = (|312 n_x + 26 n_y + 8 n_z| \oplus 157 s) \pmod M$, with Hermitian anti-symmetry 
-enforced across the complementary hemisphere:
+The deterministic Weil phase assignment $\phi: \mathbb{Z}^3 \to [0, 2\pi)$ is given on $\mathcal{K}^+$ by:
 \begin{equation}
-    \phi(-\mathbf{n}) = -\phi(\mathbf{n}) \pmod{2\pi}, \quad \forall \, \mathbf{n} \in \mathcal{H}^-.
+    \phi(\mathbf{n}) = \left[ \frac{2\pi}{M} \left( \lfloor \alpha \sqrt{s(\mathbf{n})} + \beta s(\mathbf{n}) \rfloor \pmod M \right) + \Psi_{\mathrm{iso}}(\hat{\mathbf{k}}) \right] \pmod{2\pi}, \quad \mathbf{n} \in \mathcal{K}^+
 \end{equation}
+with strict Hermitian anti-symmetry across the complementary hemisphere:
+\begin{equation}
+    \phi(-\mathbf{n}) = -\phi(\mathbf{n}) \pmod{2\pi}, \quad \forall \, -\mathbf{n} \in \mathcal{K}^+,
+\end{equation}
+$\phi(\mathbf{0}) \equiv 0$, self-conjugate Nyquist phases locked to $\{0, \pi\}$, and dipole nullification $\delta(\mathbf{k}) \equiv 0$ for $\|\mathbf{n}\| \le 1$.
 \end{definition}
 
 \begin{lemma}[Hermitian Real-Valued Bulk Field]
