@@ -18,6 +18,7 @@ Spec milestones (canonical capture names, shbt12 visual checklist):
 from __future__ import annotations
 
 import asyncio
+import base64
 from dataclasses import dataclass
 import http.server
 import math
@@ -26,6 +27,7 @@ import shutil
 import socketserver
 import subprocess
 import sys
+import tempfile
 import threading
 import time
 from pathlib import Path
@@ -50,6 +52,20 @@ PORT = 8080
 SIMULATION_URL = os.getenv(
     "SHBT_VISUALIZER_URL", f"http://127.0.0.1:{PORT}/visualizer/?capture=1&offline=1"
 )
+
+def find_ffmpeg() -> str:
+    path = shutil.which("ffmpeg")
+    if path:
+        return path
+    local_app_data = Path(os.environ.get("LOCALAPPDATA", ""))
+    candidates = list(local_app_data.glob("Microsoft/WinGet/Packages/Gyan.FFmpeg*/**/ffmpeg.exe"))
+    if candidates:
+        return str(candidates[0])
+    playwright_ff = list(local_app_data.glob("ms-playwright/ffmpeg-*/**/ffmpeg*.exe"))
+    if playwright_ff:
+        return str(playwright_ff[0])
+    return "ffmpeg"
+
 BROWSER_ARGS = [
     "--enable-unsafe-webgpu",
     "--use-angle=d3d11",
@@ -398,17 +414,42 @@ async def capture_milestone_stills_session(p) -> List[Dict]:
     Runs in deterministic offline step mode with exact fixed-timestep leapfrog integration.
     """
     print("[*] --- SESSION 1: Capturing Canonical Milestone Stills ---")
-    browser = await p.chromium.launch(headless=True, args=BROWSER_ARGS)
-    context = await browser.new_context(viewport={"width": 1920, "height": 1080})
-    page = await context.new_page()
+    temp_profile_dir = tempfile.mkdtemp(prefix="shbt_stills_")
+    browser = await p.chromium.launch_persistent_context(
+        user_data_dir=temp_profile_dir,
+        headless=True,
+        args=BROWSER_ARGS,
+        viewport={"width": 1920, "height": 1080},
+    )
+    page = browser.pages[0] if browser.pages else await browser.new_page()
 
     page.on("console", lambda msg: print(f"[BROWSER {msg.type.upper()}] {msg.text}"))
     page.on("pageerror", lambda err: print(f"[BROWSER PAGEERROR] {err}"))
+
+    particles_verified = False
+    async def on_response(response):
+        nonlocal particles_verified
+        url = response.url
+        if "particles_init_z100.bin" in url:
+            if response.status != 200:
+                raise RuntimeError(f"HTTP {response.status} loading particles_init_z100.bin")
+            body = await response.body()
+            if len(body) != 8388624:
+                raise RuntimeError(f"particles_init_z100.bin size {len(body)} != 8388624 bytes")
+            print(f"[*] Verified particles_init_z100.bin integrity ({len(body):,} bytes)")
+            particles_verified = True
+
+    page.on("response", on_response)
 
     print(f"[*] Navigating to {SIMULATION_URL}")
     await page.goto(SIMULATION_URL, wait_until="networkidle")
     await page.wait_for_function("() => window.__SHBT_ENGINE__ !== undefined", timeout=120_000)
     await page.wait_for_function("() => window.__particlesLoaded === true", timeout=120_000)
+
+    # Check for unrecoverable fallback
+    is_fallback = await page.evaluate("() => window.__particlesFallback === true")
+    if is_fallback:
+        raise RuntimeError("FATAL: engine attempted fallback to init_unperturbed_cartesian_grid()!")
 
     # Disable seed glitch and unphysical effects for canonical run
     await page.evaluate("() => window.__SHBT_ENGINE__.setGlitchEnabled(false)")
@@ -426,9 +467,11 @@ async def capture_milestone_stills_session(p) -> List[Dict]:
     })
 
     frame_dt = 1.0 / TARGET_FPS
+    MILESTONE_PROGRESS = {0: 0.0000, 1: 0.1667, 2: 0.4600, 3: 0.6600, 4: 0.7200, 5: 1.0000}
     for ms_idx in range(6):
         mz = MILESTONE_Z[ms_idx]
-        eye, look = compute_camera_trajectory(mz, 0.5)
+        prog = MILESTONE_PROGRESS.get(ms_idx, 0.5)
+        eye, look = compute_camera_trajectory(mz, prog)
         # Advance multiple offline steps to allow GPU kernels and telemetry readback to settle
         dwell_steps = max(10, MILESTONE_DWELL_PRESENTED)
         for _ in range(dwell_steps):
@@ -440,9 +483,8 @@ async def capture_milestone_stills_session(p) -> List[Dict]:
         await verify_hud_telemetry_milestone(page, ms_idx, mz, milestone_results)
 
     print("[*] Session 1 complete. Closing browser context...")
-    await page.close()
-    await context.close()
     await browser.close()
+    shutil.rmtree(temp_profile_dir, ignore_errors=True)
     return milestone_results
 
 
@@ -450,23 +492,48 @@ async def record_video_session(p) -> Path | None:
     """
     Session 2: Fresh isolated browser context/session to record the full cosmic evolution video.
     Executes deterministic offline fixed-timestep stepping synchronized with WebGPU onSubmittedWorkDone.
+    Pipes frames synchronously into ffmpeg image2pipe subprocess.
     """
     print("[*] --- SESSION 2: Full Cosmic Evolution Video Recording ---")
-    browser = await p.chromium.launch(headless=True, args=BROWSER_ARGS)
-    context = await browser.new_context(
+    ffmpeg_exe = find_ffmpeg()
+    print(f"[*] Using ffmpeg: {ffmpeg_exe}")
+
+    temp_profile_dir = tempfile.mkdtemp(prefix="shbt_video_")
+    browser = await p.chromium.launch_persistent_context(
+        user_data_dir=temp_profile_dir,
+        headless=True,
+        args=BROWSER_ARGS,
         viewport={"width": 1920, "height": 1080},
-        record_video_dir=str(RAW_VIDEO_DIR),
-        record_video_size={"width": 1920, "height": 1080},
     )
-    page = await context.new_page()
+    page = browser.pages[0] if browser.pages else await browser.new_page()
 
     page.on("console", lambda msg: print(f"[BROWSER {msg.type.upper()}] {msg.text}"))
     page.on("pageerror", lambda err: print(f"[BROWSER PAGEERROR] {err}"))
+
+    particles_verified = False
+    async def on_response(response):
+        nonlocal particles_verified
+        url = response.url
+        if "particles_init_z100.bin" in url:
+            if response.status != 200:
+                raise RuntimeError(f"HTTP {response.status} loading particles_init_z100.bin")
+            body = await response.body()
+            if len(body) != 8388624:
+                raise RuntimeError(f"particles_init_z100.bin size {len(body)} != 8388624 bytes")
+            print(f"[*] Verified particles_init_z100.bin integrity ({len(body):,} bytes)")
+            particles_verified = True
+
+    page.on("response", on_response)
 
     print(f"[*] Navigating to {SIMULATION_URL}")
     await page.goto(SIMULATION_URL, wait_until="networkidle")
     await page.wait_for_function("() => window.__SHBT_ENGINE__ !== undefined", timeout=120_000)
     await page.wait_for_function("() => window.__particlesLoaded === true", timeout=120_000)
+
+    # Check for unrecoverable fallback
+    is_fallback = await page.evaluate("() => window.__particlesFallback === true")
+    if is_fallback:
+        raise RuntimeError("FATAL: engine attempted fallback to init_unperturbed_cartesian_grid()!")
 
     # Disable seed glitch and unphysical effects for canonical run
     await page.evaluate("() => window.__SHBT_ENGINE__.setGlitchEnabled(false)")
@@ -476,32 +543,77 @@ async def record_video_session(p) -> Path | None:
     await page.evaluate("() => window.__SHBT_ENGINE__.setViewportMode(0)")
     await page.evaluate("() => window.__SHBT_ENGINE__.setLensingScale(0.025)")
 
-    total_commits = TOTAL_FRAMES // FRAME_STRIDE
-    frame_interval = 1.0 / TARGET_FPS
-    print(
-        f"[*] Stepping {TOTAL_FRAMES} frames @ {TARGET_FPS}fps -> {total_commits} offline commits (stride {FRAME_STRIDE})"
+    # Reset deterministic stepper
+    await page.evaluate("() => window.__SHBT_ENGINE__.reset_deterministic()")
+
+    # Launch ffmpeg subprocess pipe
+    OUTPUT_VIDEO_PATH.parent.mkdir(parents=True, exist_ok=True)
+    if OUTPUT_VIDEO_PATH.exists():
+        OUTPUT_VIDEO_PATH.unlink()
+
+    ffmpeg_cmd = [
+        ffmpeg_exe,
+        "-y",
+        "-f", "image2pipe",
+        "-vcodec", "png",
+        "-r", str(TARGET_FPS // max(1, FRAME_STRIDE) if FRAME_STRIDE > 1 else TARGET_FPS),
+        "-i", "-",
+        "-c:v", "libvpx-vp9",
+        "-b:v", "8M",
+        "-crf", "18",
+        "-deadline", "realtime",
+        "-cpu-used", "4",
+        "-pix_fmt", "yuv420p",
+        str(OUTPUT_VIDEO_PATH),
+    ]
+
+    ffmpeg_proc = subprocess.Popen(
+        ffmpeg_cmd,
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
     )
 
-    for step in range(total_commits):
-        progress = (step * FRAME_STRIDE) / float(TOTAL_FRAMES - 1)
-        z_now, cam_pos, cam_look = evaluate_trajectory(progress)
-        await page.evaluate(
-            "([dt, z, pos, look]) => window.__SHBT_ENGINE__.stepOffline(dt, z, pos, look)",
-            [frame_interval, z_now, cam_pos, cam_look],
-        )
-        await page.evaluate("() => window.__SHBT_ENGINE__.syncGpu()")
-        if (step + 1) % 100 == 0 or step == total_commits - 1:
-            print(f"    [PROGRESS] Commit {step + 1}/{total_commits} (z = {z_now:.3e})")
-        # Yield briefly so the browser video encoder compositor can ingest the new frame
-        await asyncio.sleep(frame_interval * 0.25)
+    total_commits = TOTAL_FRAMES // FRAME_STRIDE
+    print(
+        f"[*] Stepping {TOTAL_FRAMES} frames @ {TARGET_FPS}fps -> {total_commits} commits (stride {FRAME_STRIDE}) to {OUTPUT_VIDEO_PATH.name}"
+    )
 
-    print("[*] Stepping complete. Flushing video buffer...")
-    video = page.video
-    await page.close()
-    await context.close()
-    raw = Path(await video.path()) if video else None
+    cdp = await page.context.new_cdp_session(page)
+    t_start = time.time()
+
+    try:
+        for step in range(total_commits):
+            progress = (step * FRAME_STRIDE) / float(TOTAL_FRAMES - 1)
+            z_now, cam_pos, cam_look = evaluate_trajectory(progress)
+
+            # Deterministic simulation advance synchronized with WebGPU onSubmittedWorkDone
+            await page.evaluate(
+                "([pos, look]) => window.advanceSimulationFrame(pos, look)",
+                [cam_pos, cam_look],
+            )
+
+            # Synchronous CDP screenshot extraction
+            screenshot = await cdp.send("Page.captureScreenshot", {"format": "png"})
+            png_bytes = base64.b64decode(screenshot["data"])
+
+            ffmpeg_proc.stdin.write(png_bytes)
+
+            if (step + 1) % 100 == 0 or step == total_commits - 1:
+                elapsed = time.time() - t_start
+                fps = (step + 1) / max(0.001, elapsed)
+                eta = (total_commits - (step + 1)) / max(0.001, fps)
+                print(f"    [PROGRESS] Commit {step + 1}/{total_commits} (z = {z_now:.3e}) - {fps:.1f} fps (ETA: {eta:.0f}s)")
+    finally:
+        ffmpeg_proc.stdin.close()
+        stdout, stderr = ffmpeg_proc.communicate()
+        if ffmpeg_proc.returncode != 0:
+            print(f"[FFMPEG ERROR] {stderr.decode('utf-8', errors='ignore')}")
+
+    print("[*] Video pipe closed. Verifying output video...")
     await browser.close()
-    return raw
+    shutil.rmtree(temp_profile_dir, ignore_errors=True)
+    return OUTPUT_VIDEO_PATH if OUTPUT_VIDEO_PATH.exists() else None
 
 
 async def record_cosmic_evolution(milestones_only: bool = False) -> Tuple[List[Dict], Path | None]:
@@ -517,7 +629,7 @@ async def record_cosmic_evolution(milestones_only: bool = False) -> Tuple[List[D
 
     raw_video = None
     if not milestones_only:
-        # Hard reset: fresh isolated browser session for video recording
+        # Session 2: Hard reset fresh isolated browser session for video recording
         async with async_playwright() as p:
             raw_video = await record_video_session(p)
 
@@ -527,11 +639,13 @@ async def record_cosmic_evolution(milestones_only: bool = False) -> Tuple[List[D
 def finalize(results: List[Dict], raw: Path | None) -> None:
     TELEMETRY_PATH.write_text(__import__("json").dumps(results, indent=2))
     if raw and raw.exists():
-        if OUTPUT_VIDEO_PATH.exists():
-            OUTPUT_VIDEO_PATH.unlink()
-        shutil.move(str(raw), OUTPUT_VIDEO_PATH)
+        if raw != OUTPUT_VIDEO_PATH:
+            if OUTPUT_VIDEO_PATH.exists():
+                OUTPUT_VIDEO_PATH.unlink()
+            shutil.move(str(raw), OUTPUT_VIDEO_PATH)
         print(f"[RECORDER] full run: {OUTPUT_VIDEO_PATH.name} ({OUTPUT_VIDEO_PATH.stat().st_size:,} bytes)")
     else:
+        print("[RECORDER] No video produced (milestones-only mode or skipped). Telemetry frame written.")
         print("[RECORDER] No video produced (milestones-only mode or skipped). Telemetry frame written.")
 
 
@@ -683,6 +797,73 @@ def analyze_multipole_asymmetry(image_path: str | Path) -> float:
     return mean_leakage
 
 
+def extract_video_frame(video_path: Path, timestamp_sec: float, out_png: Path) -> bool:
+    ffmpeg_exe = find_ffmpeg()
+    cmd = [
+        ffmpeg_exe,
+        "-y",
+        "-ss", f"{timestamp_sec:.2f}",
+        "-i", str(video_path),
+        "-vframes", "1",
+        str(out_png),
+    ]
+    res = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    return res.returncode == 0 and out_png.exists() and out_png.stat().st_size > 1000
+
+
+def verify_video_stills_match(video_path: Path, stills_dir: Path) -> bool:
+    from PIL import Image
+    all_ok = True
+    # Key timestamps in 90 s video corresponding to Z_KEYFRAMES:
+    # z = 16.0 at progress 0.4600 -> t = 41.4 s
+    # z = 1.00 at progress 0.7200 -> t = 64.8 s
+    checks = [
+        ("Milestone 03 (z=16.0)", 41.4, stills_dir / MILESTONE_PNG[2]),
+        ("Milestone 05 (z=1.00)", 64.8, stills_dir / MILESTONE_PNG[4]),
+    ]
+    for label, t_sec, still_p in checks:
+        if not still_p.exists():
+            continue
+        tmp_extract = stills_dir / f"extracted_{still_p.name}"
+        if not extract_video_frame(video_path, t_sec, tmp_extract):
+            print(f"[VERIFY] FAIL could not extract video frame at {t_sec}s for {label}")
+            all_ok = False
+            continue
+        im_v = np.array(Image.open(tmp_extract).convert("L"), dtype=np.float64) / 255.0
+        im_s = np.array(Image.open(still_p).convert("L"), dtype=np.float64) / 255.0
+        var_diff = float(np.var(im_v - im_s))
+        passed = var_diff <= 0.05
+        tag = "PASS" if passed else "FAIL"
+        print(f"[{tag}] Video vs Still {label}: pixel variance = {var_diff*100:.2f}% (target <= 5.00%)")
+        if not passed:
+            all_ok = False
+
+        # Verify physical criteria directly on extracted video frame
+        if "z=16.0" in label:
+            c_void_v = analyze_void_blowout(tmp_extract)
+            passed_v = c_void_v >= 0.92
+            tag_v = "PASS" if passed_v else "FAIL"
+            print(f"[{tag_v}] Video frame {label} C_void = {c_void_v:.4f} (target >= 0.92)")
+            if not passed_v:
+                all_ok = False
+        elif "z=1.00" in label:
+            _, r_caustic_v, _ = analyze_spoke_anisotropy(tmp_extract)
+            e_core_v = analyze_core_ellipticity(tmp_extract)
+            passed_ev = e_core_v <= 0.15
+            passed_cv = r_caustic_v <= 1.05
+            print(f"[{'PASS' if passed_ev else 'FAIL'}] Video frame {label} core ellipticity e = {e_core_v:.4f} (target <= 0.15)")
+            print(f"[{'PASS' if passed_cv else 'FAIL'}] Video frame {label} caustic power ratio = {r_caustic_v:.4f} (target <= 1.05)")
+            if not passed_ev or not passed_cv:
+                all_ok = False
+
+        if tmp_extract.exists():
+            try:
+                tmp_extract.unlink()
+            except Exception:
+                pass
+    return all_ok
+
+
 def verify(milestones_only: bool = False) -> bool:
     ok = True
     if not milestones_only:
@@ -758,6 +939,12 @@ def verify(milestones_only: bool = False) -> bool:
             print(f"[{tag}] {check_dir.name}/{p06.name} multipole asymmetry |a_40/a_00| = {asym:.6e} (target <= 5e-5)")
             if not passed:
                 ok = False
+
+    # Gate 5: Sample and Compare Video Frames against Milestone Stills
+    if not milestones_only and OUTPUT_VIDEO_PATH.exists() and OUTPUT_VIDEO_PATH.stat().st_size > 5_000_000:
+        v_ok = verify_video_stills_match(OUTPUT_VIDEO_PATH, RECORDINGS_DIR)
+        if not v_ok:
+            ok = False
 
     return ok
 

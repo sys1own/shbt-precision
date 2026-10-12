@@ -263,7 +263,7 @@ function handleError(f, args) {
         wasm.__wbindgen_exn_store(addHeapObject(e));
     }
 }
-function __wbg_adapter_414(arg0, arg1, arg2, arg3) {
+function __wbg_adapter_422(arg0, arg1, arg2, arg3) {
     wasm.wasm_bindgen_551d08d34b350dd1___convert__closures__invoke2_mut___wasm_bindgen_551d08d34b350dd1___JsValue__wasm_bindgen_551d08d34b350dd1___JsValue_____(arg0, arg1, addHeapObject(arg2), addHeapObject(arg3));
 }
 
@@ -306,6 +306,21 @@ export class ShbtWebGpuEngine {
     */
     set show_observers(arg0) {
         wasm.__wbg_set_shbtwebgpuengine_show_observers(this.__wbg_ptr, arg0);
+    }
+    /**
+    * Offline deterministic stepping frame counter (Theorem 15 fixed increments).
+    * @returns {number}
+    */
+    get deterministic_step() {
+        const ret = wasm.__wbg_get_shbtwebgpuengine_deterministic_step(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+    * Offline deterministic stepping frame counter (Theorem 15 fixed increments).
+    * @param {number} arg0
+    */
+    set deterministic_step(arg0) {
+        wasm.__wbg_set_shbtwebgpuengine_deterministic_step(this.__wbg_ptr, arg0);
     }
     /**
     * Create an engine bound to `<canvas id="canvas_id">` (async factory).
@@ -352,6 +367,22 @@ export class ShbtWebGpuEngine {
     */
     set_playing(playing) {
         wasm.shbtwebgpuengine_set_playing(this.__wbg_ptr, playing);
+    }
+    /**
+    * Render and composite the current visualizer scene to the surface swapchain canvas.
+    */
+    render_frame() {
+        try {
+            const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
+            wasm.shbtwebgpuengine_render_frame(retptr, this.__wbg_ptr);
+            var r0 = getInt32Memory0()[retptr / 4 + 0];
+            var r1 = getInt32Memory0()[retptr / 4 + 1];
+            if (r1) {
+                throw takeObject(r0);
+            }
+        } finally {
+            wasm.__wbindgen_add_to_stack_pointer(16);
+        }
     }
     /**
     * Enable/disable Channel A (visible) and Channel B (dark ghost).
@@ -424,11 +455,43 @@ export class ShbtWebGpuEngine {
         wasm.shbtwebgpuengine_set_viewport_mode(this.__wbg_ptr, mode);
     }
     /**
+    * Query current loaded fraction for the deterministic recorder harness.
+    * @returns {number}
+    */
+    get_current_f_load() {
+        const ret = wasm.shbtwebgpuengine_get_current_f_load(this.__wbg_ptr);
+        return ret;
+    }
+    /**
     * Toggle the emergent seed-glitch post effect (Enhancement 11).
     * @param {boolean} enabled
     */
     set_glitch_enabled(enabled) {
         wasm.shbtwebgpuengine_set_glitch_enabled(this.__wbg_ptr, enabled);
+    }
+    /**
+    * Advance one offline deterministic integration frame per Theorem 15:
+    * Delta a = (a_end - a_start) / 5400 (for 90 s @ 60 FPS).
+    * Supercomoving conformal time step Delta tau = Delta a / (a_{1/2}^{3/2} * H(a_{1/2})/H_0).
+    */
+    step_deterministic() {
+        try {
+            const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
+            wasm.shbtwebgpuengine_step_deterministic(retptr, this.__wbg_ptr);
+            var r0 = getInt32Memory0()[retptr / 4 + 0];
+            var r1 = getInt32Memory0()[retptr / 4 + 1];
+            if (r1) {
+                throw takeObject(r0);
+            }
+        } finally {
+            wasm.__wbindgen_add_to_stack_pointer(16);
+        }
+    }
+    /**
+    * Reset deterministic frame counter back to z = 100.
+    */
+    reset_deterministic() {
+        wasm.shbtwebgpuengine_reset_deterministic(this.__wbg_ptr);
     }
     /**
     * Toggle relativistic Doppler beaming + thermal color shift.
@@ -458,6 +521,14 @@ export class ShbtWebGpuEngine {
     */
     update_cosmic_state(z, px, py, pz, lx, ly, lz) {
         wasm.shbtwebgpuengine_update_cosmic_state(this.__wbg_ptr, z, px, py, pz, lx, ly, lz);
+    }
+    /**
+    * Query current redshift for the deterministic recorder harness.
+    * @returns {number}
+    */
+    get_current_redshift() {
+        const ret = wasm.shbtwebgpuengine_get_current_redshift(this.__wbg_ptr);
+        return ret;
     }
     /**
     * Seed-glitch master intensity, clamped to [0.0, 1.0].
@@ -513,6 +584,14 @@ export class ShbtWebGpuEngine {
     */
     set_simulation_controls(sound_speed_scale, percolation_threshold_scale, lensing_strength, chromatic_dispersion, target_redshift, viewport_split_mode) {
         wasm.shbtwebgpuengine_set_simulation_controls(this.__wbg_ptr, sound_speed_scale, percolation_threshold_scale, lensing_strength, chromatic_dispersion, target_redshift, viewport_split_mode);
+    }
+    /**
+    * Query current scale factor for the deterministic recorder harness.
+    * @returns {number}
+    */
+    get_current_scale_factor() {
+        const ret = wasm.shbtwebgpuengine_get_current_scale_factor(this.__wbg_ptr);
+        return ret;
     }
     /**
     * Count of active sandbox observers (click-dispatched records whose
@@ -1671,7 +1750,7 @@ function __wbg_get_imports() {
                 const a = state0.a;
                 state0.a = 0;
                 try {
-                    return __wbg_adapter_414(a, state0.b, arg0, arg1);
+                    return __wbg_adapter_422(a, state0.b, arg0, arg1);
                 } finally {
                     state0.a = a;
                 }
@@ -1742,11 +1821,11 @@ function __wbg_get_imports() {
         getInt32Memory0()[arg0 / 4 + 1] = len1;
         getInt32Memory0()[arg0 / 4 + 0] = ptr1;
     };
-    imports.wbg.__wbindgen_closure_wrapper780 = function(arg0, arg1, arg2) {
+    imports.wbg.__wbindgen_closure_wrapper793 = function(arg0, arg1, arg2) {
         const ret = makeMutClosure(arg0, arg1, 253, __wbg_adapter_26);
         return addHeapObject(ret);
     };
-    imports.wbg.__wbindgen_closure_wrapper1186 = function(arg0, arg1, arg2) {
+    imports.wbg.__wbindgen_closure_wrapper1199 = function(arg0, arg1, arg2) {
         const ret = makeMutClosure(arg0, arg1, 259, __wbg_adapter_29);
         return addHeapObject(ret);
     };

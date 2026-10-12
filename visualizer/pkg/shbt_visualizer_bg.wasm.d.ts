@@ -1,7 +1,9 @@
 /* tslint:disable */
 /* eslint-disable */
 export const memory: WebAssembly.Memory;
+export function __wbg_get_shbtwebgpuengine_deterministic_step(a: number): number;
 export function __wbg_get_shbtwebgpuengine_show_observers(a: number): number;
+export function __wbg_set_shbtwebgpuengine_deterministic_step(a: number, b: number): void;
 export function __wbg_set_shbtwebgpuengine_show_observers(a: number, b: number): void;
 export function __wbg_shbtwebgpuengine_free(a: number): void;
 export function shbtwebgpuengine_capture_frame_rgba(a: number, b: number): number;
@@ -9,9 +11,14 @@ export function shbtwebgpuengine_clear_camera_override(a: number): void;
 export function shbtwebgpuengine_create(a: number, b: number): number;
 export function shbtwebgpuengine_debug_eparams(a: number, b: number): void;
 export function shbtwebgpuengine_get_active_observers_count(a: number): number;
+export function shbtwebgpuengine_get_current_f_load(a: number): number;
+export function shbtwebgpuengine_get_current_redshift(a: number): number;
+export function shbtwebgpuengine_get_current_scale_factor(a: number): number;
 export function shbtwebgpuengine_hud_json(a: number, b: number): void;
 export function shbtwebgpuengine_load_particles_binary(a: number, b: number, c: number, d: number): void;
 export function shbtwebgpuengine_particle_count(a: number): number;
+export function shbtwebgpuengine_render_frame(a: number, b: number): void;
+export function shbtwebgpuengine_reset_deterministic(a: number): void;
 export function shbtwebgpuengine_set_channels(a: number, b: number, c: number): void;
 export function shbtwebgpuengine_set_dark_glow(a: number, b: number): void;
 export function shbtwebgpuengine_set_dispersion(a: number, b: number): void;
@@ -27,6 +34,7 @@ export function shbtwebgpuengine_set_simulation_controls(a: number, b: number, c
 export function shbtwebgpuengine_set_speed(a: number, b: number): void;
 export function shbtwebgpuengine_set_unwrap_transition(a: number, b: number): void;
 export function shbtwebgpuengine_set_viewport_mode(a: number, b: number): void;
+export function shbtwebgpuengine_step_deterministic(a: number, b: number): void;
 export function shbtwebgpuengine_step_frame(a: number, b: number, c: number): void;
 export function shbtwebgpuengine_unproject_and_dispatch_causal_point(a: number, b: number, c: number, d: number, e: number): number;
 export function shbtwebgpuengine_update_cosmic_state(a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number): void;

@@ -315,11 +315,43 @@ async function boot() {
       return m;
     },
     syncGpu: async () => {
-      if (window.__gpuDevice) {
-        await window.__gpuDevice.queue.onSubmittedWorkDone();
+      const device = window.__gpuDevice || (engine ? engine.device : null);
+      if (device && device.queue && device.queue.onSubmittedWorkDone) {
+        await device.queue.onSubmittedWorkDone();
       }
     },
+    step_deterministic: () => engine.step_deterministic(),
+    render_frame: () => engine.render_frame(),
+    get_current_redshift: () => engine.get_current_redshift(),
+    get_current_scale_factor: () => engine.get_current_scale_factor(),
+    get_current_f_load: () => engine.get_current_f_load(),
+    reset_deterministic: () => engine.reset_deterministic(),
   };
+
+  // Spec Step 1.2: Expose explicit deterministic synchronous frame advance on window
+  window.advanceSimulationFrame = async function (pos, look) {
+    if (pos && look) {
+      engine.update_cosmic_state(engine.get_current_redshift(), pos[0], pos[1], pos[2], look[0], look[1], look[2]);
+    }
+    // 1. Dispatch compute passes (Poisson, GET, Hydro, KDK)
+    engine.step_deterministic();
+    // 2. Render to canvas target
+    engine.render_frame();
+    // 3. Synchronously await GPU completion
+    const device = window.__gpuDevice || (engine ? engine.device : null);
+    if (device && device.queue && device.queue.onSubmittedWorkDone) {
+      await device.queue.onSubmittedWorkDone();
+    }
+    const m = JSON.parse(engine.hud_json());
+    refreshHud(m);
+    return {
+      z: engine.get_current_redshift(),
+      a: engine.get_current_scale_factor(),
+      f_load: engine.get_current_f_load(),
+    };
+  };
+  window.__SHBT_ENGINE__.advanceSimulationFrame = window.advanceSimulationFrame;
+
   // Push the DOM control state into the engine once so the page defaults
   // are authoritative (shbt12: seed glitch defaults OFF for clean
   // canonical recordings).
@@ -327,9 +359,13 @@ async function boot() {
   applyGlitch();
   applySandboxControls();
 
-  const isOffline = new URLSearchParams(location.search).get("offline") === "1" || new URLSearchParams(location.search).get("record") === "1";
-  window.__SHBT_OFFLINE__ = isOffline;
-  if (!isOffline) {
+  const isRecording =
+    new URLSearchParams(location.search).get("record") === "1" ||
+    new URLSearchParams(location.search).get("offline") === "1" ||
+    window.__RECORDING_MODE__ === true;
+  window.__SHBT_OFFLINE__ = isRecording;
+  window.__RECORDING_MODE__ = isRecording;
+  if (!isRecording) {
     requestAnimationFrame(frame);
   }
 }

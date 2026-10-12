@@ -484,10 +484,18 @@ impl MetrologyPipeline {
         base.powf(0.25) * scale_factor
     }
 
+    /// Calculate supercomoving conformal time step Delta tau strictly at the
+    /// midpoint scale factor a_{1/2} = a_n + 1/2 Delta a per Theorem 15:
+    /// Delta tau = Delta a / (a_{1/2}^{3/2} * H(a_{1/2}) / H_0)
+    #[inline(always)]
+    pub fn calculate_conformal_time_step(da: f32, a_half: f32, h_ratio: f32) -> f32 {
+        da / (a_half.max(1e-4).powf(1.5) * h_ratio.max(1e-4))
+    }
+
     /// Assemble the KDK uniform block. `a`/`a_next` bracket the current
     /// scale-factor step; `dtau` is the supercomoving increment
-    /// Delta_tau = Delta a / (a_{1/2}^3 * H(a_{1/2})) evaluated at the
-    /// mid-point, and A(a) = (3/2) Omega_m0 a (1 - (10/33) f_load)
+    /// Delta_tau = Delta a / (a_{1/2}^{3/2} * H(a_{1/2})/H_0) evaluated at the
+    /// mid-point per Theorem 15, and A(a) = (3/2) Omega_m0 a (1 - (10/33) f_load)
     /// is the conformal Hamiltonian coupling.
     pub fn prepare_step_uniforms(
         &self,
@@ -506,7 +514,7 @@ impl MetrologyPipeline {
         let a_next = a + da;
         let a_half = a + 0.5 * da;
 
-        let dtau = da / (a_half.powi(3) * h_h0);
+        let dtau = Self::calculate_conformal_time_step(da, a_half, h_h0);
         let half_dtau = 0.5 * dtau;
         let eps_soft = eta_soft / grid_size;
         let eps_soft_sq = eps_soft * eps_soft;

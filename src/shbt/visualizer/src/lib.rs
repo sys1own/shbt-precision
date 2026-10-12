@@ -562,6 +562,8 @@ pub struct ShbtWebGpuEngine {
     /// (eye, look-at) in world coordinates; `None` resumes the
     /// procedural orbit.
     camera_override: Option<([f32; 3], [f32; 3])>,
+    /// Offline deterministic stepping frame counter (Theorem 15 fixed increments).
+    pub deterministic_step: usize,
     /// D_ms/D_s ratios for the 4-slice lens stack (z_s = 4.0).
     lens_slice_ratios: [f32; 4],
     telemetry: VisualizerTelemetry,
@@ -2135,6 +2137,7 @@ impl ShbtWebGpuEngine {
             sandbox_count: 0,
             inv_view_proj: [[0.0; 4]; 4],
             camera_override: None,
+            deterministic_step: 0,
             // D_ms/D_s for the 4-slice stack z_m in {0.5, 1.2, 2.2, 3.5},
             // source plane z_s = 4.0 (Tier-1 angular-diameter distances).
             lens_slice_ratios: {
@@ -3280,9 +3283,27 @@ impl ShbtWebGpuEngine {
     /// Advance the simulation timeline by `dt_seconds` and run one
     /// emergence -> nbody -> dual-channel -> composite frame.
     pub fn step(&mut self, dt_seconds: f64, target: Option<&TextureView>) {
-        // Timeline: scrub z downward; seeds condense organically across the
-        // cosmic-dawn window (z ~ 30 -> 7) wherever rho_E overflows N_limit.
         self.redshift = self.timeline.advance(dt_seconds);
+        let a_now = (1.0 / (1.0 + self.redshift.max(-0.9999))) as f32;
+        let h_h0 = units::CosmologicalContext::h_of_z(self.redshift) as f32;
+        let dt_code = (dt_seconds * self.timeline.speed * 3.0e8).min(0.05) as f32;
+        let dtau = dt_code;
+        let a_half_probe = a_now.max(1.0e-3);
+        let da = dtau * a_half_probe.powf(1.5) * h_h0;
+        self.step_with_params(a_now, da, dtau, h_h0, dt_seconds, target);
+    }
+
+    /// Parameterized simulation step executing emergence and N-body PM compute passes,
+    /// followed by dual-channel rendering and optional holographic composition.
+    pub fn step_with_params(
+        &mut self,
+        a_now: f32,
+        da: f32,
+        dtau: f32,
+        h_h0: f32,
+        dt_seconds: f64,
+        target: Option<&TextureView>,
+    ) {
         self.drain_seed_readback();
 
         let frame = encode_mmio_frame(
@@ -3300,19 +3321,6 @@ impl ShbtWebGpuEngine {
         let mean_density = (self.mean_raw_total
             / (GRID_DIM * GRID_DIM * GRID_DIM) as f64) as f32;
 
-        // Supercomoving metrology step (shbt8 / Thm 9.11): the engine's
-        // per-frame code-time increment doubles as the canonical
-        // supercomoving tick; the effective scale-factor advance is
-        // reconstructed from dtau = da / (a_half^3 * H(a_half)) so the
-        // two stay consistent regardless of how fast the user scrubs
-        // the timeline (Delta_tau is always the integrator's tick, not
-        // the raw timeline jump).
-        let a_now = (1.0 / (1.0 + self.redshift.max(-0.9999))) as f32;
-        let h_h0 = units::CosmologicalContext::h_of_z(self.redshift) as f32;
-        let dt_code = (dt_seconds * self.timeline.speed * 3.0e8).min(0.05) as f32;
-        let dtau = dt_code;
-        let a_half_probe = a_now.max(1.0e-3);
-        let da = dtau * a_half_probe.powi(3) * h_h0;
         let mut cosmo: units::GpuSimulationUniforms = self.metrology.prepare_step_uniforms(
             a_now,
             da,
@@ -3324,8 +3332,10 @@ impl ShbtWebGpuEngine {
             self.emergent_seeds.len() as u32,
             units::kappa_get(f_load as f32),
             BOX_SIZE,
-            dt_code,
+            dtau,
         );
+        cosmo.dtau = dtau;
+        cosmo.half_dtau = 0.5 * dtau;
         // Wall-clock step feeds the Stinespring tether fade clock
         // (alpha *= exp(-wall_dt / 0.5 s)) independent of sim time.
         cosmo.wall_dt = dt_seconds as f32;
@@ -4306,6 +4316,108 @@ impl ShbtWebGpuEngine {
         self.timeline.seek(z);
         self.redshift = z;
         self.timeline.playing = false;
+        let a_start = 1.0 / (1.0 + 100.0);
+        let a_end = 1.0 / (1.0 + (-0.999));
+        let delta_a = (a_end - a_start) / 5400.0;
+        let a_target = 1.0 / (1.0 + z.max(-0.9999));
+        self.deterministic_step = (((a_target - a_start) / delta_a).round() as usize).clamp(0, 5400);
+    }
+
+    /// Advance one offline deterministic integration frame per Theorem 15:
+    /// Delta a = (a_end - a_start) / 5400 (for 90 s @ 60 FPS).
+    /// Supercomoving conformal time step Delta tau = Delta a / (a_{1/2}^{3/2} * H(a_{1/2})/H_0).
+    #[wasm_bindgen]
+    pub fn step_deterministic(&mut self) -> Result<(), JsValue> {
+        const N_FRAMES: f64 = 5400.0;
+        let a_start = 1.0 / (1.0 + 100.0);
+        let a_end = 1.0 / (1.0 + (-0.999));
+        let delta_a = (a_end - a_start) / N_FRAMES;
+
+        let a_n = a_start + (self.deterministic_step as f64) * delta_a;
+        let da = delta_a as f32;
+        let a_half = (a_n + 0.5 * delta_a) as f32;
+        let z_n = (1.0 / a_n.max(1e-4)) - 1.0;
+
+        self.redshift = z_n;
+        self.timeline.seek(z_n);
+
+        let h_h0 = units::CosmologicalContext::h_of_z(z_n) as f32;
+        let dtau = units::MetrologyPipeline::calculate_conformal_time_step(da, a_half, h_h0);
+
+        self.deterministic_step = (self.deterministic_step + 1).min(5400);
+        self.step_with_params(a_n as f32, da, dtau, h_h0, 1.0 / 60.0, None);
+        Ok(())
+    }
+
+    /// Render and composite the current visualizer scene to the surface swapchain canvas.
+    #[wasm_bindgen]
+    pub fn render_frame(&mut self) -> Result<(), JsValue> {
+        let surface = self.surface.as_ref().ok_or("no surface")?;
+        let frame = match surface.get_current_texture() {
+            Ok(frame) => frame,
+            Err(_) => {
+                surface.configure(&self.device, self.surface_config.as_ref().unwrap());
+                surface
+                    .get_current_texture()
+                    .map_err(|e| JsValue::from_str(&format!("surface lost: {e}")))?
+            }
+        };
+        let view = frame.texture.create_view(&TextureViewDescriptor::default());
+        let mut encoder = self
+            .device
+            .create_command_encoder(&CommandEncoderDescriptor {
+                label: Some("render_frame composite encoder"),
+            });
+        {
+            let bg = self.post_bind_group();
+            let mut rpass = encoder.begin_render_pass(&RenderPassDescriptor {
+                label: Some("holographic composite pass"),
+                color_attachments: &[Some(RenderPassColorAttachment {
+                    view: &view,
+                    resolve_target: None,
+                    ops: Operations {
+                        load: LoadOp::Clear(Color::BLACK),
+                        store: StoreOp::Store,
+                    },
+                })],
+                depth_stencil_attachment: None,
+                timestamp_writes: None,
+                occlusion_query_set: None,
+            });
+            rpass.set_pipeline(&self.post_pipeline);
+            rpass.set_bind_group(0, &bg, &[]);
+            rpass.draw(0..3, 0..1);
+        }
+        self.queue.submit([encoder.finish()]);
+        frame.present();
+        Ok(())
+    }
+
+    /// Query current redshift for the deterministic recorder harness.
+    #[wasm_bindgen]
+    pub fn get_current_redshift(&self) -> f64 {
+        self.redshift
+    }
+
+    /// Query current scale factor for the deterministic recorder harness.
+    #[wasm_bindgen]
+    pub fn get_current_scale_factor(&self) -> f64 {
+        1.0 / (1.0 + self.redshift.max(-0.9999))
+    }
+
+    /// Query current loaded fraction for the deterministic recorder harness.
+    #[wasm_bindgen]
+    pub fn get_current_f_load(&self) -> f64 {
+        let (f_load, _) = self.update_redshift_and_loading(self.redshift);
+        f_load
+    }
+
+    /// Reset deterministic frame counter back to z = 100.
+    #[wasm_bindgen]
+    pub fn reset_deterministic(&mut self) {
+        self.deterministic_step = 0;
+        self.redshift = 100.0;
+        self.timeline.seek(100.0);
     }
 
     /// Cinematic director hook (shbt10 record_simulation_events.py):

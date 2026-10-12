@@ -30,6 +30,10 @@ export class ShbtWebGpuEngine {
 */
   set_playing(playing: boolean): void;
 /**
+* Render and composite the current visualizer scene to the surface swapchain canvas.
+*/
+  render_frame(): void;
+/**
 * Enable/disable Channel A (visible) and Channel B (dark ghost).
 * @param {boolean} channel_a
 * @param {boolean} channel_b
@@ -71,10 +75,25 @@ export class ShbtWebGpuEngine {
 */
   set_viewport_mode(mode: number): void;
 /**
+* Query current loaded fraction for the deterministic recorder harness.
+* @returns {number}
+*/
+  get_current_f_load(): number;
+/**
 * Toggle the emergent seed-glitch post effect (Enhancement 11).
 * @param {boolean} enabled
 */
   set_glitch_enabled(enabled: boolean): void;
+/**
+* Advance one offline deterministic integration frame per Theorem 15:
+* Delta a = (a_end - a_start) / 5400 (for 90 s @ 60 FPS).
+* Supercomoving conformal time step Delta tau = Delta a / (a_{1/2}^{3/2} * H(a_{1/2})/H_0).
+*/
+  step_deterministic(): void;
+/**
+* Reset deterministic frame counter back to z = 100.
+*/
+  reset_deterministic(): void;
 /**
 * Toggle relativistic Doppler beaming + thermal color shift.
 * @param {boolean} enabled
@@ -98,6 +117,11 @@ export class ShbtWebGpuEngine {
 * @param {number} lz
 */
   update_cosmic_state(z: number, px: number, py: number, pz: number, lx: number, ly: number, lz: number): void;
+/**
+* Query current redshift for the deterministic recorder harness.
+* @returns {number}
+*/
+  get_current_redshift(): number;
 /**
 * Seed-glitch master intensity, clamped to [0.0, 1.0].
 * @param {number} intensity
@@ -131,6 +155,11 @@ export class ShbtWebGpuEngine {
 * @param {number} viewport_split_mode
 */
   set_simulation_controls(sound_speed_scale: number, percolation_threshold_scale: number, lensing_strength: number, chromatic_dispersion: number, target_redshift: number, viewport_split_mode: number): void;
+/**
+* Query current scale factor for the deterministic recorder harness.
+* @returns {number}
+*/
+  get_current_scale_factor(): number;
 /**
 * Count of active sandbox observers (click-dispatched records whose
 * entropy budget has not depleted).
@@ -174,6 +203,10 @@ export class ShbtWebGpuEngine {
 * @returns {number}
 */
   load_particles_binary(data: Uint8Array): number;
+/**
+* Offline deterministic stepping frame counter (Theorem 15 fixed increments).
+*/
+  deterministic_step: number;
 /**
 */
   show_observers: boolean;
@@ -332,7 +365,9 @@ export type InitInput = RequestInfo | URL | Response | BufferSource | WebAssembl
 
 export interface InitOutput {
   readonly memory: WebAssembly.Memory;
+  readonly __wbg_get_shbtwebgpuengine_deterministic_step: (a: number) => number;
   readonly __wbg_get_shbtwebgpuengine_show_observers: (a: number) => number;
+  readonly __wbg_set_shbtwebgpuengine_deterministic_step: (a: number, b: number) => void;
   readonly __wbg_set_shbtwebgpuengine_show_observers: (a: number, b: number) => void;
   readonly __wbg_shbtwebgpuengine_free: (a: number) => void;
   readonly shbtwebgpuengine_capture_frame_rgba: (a: number, b: number) => number;
@@ -340,9 +375,14 @@ export interface InitOutput {
   readonly shbtwebgpuengine_create: (a: number, b: number) => number;
   readonly shbtwebgpuengine_debug_eparams: (a: number, b: number) => void;
   readonly shbtwebgpuengine_get_active_observers_count: (a: number) => number;
+  readonly shbtwebgpuengine_get_current_f_load: (a: number) => number;
+  readonly shbtwebgpuengine_get_current_redshift: (a: number) => number;
+  readonly shbtwebgpuengine_get_current_scale_factor: (a: number) => number;
   readonly shbtwebgpuengine_hud_json: (a: number, b: number) => void;
   readonly shbtwebgpuengine_load_particles_binary: (a: number, b: number, c: number, d: number) => void;
   readonly shbtwebgpuengine_particle_count: (a: number) => number;
+  readonly shbtwebgpuengine_render_frame: (a: number, b: number) => void;
+  readonly shbtwebgpuengine_reset_deterministic: (a: number) => void;
   readonly shbtwebgpuengine_set_channels: (a: number, b: number, c: number) => void;
   readonly shbtwebgpuengine_set_dark_glow: (a: number, b: number) => void;
   readonly shbtwebgpuengine_set_dispersion: (a: number, b: number) => void;
@@ -358,6 +398,7 @@ export interface InitOutput {
   readonly shbtwebgpuengine_set_speed: (a: number, b: number) => void;
   readonly shbtwebgpuengine_set_unwrap_transition: (a: number, b: number) => void;
   readonly shbtwebgpuengine_set_viewport_mode: (a: number, b: number) => void;
+  readonly shbtwebgpuengine_step_deterministic: (a: number, b: number) => void;
   readonly shbtwebgpuengine_step_frame: (a: number, b: number, c: number) => void;
   readonly shbtwebgpuengine_unproject_and_dispatch_causal_point: (a: number, b: number, c: number, d: number, e: number) => number;
   readonly shbtwebgpuengine_update_cosmic_state: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number) => void;
