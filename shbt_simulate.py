@@ -360,56 +360,115 @@ class ModularWeilICGenerator:
 
 
 def generate_2lpt_particles(
-    n_grid: int = 64,
-    box_size: float = 1.0,
-    z_init: float = 30.0,
-    omega_m: float = 0.315,
-    omega_l: float = 0.685,
-    h0: float = 67.4,
-    seed: int = 42
-) -> bytes:
-    """
-    Computes 3D 2LPT displacement fields and supercomoving momentum on a periodic 3-torus,
-    exporting a WebGPU-compliant storage buffer.
-    """
-    gen = ModularWeilICGenerator(grid_size=n_grid, z_init=z_init)
-    res = gen.compute_2lpt_displacements()
-    d1 = res["d1"]
-    d2 = res["d2"]
-    psi1 = res["psi1"]
-    psi2 = res["psi2"]
+    n_particles_1d: int = 64,
+    l_box: float = 222.5502,
+    z_init: float = 100.0,
+    seed: int = 42,
+    **kwargs
+):
+    n = n_particles_1d
+    total_p = n**3
+    dx = l_box / n
+    k1 = 2.0 * np.pi / l_box
+
+    phases = generate_weil_modular_phases_grid(n, l_box, seed)
+
+    kx = 2.0 * np.pi * np.fft.fftfreq(n, d=dx)
+    ky = 2.0 * np.pi * np.fft.fftfreq(n, d=dx)
+    kz = 2.0 * np.pi * np.fft.fftfreq(n, d=dx)
+    KX, KY, KZ = np.meshgrid(kx, ky, kz, indexing='ij')
+    K_sq = KX**2 + KY**2 + KZ**2
+    K_sq[0, 0, 0] = 1.0
+
+    A_s = 2.1e-9
+    k_pivot = 0.05
+    n_s = 0.9665
+    P_k = A_s * (np.sqrt(K_sq) / k_pivot)**(n_s - 1.0) / (K_sq * np.sqrt(K_sq))
+    P_k[0, 0, 0] = 0.0
+
+    amplitude = np.sqrt(P_k * (l_box**3))
+    delta_k = amplitude * np.exp(1j * phases)
+    delta_k[0, 0, 0] = 0.0
+
+    phi1_k = delta_k / K_sq
+    phi1_k[0, 0, 0] = 0.0
+
+    psi1_x = np.real(np.fft.ifftn(-1j * KX * phi1_k))
+    psi1_y = np.real(np.fft.ifftn(-1j * KY * phi1_k))
+    psi1_z = np.real(np.fft.ifftn(-1j * KZ * phi1_k))
+
+    phi1_xx = np.real(np.fft.ifftn(-KX * KX * phi1_k))
+    phi1_yy = np.real(np.fft.ifftn(-KY * KY * phi1_k))
+    phi1_zz = np.real(np.fft.ifftn(-KZ * KZ * phi1_k))
+    phi1_xy = np.real(np.fft.ifftn(-KX * KY * phi1_k))
+    phi1_yz = np.real(np.fft.ifftn(-KY * KZ * phi1_k))
+    phi1_zx = np.real(np.fft.ifftn(-KZ * KX * phi1_k))
+
+    delta2 = (phi1_xx * phi1_yy + phi1_yy * phi1_zz + phi1_zz * phi1_xx
+              - phi1_xy**2 - phi1_yz**2 - phi1_zx**2)
+
+    delta2_k = np.fft.fftn(delta2)
+    delta2_k[0, 0, 0] = 0.0
+    phi2_k = delta2_k / K_sq
+    phi2_k[0, 0, 0] = 0.0
+
+    psi2_x = np.real(np.fft.ifftn(-1j * KX * phi2_k))
+    psi2_y = np.real(np.fft.ifftn(-1j * KY * phi2_k))
+    psi2_z = np.real(np.fft.ifftn(-1j * KZ * phi2_k))
 
     a_init = 1.0 / (1.0 + z_init)
-    h_a = np.sqrt(omega_m * (a_init ** -3.0) + omega_l)
+    d1 = a_init
+    d2 = -3.0 / 7.0 * (d1**2)
     f1 = 1.0
     f2 = 2.0
+    h_init = 0.6740058 * np.sqrt(0.315 / (a_init**3) + 0.685)
 
-    # Normalized positions in [0, 1)^3
-    pos_norm = res["pos"] / gen.l_box
+    coords_1d = np.linspace(0.0, 1.0, n, endpoint=False)
+    QX, QY, QZ = np.meshgrid(coords_1d, coords_1d, coords_1d, indexing='ij')
 
-    # Supercomoving momentum u = -a^2 * H(a) * [f1 * D1 * psi1 - f2 * D2 * psi2]
-    pref_mom = -(a_init ** 2.0) * h_a
-    vel = pref_mom * (f1 * d1 * psi1 - f2 * d2 * psi2)
+    disp_x = (d1 * psi1_x + d2 * psi2_x) / l_box
+    disp_y = (d1 * psi1_y + d2 * psi2_y) / l_box
+    disp_z = (d1 * psi1_z + d2 * psi2_z) / l_box
 
-    n_particles = n_grid ** 3
-    px_flat = pos_norm[..., 0].astype(np.float32).ravel()
-    py_flat = pos_norm[..., 1].astype(np.float32).ravel()
-    pz_flat = pos_norm[..., 2].astype(np.float32).ravel()
-    vx_flat = vel[..., 0].astype(np.float32).ravel()
-    vy_flat = vel[..., 1].astype(np.float32).ravel()
-    vz_flat = vel[..., 2].astype(np.float32).ravel()
+    posX = (QX + disp_x) % 1.0
+    posY = (QY + disp_y) % 1.0
+    posZ = (QZ + disp_z) % 1.0
 
-    buffer = bytearray(n_particles * 32)
-    for i in range(n_particles):
-        offset = i * 32
-        struct.pack_into(
-            '<4f4f',
-            buffer,
-            offset,
-            px_flat[i], py_flat[i], pz_flat[i], 1.0,         # pos: xyz, mass=1.0
-            vx_flat[i], vy_flat[i], vz_flat[i], float(i)     # vel: ux, uy, uz, id
-        )
-    return bytes(buffer)
+    vel_fac1 = -a_init**2 * h_init * d1 * f1 / l_box
+    vel_fac2 = -a_init**2 * h_init * d2 * f2 / l_box
+
+    velX = vel_fac1 * psi1_x + vel_fac2 * psi2_x
+    velY = vel_fac1 * psi1_y + vel_fac2 * psi2_y
+    velZ = vel_fac1 * psi1_z + vel_fac2 * psi2_z
+
+    mass_val = 1.0 / total_p
+    pad_val = 0.0
+
+    particles = []
+    for i in range(n):
+        for j in range(n):
+            for k in range(n):
+                particles.append((
+                    float(posX[i, j, k]), float(posY[i, j, k]), float(posZ[i, j, k]), float(mass_val),
+                    float(velX[i, j, k]), float(velY[i, j, k]), float(velZ[i, j, k]), float(pad_val)
+                ))
+    return particles
+
+
+def serialize_particles_binary(particles, filepath: str):
+    with open(filepath, 'wb') as f:
+        f.write(b'SHBT')
+        f.write(struct.pack('<III', len(particles), 32, 0))
+        for p in particles:
+            f.write(struct.pack('<ffffffff', *p))
+
+
+def export_2lpt_binary(filename: str = 'particles_init_z100.bin', n_grid: int = 64, z_init: float = 100.0) -> str:
+    """Exports precomputed 2LPT initial conditions binary buffer to disk."""
+    l_box_canonical = 150.0 / 0.6740058
+    parts = generate_2lpt_particles(n_particles_1d=n_grid, l_box=l_box_canonical, z_init=z_init)
+    serialize_particles_binary(parts, filename)
+    return filename
 
 
 def generate_weil_modular_phases_iso(
@@ -713,45 +772,57 @@ def generate_primordial_density_field(
     return delta_x, float(delta2_k1)
 
 
-def generate_weil_modular_phases_grid(grid_size: int) -> np.ndarray:
-    """
-    Generate deterministic, PRNG-free Fourier phases from the 2,901,360 CFT primary modules (shbt20).
+CANONICAL_M = 2901360
+CANONICAL_ALPHA = 24.0 / np.sqrt(3.0)
+CANONICAL_BETA = np.pi / np.sqrt(2.0)
+SPLITMIX64_GAMMA = 0x9E3779B97F4A7C15
 
-    Guarantees:
-    1. Exact Hermitian anti-symmetry: phi(-k) = -phi(k) (mod 2*pi).
-    2. Complete point-group symmetry breaking: phi(R*k) != phi(k) for all R in O_h.
-    3. Ergodic uniform distribution in [0, 2*pi) across lattice modes.
-    4. Deterministic mapping independent of PRNG seeds.
-    """
-    k_freq = np.fft.fftfreq(grid_size, d=1.0 / grid_size).astype(np.int64)
-    kx, ky, kz = np.meshgrid(k_freq, k_freq, k_freq, indexing="ij")
+def splitmix64(z: int) -> int:
+    z = (z + SPLITMIX64_GAMMA) & 0xFFFFFFFFFFFFFFFF
+    z = ((z ^ (z >> 30)) * 0xBF58476D1CE4E5B9) & 0xFFFFFFFFFFFFFFFF
+    z = ((z ^ (z >> 27)) * 0x94D049BB133111EB) & 0xFFFFFFFFFFFFFFFF
+    return (z ^ (z >> 31)) & 0xFFFFFFFFFFFFFFFF
 
-    # Lexicographical positive half-space partition H+
-    pos_mask = (kz > 0) | ((kz == 0) & (ky > 0)) | ((kz == 0) & (ky == 0) & (kx > 0))
-    neg_mask = (kz < 0) | ((kz == 0) & (ky < 0)) | ((kz == 0) & (ky == 0) & (kx < 0))
 
-    kx_canon = np.where(neg_mask, -kx, kx).astype(np.uint64)
-    ky_canon = np.where(neg_mask, -ky, ky).astype(np.uint64)
-    kz_canon = np.where(neg_mask, -kz, kz).astype(np.uint64)
+def generate_weil_modular_phases_grid(n_mesh: int, l_box: float = 222.5502, seed: int = 42) -> np.ndarray:
+    phases = np.zeros((n_mesh, n_mesh, n_mesh), dtype=np.float32)
+    k1 = 2.0 * np.pi / l_box
 
-    # Asymmetric coordinate projection
-    w = (kx_canon * PRIME_C1) ^ (ky_canon * PRIME_C2) ^ (kz_canon * PRIME_C3)
+    kx_idx = np.fft.fftfreq(n_mesh, d=1.0 / (n_mesh * k1))
+    ky_idx = np.fft.fftfreq(n_mesh, d=1.0 / (n_mesh * k1))
+    kz_idx = np.fft.fftfreq(n_mesh, d=1.0 / (n_mesh * k1))
+    KX, KY, KZ = np.meshgrid(kx_idx, ky_idx, kz_idx, indexing='ij')
 
-    # SplitMix64 bi-permutative avalanche mapping
-    xi1 = (w ^ (w >> np.uint64(30))) * SPLITMIX_C1
-    xi2 = (xi1 ^ (xi1 >> np.uint64(27))) * SPLITMIX_C2
-    xi = xi2 ^ (xi2 >> np.uint64(31))
+    K_norm = np.sqrt(KX**2 + KY**2 + KZ**2)
+    S = K_norm / k1
+    norm_idx = np.floor(CANONICAL_ALPHA * S + CANONICAL_BETA * S**2).astype(np.int64) % CANONICAL_M
 
-    # Ergodic mapping to modular phases
-    module_idx = xi % np.uint64(CFT_MODULE_COUNT)
-    phi_canon = (2.0 * np.pi) * ((module_idx.astype(np.float64) + 0.5) / float(CFT_MODULE_COUNT))
+    for i in range(n_mesh):
+        for j in range(n_mesh):
+            for k in range(n_mesh):
+                if i == 0 and j == 0 and k == 0:
+                    phases[0, 0, 0] = 0.0
+                    continue
+                is_pos = (k > 0) or (k == 0 and j > 0) or (k == 0 and j == 0 and i > 0)
+                if is_pos:
+                    idx_val = int(norm_idx[i, j, k])
+                    h = splitmix64((idx_val ^ seed) & 0xFFFFFFFFFFFFFFFF)
+                    base_phase = (h / 18446744073709551616.0) * 2.0 * np.pi
 
-    # Apply canonical orientation sign
-    phases = np.zeros((grid_size, grid_size, grid_size), dtype=np.float64)
-    phases[pos_mask] = phi_canon[pos_mask]
-    phases[neg_mask] = (2.0 * np.pi - phi_canon[neg_mask]) % (2.0 * np.pi)
-    phases[0, 0, 0] = 0.0
+                    kn = K_norm[i, j, k]
+                    cos_theta = np.clip(KZ[i, j, k] / kn, -1.0, 1.0)
+                    phi = np.arctan2(KY[i, j, k], KX[i, j, k])
+                    u = int(((cos_theta + 1.0) * 0.5) * 4294967295)
+                    v = int(((phi + np.pi) / (2.0 * np.pi)) * 4294967295)
+                    h_ang = splitmix64((v ^ splitmix64(u)) & 0xFFFFFFFFFFFFFFFF)
+                    ang_phase = (h_ang / 18446744073709551616.0) * 2.0 * np.pi
 
+                    final_phi = float((base_phase + ang_phase) % (2.0 * np.pi))
+                    phases[i, j, k] = final_phi
+                    neg_i = (n_mesh - i) % n_mesh
+                    neg_j = (n_mesh - j) % n_mesh
+                    neg_k = (n_mesh - k) % n_mesh
+                    phases[neg_i, neg_j, neg_k] = float((-final_phi) % (2.0 * np.pi))
     return phases
 
 
@@ -868,6 +939,8 @@ def export_particles_init_binary(
         )
 
     with open(filename, "wb") as f:
+        f.write(b"SHBT")
+        f.write(struct.pack("<III", total_particles, 32, 0))
         f.write(buf)
     return filename
 
@@ -2728,4 +2801,10 @@ def _infer_format_from_path(path: str) -> str:
 
 
 if __name__ == "__main__":
+    if len(sys.argv) == 1:
+        l_box_canonical = 150.0 / 0.6740058
+        parts = generate_2lpt_particles(n_particles_1d=64, l_box=l_box_canonical, z_init=100.0)
+        serialize_particles_binary(parts, 'particles_init_z100.bin')
+        print(f"Serialized {len(parts)} particles to particles_init_z100.bin")
+        sys.exit(0)
     sys.exit(main())

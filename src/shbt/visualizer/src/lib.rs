@@ -1833,6 +1833,9 @@ impl ShbtWebGpuEngine {
         };
         let sampler = device.create_sampler(&SamplerDescriptor {
             label: Some("default sampler"),
+            address_mode_u: AddressMode::Repeat,
+            address_mode_v: AddressMode::Repeat,
+            address_mode_w: AddressMode::Repeat,
             mag_filter: FilterMode::Linear,
             min_filter: FilterMode::Linear,
             ..Default::default()

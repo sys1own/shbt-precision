@@ -417,7 +417,7 @@ mod tests {
     #[test]
     fn test_hermitian_anti_symmetry() {
         let grid_size = 32;
-        let phases = generate_weil_modular_phases(grid_size);
+        let phases = generate_weil_modular_phases(grid_size, 222.5502, 42);
 
         for ix in 0..grid_size {
             let neg_ix = (grid_size - ix) % grid_size;
@@ -430,13 +430,13 @@ mod tests {
                     let idx_neg = (neg_ix * grid_size + neg_iy) * grid_size + neg_iz;
 
                     if idx_pos == idx_neg {
-                        assert_eq!(phases[idx_pos], 0.0);
+                        assert_eq!(phases[idx_pos], 0.0f32);
                     } else {
-                        let sum = (phases[idx_pos] + phases[idx_neg]) % (2.0 * PI);
+                        let sum = (phases[idx_pos] + phases[idx_neg]).rem_euclid(2.0 * std::f32::consts::PI);
                         assert!(
-                            sum.abs() < 1e-12 || (sum - 2.0 * PI).abs() < 1e-12,
-                            "Hermitian condition violated at ({}, {}, {})",
-                            ix, iy, iz
+                            sum < 1e-4 || (2.0 * std::f32::consts::PI - sum) < 1e-4,
+                            "Hermitian condition violated at ({}, {}, {}): sum={}",
+                            ix, iy, iz, sum
                         );
                     }
                 }
@@ -447,7 +447,7 @@ mod tests {
     #[test]
     fn test_point_group_symmetry_breaking() {
         let grid_size = 32;
-        let phases = generate_weil_modular_phases(grid_size);
+        let phases = generate_weil_modular_phases(grid_size, 222.5502, 42);
 
         let k1 = (1, 2, 3);
         let k2 = (2, 1, 3);
@@ -462,128 +462,115 @@ mod tests {
     }
 }
 
+pub const CANONICAL_M: u64 = 2_901_360;
+pub const CANONICAL_ALPHA: f64 = 13.856406460551018; // 24.0 / sqrt(3.0)
+pub const CANONICAL_BETA: f64 = 2.221441469079183;   // PI / sqrt(2.0)
+pub const SPLITMIX64_GAMMA: u64 = 0x9E3779B97F4A7C15;
+
 pub const N_MOD: i64 = 2_901_360;
-pub const CANONICAL_M: usize = 2_901_360;
 pub const CFT_MODULE_COUNT: u64 = 2_901_360;
-pub const ALPHA_WEIL: f64 = 13.856_406_460_551_018; // 24.0 / sqrt(3.0)
-pub const BETA_WEIL: f64 = 2.221_441_469_079_183;   // pi / sqrt(2.0)
+pub const ALPHA_WEIL: f64 = 13.856_406_460_551_018;
+pub const BETA_WEIL: f64 = 2.221_441_469_079_183;
 
-const PRIME_C1: u64 = 73_856_093;
-const PRIME_C2: u64 = 19_349_663;
-const PRIME_C3: u64 = 83_492_791;
-const SPLITMIX_C1: u64 = 0xBF58_476D_1CE4_E5B9;
-const SPLITMIX_C2: u64 = 0x94D0_49BB_1331_11EB;
-
-#[inline]
-pub fn splitmix64(mut x: u64) -> u64 {
-    x = x.wrapping_add(0x9E3779B97F4A7C15);
-    x = (x ^ (x >> 30)).wrapping_mul(0xBF58476D1CE4E5B9);
-    x = (x ^ (x >> 27)).wrapping_mul(0x94D049BB133111EB);
-    x ^ (x >> 31)
+#[inline(always)]
+pub fn splitmix64(mut z: u64) -> u64 {
+    z = z.wrapping_add(SPLITMIX64_GAMMA);
+    z = (z ^ (z >> 30)).wrapping_mul(0xBF58476D1CE4E5B9);
+    z = (z ^ (z >> 27)).wrapping_mul(0x94D049BB133111EB);
+    z ^ (z >> 31)
 }
 
 #[inline]
-pub fn haar_angular_dispersion(nx: i32, ny: i32, nz: i32) -> f64 {
-    let ux = nx as u64 & 0x0000_0000_FFFF_FFFF;
-    let uy = ny as u64 & 0x0000_0000_FFFF_FFFF;
-    let uz = nz as u64 & 0x0000_0000_FFFF_FFFF;
-
-    // Bi-permutative directional mixing
-    let seed = ux ^ (uy << 21) ^ (uz << 42);
-    let h1 = splitmix64(seed);
-    let h2 = splitmix64(h1 ^ 0x517CC1B727220A95);
-
-    // Map to Haar phase on [0, 2*pi)
-    (h2 as f64 / 18_446_744_073_709_551_616.0) * std::f64::consts::TAU
+pub fn continuous_weil_norm_index(kx: f64, ky: f64, kz: f64, k1: f64) -> u64 {
+    let k_norm = (kx * kx + ky * ky + kz * kz).sqrt();
+    let s = k_norm / k1;
+    let raw = (CANONICAL_ALPHA * s + CANONICAL_BETA * s * s).floor() as i64;
+    raw.rem_euclid(CANONICAL_M as i64) as u64
 }
 
-/// First-principles SO(3) isotropic modular Weil phase generator mapping lattice modes onto CFT primary modules.
-///
-/// Ensures:
-/// - Exact Euclidean norm modular index I(k) = floor(alpha * ||k||/k1 + beta * (||k||/k1)^2) mod M
-/// - Bi-permutative SplitMix64 Haar dispersion Psi_iso on upper-hemisphere partition K+
-/// - Exact Hermitian anti-symmetry: phi(-k) == -phi(k) (mod 2*pi) with phi(0) = 0
-pub fn generate_weil_modular_phases(grid_size: usize) -> Vec<f64> {
-    let total_elements = grid_size * grid_size * grid_size;
-    let mut phases = vec![0.0f64; total_elements];
-    let half_n = (grid_size / 2) as i32;
+#[inline]
+pub fn haar_angular_dispersion(kx: f64, ky: f64, kz: f64) -> f64 {
+    let norm = (kx * kx + ky * ky + kz * kz).sqrt();
+    if norm < 1e-12 {
+        return 0.0;
+    }
+    let cos_theta = (kz / norm).clamp(-1.0, 1.0);
+    let phi = ky.atan2(kx);
+    let u = (cos_theta + 1.0) * 0.5;
+    let v = (phi + PI) / (2.0 * PI);
+    let h1 = splitmix64((u * 4_294_967_295.0) as u64);
+    let h2 = splitmix64((v * 4_294_967_295.0) as u64 ^ h1);
+    (h2 as f64 / 18_446_744_073_709_551_616.0) * 2.0 * PI
+}
 
-    for ix in 0..grid_size {
-        let neg_ix = (grid_size - ix) % grid_size;
-        let nx = if ix as i32 <= half_n {
-            ix as i32
-        } else {
-            ix as i32 - grid_size as i32
-        };
+pub fn generate_weil_modular_phases(
+    n_mesh: usize,
+    l_box: f64,
+    seed: u64,
+) -> Vec<f32> {
+    let total_modes = n_mesh * n_mesh * n_mesh;
+    let mut phases = vec![0.0f32; total_modes];
+    let k1 = (2.0 * PI) / l_box;
 
-        for iy in 0..grid_size {
-            let neg_iy = (grid_size - iy) % grid_size;
-            let ny = if iy as i32 <= half_n {
-                iy as i32
-            } else {
-                iy as i32 - grid_size as i32
-            };
+    for iz in 0..n_mesh {
+        let nz = if iz < n_mesh / 2 { iz as i32 } else { iz as i32 - n_mesh as i32 };
+        let kz = nz as f64 * k1;
 
-            for iz in 0..grid_size {
-                let neg_iz = (grid_size - iz) % grid_size;
-                let nz = if iz as i32 <= half_n {
-                    iz as i32
-                } else {
-                    iz as i32 - grid_size as i32
-                };
-                let flat_idx = ix * grid_size * grid_size + iy * grid_size + iz;
-                let opp_idx = neg_ix * grid_size * grid_size + neg_iy * grid_size + neg_iz;
+        for iy in 0..n_mesh {
+            let ny = if iy < n_mesh / 2 { iy as i32 } else { iy as i32 - n_mesh as i32 };
+            let ky = ny as f64 * k1;
 
-                // Strict zero-mode and self-conjugate (Nyquist) clamp: phi(0) = 0
-                if ix == neg_ix && iy == neg_iy && iz == neg_iz {
-                    phases[flat_idx] = 0.0;
+            for ix in 0..n_mesh {
+                let nx = if ix < n_mesh / 2 { ix as i32 } else { ix as i32 - n_mesh as i32 };
+                let kx = nx as f64 * k1;
+                let idx = (iz * n_mesh + iy) * n_mesh + ix;
+
+                if nx == 0 && ny == 0 && nz == 0 {
+                    phases[idx] = 0.0;
                     continue;
                 }
 
-                // Upper-hemisphere partition K+
-                let is_in_k_plus = (ix > neg_ix)
-                    || (ix == neg_ix && iy > neg_iy)
-                    || (ix == neg_ix && iy == neg_iy && iz > neg_iz);
+                if nz > 0 || (nz == 0 && ny > 0) || (nz == 0 && ny == 0 && nx > 0) {
+                    let norm_idx = continuous_weil_norm_index(kx, ky, kz, k1);
+                    let hashed = splitmix64(norm_idx ^ seed);
+                    let base_phase = (hashed as f64 / 18_446_744_073_709_551_616.0) * 2.0 * PI;
+                    let dispersion = haar_angular_dispersion(kx, ky, kz);
+                    let phase = ((base_phase + dispersion).rem_euclid(2.0 * PI)) as f32;
+                    phases[idx] = phase;
 
-                if is_in_k_plus {
-                    let norm_sq = (nx * nx + ny * ny + nz * nz) as f64;
-                    let norm = norm_sq.sqrt();
-
-                    // SO(3) invariant module mapping: I(k) = floor(alpha * norm + beta * norm^2) mod M
-                    let raw_idx = (ALPHA_WEIL * norm + BETA_WEIL * norm_sq).floor() as i64;
-                    let mod_idx = raw_idx.rem_euclid(CANONICAL_M as i64) as usize;
-                    let base_phase = std::f64::consts::TAU * ((mod_idx as f64 + 0.5) / (CANONICAL_M as f64));
-
-                    let psi = haar_angular_dispersion(nx, ny, nz);
-                    let phase = (base_phase + psi).rem_euclid(std::f64::consts::TAU);
-                    phases[flat_idx] = phase;
-                    // Strict Hermitian anti-symmetry: phi(-k) = -phi(k) mod 2*pi
-                    phases[opp_idx] = (-phase).rem_euclid(std::f64::consts::TAU);
+                    let neg_ix = (n_mesh as i32 - nx) as usize % n_mesh;
+                    let neg_iy = (n_mesh as i32 - ny) as usize % n_mesh;
+                    let neg_iz = (n_mesh as i32 - nz) as usize % n_mesh;
+                    let neg_idx = (neg_iz * n_mesh + neg_iy) * n_mesh + neg_ix;
+                    phases[neg_idx] = (-phase).rem_euclid(2.0 * std::f32::consts::PI);
                 }
             }
         }
     }
-
     phases
 }
 
 pub fn generate_weil_modular_phases_with_modules(
     n_grid: usize,
-    primary_modules: &[f64; CANONICAL_M],
+    primary_modules: &[f64; CANONICAL_M as usize],
 ) -> Vec<f64> {
     let half_n = (n_grid / 2) as i32;
     let total_elements = n_grid * n_grid * n_grid;
     let mut phases = vec![0.0f64; total_elements];
+    let k1 = (2.0 * PI) / 222.5502;
 
     for ix in 0..n_grid {
         let neg_ix = (n_grid - ix) % n_grid;
         let nx = if ix as i32 <= half_n { ix as i32 } else { ix as i32 - n_grid as i32 };
+        let kx = nx as f64 * k1;
         for iy in 0..n_grid {
             let neg_iy = (n_grid - iy) % n_grid;
             let ny = if iy as i32 <= half_n { iy as i32 } else { iy as i32 - n_grid as i32 };
+            let ky = ny as f64 * k1;
             for iz in 0..n_grid {
                 let neg_iz = (n_grid - iz) % n_grid;
                 let nz = if iz as i32 <= half_n { iz as i32 } else { iz as i32 - n_grid as i32 };
+                let kz = nz as f64 * k1;
                 let flat_idx = ix * n_grid * n_grid + iy * n_grid + iz;
                 let opp_idx = neg_ix * n_grid * n_grid + neg_iy * n_grid + neg_iz;
 
@@ -599,19 +586,15 @@ pub fn generate_weil_modular_phases_with_modules(
                     || (ix == neg_ix && iy == neg_iy && iz > neg_iz);
 
                 if is_in_k_plus {
-                    let norm_sq = (nx * nx + ny * ny + nz * nz) as f64;
-                    let norm = norm_sq.sqrt();
-
-                    // SO(3) invariant module mapping
-                    let raw_idx = (ALPHA_WEIL * norm + BETA_WEIL * norm_sq).floor() as i64;
-                    let mod_idx = raw_idx.rem_euclid(CANONICAL_M as i64) as usize;
+                    let norm_idx = continuous_weil_norm_index(kx, ky, kz, k1);
+                    let mod_idx = norm_idx as usize;
                     let base_phase = primary_modules[mod_idx];
 
-                    let psi = haar_angular_dispersion(nx, ny, nz);
-                    let phase = (base_phase + psi).rem_euclid(std::f64::consts::TAU);
+                    let psi = haar_angular_dispersion(kx, ky, kz);
+                    let phase = (base_phase + psi).rem_euclid(2.0 * PI);
                     phases[flat_idx] = phase;
                     // Strict Hermitian anti-symmetry: phi(-k) = -phi(k) mod 2*pi
-                    phases[opp_idx] = (-phase).rem_euclid(std::f64::consts::TAU);
+                    phases[opp_idx] = (-phase).rem_euclid(2.0 * PI);
                 }
             }
         }
@@ -791,13 +774,17 @@ impl SimulationBufferManager {
         let particle_count = grid_dim * grid_dim * grid_dim;
         let expected_bytes = (particle_count as usize) * std::mem::size_of::<ParticleRecord>();
 
-        if raw_bytes.len() != expected_bytes {
+        let slice = if raw_bytes.starts_with(b"SHBT") && raw_bytes.len() == expected_bytes + 16 {
+            &raw_bytes[16..]
+        } else if raw_bytes.len() == expected_bytes {
+            raw_bytes
+        } else {
             return Err("Binary particle buffer size does not match target grid dimension.");
-        }
+        };
 
         Ok(Self {
             particle_count,
-            raw_data: raw_bytes.to_vec(),
+            raw_data: slice.to_vec(),
         })
     }
 }

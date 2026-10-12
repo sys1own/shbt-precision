@@ -53,6 +53,15 @@ ALPHA_WEIL = 24.0 / np.sqrt(3.0)  # 13.856406460551018
 BETA_WEIL = np.pi / np.sqrt(2.0)   # 2.221441469079183
 
 
+SPLITMIX64_GAMMA = 0x9E3779B97F4A7C15
+
+def splitmix64(z: int) -> int:
+    z = (z + SPLITMIX64_GAMMA) & 0xFFFFFFFFFFFFFFFF
+    z = ((z ^ (z >> 30)) * 0xBF58476D1CE4E5B9) & 0xFFFFFFFFFFFFFFFF
+    z = ((z ^ (z >> 27)) * 0x94D049BB133111EB) & 0xFFFFFFFFFFFFFFFF
+    return (z ^ (z >> 31)) & 0xFFFFFFFFFFFFFFFF
+
+
 def splitmix64_vec(x_u64: np.ndarray) -> np.ndarray:
     z = np.bitwise_and(x_u64 + np.uint64(0x9E3779B97F4A7C15), np.uint64(0xFFFFFFFFFFFFFFFF))
     z = np.bitwise_and((z ^ (z >> np.uint64(30))) * np.uint64(0xBF58476D1CE4E5B9), np.uint64(0xFFFFFFFFFFFFFFFF))
@@ -62,60 +71,54 @@ def splitmix64_vec(x_u64: np.ndarray) -> np.ndarray:
 
 def generate_weil_modular_phases_grid(
     grid_dim: int,
+    l_box: float = 222.5502,
+    seed: int = 42,
     primary_modules: np.ndarray | None = None,
     K: int = 312,
-    seed: int = 42,
 ) -> np.ndarray:
     """
-    Evaluates SO(3)-invariant modular Weil phases on a 3D grid with strict Hermitian anti-symmetry.
+    Evaluates SO(3)-invariant modular Weil phases on a 3D grid with continuous
+    Euclidean norm indexing, Haar dispersion, and strict Hermitian anti-symmetry.
     """
-    n_grid = grid_dim
-    freq = np.fft.fftfreq(n_grid, d=1.0) * n_grid
-    nx, ny, nz = np.meshgrid(freq, freq, freq, indexing='ij')
+    n_mesh = grid_dim
+    phases = np.zeros((n_mesh, n_mesh, n_mesh), dtype=np.float64)
+    k1 = 2.0 * np.pi / l_box
 
-    norm_sq = nx**2 + ny**2 + nz**2
-    norm = np.sqrt(norm_sq)
+    kx_idx = np.fft.fftfreq(n_mesh, d=1.0 / (n_mesh * k1))
+    ky_idx = np.fft.fftfreq(n_mesh, d=1.0 / (n_mesh * k1))
+    kz_idx = np.fft.fftfreq(n_mesh, d=1.0 / (n_mesh * k1))
+    KX, KY, KZ = np.meshgrid(kx_idx, ky_idx, kz_idx, indexing='ij')
 
-    raw_indices = np.floor(ALPHA_WEIL * norm + BETA_WEIL * norm_sq).astype(np.int64)
-    mod_indices = np.mod(raw_indices, CANONICAL_M)
-    if primary_modules is None:
-        primary_modules = (2.0 * np.pi * (np.arange(CANONICAL_M, dtype=np.float64) + 0.5)) / CANONICAL_M
-    base_phases = primary_modules[mod_indices]
+    K_norm = np.sqrt(KX**2 + KY**2 + KZ**2)
+    S = K_norm / k1
+    norm_idx = np.floor(ALPHA_WEIL * S + BETA_WEIL * S**2).astype(np.int64) % CANONICAL_M
 
-    grid = np.arange(n_grid)
-    IX, IY, IZ = np.meshgrid(grid, grid, grid, indexing='ij')
-    opp_IX = (-IX) % n_grid
-    opp_IY = (-IY) % n_grid
-    opp_IZ = (-IZ) % n_grid
+    for i in range(n_mesh):
+        for j in range(n_mesh):
+            for k in range(n_mesh):
+                if i == 0 and j == 0 and k == 0:
+                    phases[0, 0, 0] = 0.0
+                    continue
+                is_pos = (k > 0) or (k == 0 and j > 0) or (k == 0 and j == 0 and i > 0)
+                if is_pos:
+                    idx_val = int(norm_idx[i, j, k])
+                    h = splitmix64((idx_val ^ seed) & 0xFFFFFFFFFFFFFFFF)
+                    base_phase = (h / 18446744073709551616.0) * 2.0 * np.pi
 
-    # Self-conjugate modes (DC and Nyquist)
-    self_conj = (IX == opp_IX) & (IY == opp_IY) & (IZ == opp_IZ)
+                    kn = K_norm[i, j, k]
+                    cos_theta = np.clip(KZ[i, j, k] / kn, -1.0, 1.0)
+                    phi = np.arctan2(KY[i, j, k], KX[i, j, k])
+                    u = int(((cos_theta + 1.0) * 0.5) * 4294967295)
+                    v = int(((phi + np.pi) / (2.0 * np.pi)) * 4294967295)
+                    h_ang = splitmix64((v ^ splitmix64(u)) & 0xFFFFFFFFFFFFFFFF)
+                    ang_phase = (h_ang / 18446744073709551616.0) * 2.0 * np.pi
 
-    # Upper-hemisphere partition K+
-    k_plus = ((IX > opp_IX) | ((IX == opp_IX) & (IY > opp_IY)) | ((IX == opp_IX) & (IY == opp_IY) & (IZ > opp_IZ))) & (~self_conj)
-
-    nx_i64 = nx.astype(np.int64)
-    ny_i64 = ny.astype(np.int64)
-    nz_i64 = nz.astype(np.int64)
-
-    ux = np.bitwise_and(nx_i64.astype(np.uint64), np.uint64(0xFFFFFFFF))
-    uy = np.bitwise_and(ny_i64.astype(np.uint64), np.uint64(0xFFFFFFFF))
-    uz = np.bitwise_and(nz_i64.astype(np.uint64), np.uint64(0xFFFFFFFF))
-
-    seed_val = ux ^ (uy << np.uint64(21)) ^ (uz << np.uint64(42))
-    h1 = splitmix64_vec(seed_val)
-    h2 = splitmix64_vec(h1 ^ np.uint64(0x517CC1B727220A95))
-    psi_iso = (h2.astype(np.float64) / 18446744073709551616.0) * (2.0 * np.pi)
-
-    phases = np.zeros((n_grid, n_grid, n_grid), dtype=np.float64)
-
-    # Assign positive modes
-    phases[k_plus] = np.mod(base_phases[k_plus] + psi_iso[k_plus], 2.0 * np.pi)
-
-    # Hermitian anti-symmetry: phi(-k) = -phi(k) mod 2pi
-    phases[opp_IX[k_plus], opp_IY[k_plus], opp_IZ[k_plus]] = np.mod(-phases[k_plus], 2.0 * np.pi)
-    phases[self_conj] = 0.0
-
+                    final_phi = float((base_phase + ang_phase) % (2.0 * np.pi))
+                    phases[i, j, k] = final_phi
+                    neg_i = (n_mesh - i) % n_mesh
+                    neg_j = (n_mesh - j) % n_mesh
+                    neg_k = (n_mesh - k) % n_mesh
+                    phases[neg_i, neg_j, neg_k] = float((-final_phi) % (2.0 * np.pi))
     return phases
 
 

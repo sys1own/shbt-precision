@@ -247,4 +247,61 @@ mod tests {
             assert!(b >= 0.0 && b <= 1.05, "Blue channel out of bounds at T = {}: {}", t, b);
         }
     }
+
+    #[test]
+    fn test_weil_modular_anti_symmetry() {
+        let n_mesh = 32;
+        let l_box = 222.5502;
+        let seed = 987654321;
+        let phases = shbt_simulator::shbt::structure::generate_weil_modular_phases(n_mesh, l_box, seed);
+
+        assert_eq!(phases[0], 0.0f32, "DC mode (0,0,0) must have phase exactly 0.0");
+
+        for iz in 0..n_mesh {
+            let nz = if iz < n_mesh / 2 { iz as i32 } else { iz as i32 - n_mesh as i32 };
+            for iy in 0..n_mesh {
+                let ny = if iy < n_mesh / 2 { iy as i32 } else { iy as i32 - n_mesh as i32 };
+                for ix in 0..n_mesh {
+                    let nx = if ix < n_mesh / 2 { ix as i32 } else { ix as i32 - n_mesh as i32 };
+                    if nx == 0 && ny == 0 && nz == 0 {
+                        continue;
+                    }
+
+                    let idx = (iz * n_mesh + iy) * n_mesh + ix;
+                    let neg_ix = (n_mesh as i32 - nx) as usize % n_mesh;
+                    let neg_iy = (n_mesh as i32 - ny) as usize % n_mesh;
+                    let neg_iz = (n_mesh as i32 - nz) as usize % n_mesh;
+                    let neg_idx = (neg_iz * n_mesh + neg_iy) * n_mesh + neg_ix;
+
+                    let p1 = phases[idx] as f64;
+                    let p2 = phases[neg_idx] as f64;
+                    let sum = (p1 + p2).rem_euclid(2.0 * PI);
+
+                    assert!(
+                        sum < 1e-4 || (2.0 * PI - sum) < 1e-4,
+                        "Anti-symmetry broken at mode ({}, {}, {}): p1={}, p2={}, sum={}",
+                        nx, ny, nz, p1, p2, sum
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn test_cardy_density_floor_bounds() {
+        let cardy_ratio = 39.0;
+        let rho_floor_base = 0.00696738;
+
+        let a_early = 1.0 / 101.0;
+        let floor_early = f64::max(rho_floor_base, 1.0 / (cardy_ratio * a_early));
+        assert!(floor_early >= 2.58, "Floor at z=100 must scale as 1/(39*a)");
+
+        let a_late = 1.0;
+        let floor_late = f64::max(rho_floor_base, 1.0 / (cardy_ratio * a_late));
+        assert_eq!(floor_late, 1.0 / 39.0, "Floor at z=0 must equal 1/39");
+
+        let a_asymp = 1000.0;
+        let floor_asymp = f64::max(rho_floor_base, 1.0 / (cardy_ratio * a_asymp));
+        assert_eq!(floor_asymp, rho_floor_base, "Floor asymptotically approaches rho_IR");
+    }
 }
