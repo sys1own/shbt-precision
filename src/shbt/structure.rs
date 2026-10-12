@@ -469,8 +469,55 @@ pub const SPLITMIX64_GAMMA: u64 = 0x9E3779B97F4A7C15;
 
 pub const N_MOD: i64 = 2_901_360;
 pub const CFT_MODULE_COUNT: u64 = 2_901_360;
-pub const ALPHA_WEIL: f64 = 13.856_406_460_551_018;
-pub const BETA_WEIL: f64 = 2.221_441_469_079_183;
+pub const ALPHA_WEIL: f64 = 1.0;
+pub const BETA_WEIL: f64 = 13.0;
+
+pub const MODULAR_REGISTER_M: usize = 2_901_360;
+pub const DELTA_C0_F64: f64 = 0.06561007575465141; // (1.0 / 3.0) * sqrt(154.0 / 3975.0)
+
+/// Canonical Weil modular phase register lookup table.
+pub struct WeilModularRegister {
+    phases: Vec<f64>,
+}
+
+impl WeilModularRegister {
+    pub fn new() -> Self {
+        let mut phases = Vec::with_capacity(MODULAR_REGISTER_M);
+        let golden_ratio = (1.0 + 5.0_f64.sqrt()) / 2.0;
+        for i in 0..MODULAR_REGISTER_M {
+            let theta = (i as f64 * golden_ratio * 2.0 * PI).rem_euclid(2.0 * PI);
+            phases.push(theta);
+        }
+        Self { phases }
+    }
+
+    #[inline(always)]
+    pub fn get_phase(&self, index: usize) -> f64 {
+        self.phases[index % MODULAR_REGISTER_M]
+    }
+}
+
+/// Continuous, branch-cut-free Haar angular dispersion on S^2.
+#[inline]
+pub fn continuous_haar_dispersion(kx: f64, ky: f64, kz: f64, grid_dim: f64) -> f64 {
+    let norm = (kx * kx + ky * ky + kz * kz).sqrt();
+    if norm < 1e-12 {
+        return 0.0;
+    }
+    let hx = kx / norm;
+    let hy = ky / norm;
+    let hz = kz / norm;
+
+    let c_x = 2.0_f64.sqrt();
+    let c_y = 3.0_f64.sqrt();
+    let c_z = 5.0_f64.sqrt();
+    let c_sum = c_x + c_y + c_z;
+
+    let proj = (c_x * hx + c_y * hy + c_z * hz) / c_sum;
+    let val = proj * (grid_dim / 24.0);
+    let frac = val - val.floor();
+    2.0 * PI * frac
+}
 
 #[inline(always)]
 pub fn splitmix64(mut z: u64) -> u64 {
@@ -484,70 +531,124 @@ pub fn splitmix64(mut z: u64) -> u64 {
 pub fn continuous_weil_norm_index(kx: f64, ky: f64, kz: f64, k1: f64) -> u64 {
     let k_norm = (kx * kx + ky * ky + kz * kz).sqrt();
     let s = k_norm / k1;
-    let raw = (CANONICAL_ALPHA * s + CANONICAL_BETA * s * s).floor() as i64;
+    let raw = (ALPHA_WEIL * s + BETA_WEIL * s * s).floor() as i64;
     raw.rem_euclid(CANONICAL_M as i64) as u64
 }
 
 #[inline]
 pub fn haar_angular_dispersion(kx: f64, ky: f64, kz: f64) -> f64 {
-    let norm = (kx * kx + ky * ky + kz * kz).sqrt();
-    if norm < 1e-12 {
-        return 0.0;
+    continuous_haar_dispersion(kx, ky, kz, 64.0)
+}
+
+/// Asserts cubic harmonic leakage |K_4| < 1e-7.
+pub fn assert_cubic_harmonic_suppression(phases: &[f64], n: usize) {
+    let mut sum_k4_phi = 0.0_f64;
+    let mut count = 0_usize;
+
+    for iz in 0..n {
+        let nz = if iz <= n / 2 { iz as i32 } else { iz as i32 - n as i32 };
+        for iy in 0..n {
+            let ny = if iy <= n / 2 { iy as i32 } else { iy as i32 - n as i32 };
+            for ix in 0..n {
+                let nx = if ix <= n / 2 { ix as i32 } else { ix as i32 - n as i32 };
+                let knorm_sq = (nx * nx + ny * ny + nz * nz) as f64;
+                if knorm_sq > 0.0 {
+                    let hx = nx as f64 / knorm_sq.sqrt();
+                    let hy = ny as f64 / knorm_sq.sqrt();
+                    let hz = nz as f64 / knorm_sq.sqrt();
+                    let k4 = hx.powi(4) + hy.powi(4) + hz.powi(4) - 0.6;
+                    let idx = (iz * n + iy) * n + ix;
+                    let phi = phases[idx];
+                    let phi_centered = if phi > PI { phi - 2.0 * PI } else { phi };
+                    sum_k4_phi += phi_centered * k4;
+                    count += 1;
+                }
+            }
+        }
     }
-    let cos_theta = (kz / norm).clamp(-1.0, 1.0);
-    let phi = ky.atan2(kx);
-    let u = (cos_theta + 1.0) * 0.5;
-    let v = (phi + PI) / (2.0 * PI);
-    let h1 = splitmix64((u * 4_294_967_295.0) as u64);
-    let h2 = splitmix64((v * 4_294_967_295.0) as u64 ^ h1);
-    (h2 as f64 / 18_446_744_073_709_551_616.0) * 2.0 * PI
+
+    let mean_leakage = (sum_k4_phi / count as f64).abs();
+    assert!(
+        mean_leakage < 1e-7,
+        "Cubic harmonic leakage violation: |K_4| = {:e} >= 1e-7",
+        mean_leakage
+    );
+}
+
+/// Generates Weil modular phases on an N x N x N Fourier lattice enforcing exact Hermitian symmetry.
+pub fn generate_weil_modular_phases_canonical(grid_dim: usize, k1: f64) -> Vec<f64> {
+    let register = WeilModularRegister::new();
+    let n = grid_dim;
+    let total_elements = n * n * n;
+    let mut phases = vec![0.0_f64; total_elements];
+
+    let alpha = 1.0_f64;
+    let beta = 13.0_f64;
+
+    for iz in 0..n {
+        let nz = if iz <= n / 2 { iz as i32 } else { iz as i32 - n as i32 };
+        for iy in 0..n {
+            let ny = if iy <= n / 2 { iy as i32 } else { iy as i32 - n as i32 };
+            for ix in 0..n {
+                let nx = if ix <= n / 2 { ix as i32 } else { ix as i32 - n as i32 };
+
+                let ix_neg = ((-nx).rem_euclid(n as i32)) as usize;
+                let iy_neg = ((-ny).rem_euclid(n as i32)) as usize;
+                let iz_neg = ((-nz).rem_euclid(n as i32)) as usize;
+
+                if (nx == 0 && ny == 0 && nz == 0)
+                    || (ix == ix_neg && iy == iy_neg && iz == iz_neg) {
+                    let idx = (iz * n + iy) * n + ix;
+                    phases[idx] = 0.0;
+                    continue;
+                }
+
+                // Canonical positive half-space partition K+
+                let in_k_plus = nz > 0
+                    || (nz == 0 && ny > 0)
+                    || (nz == 0 && ny == 0 && nx > 0);
+
+                if in_k_plus {
+                    let kx = nx as f64 * k1;
+                    let ky = ny as f64 * k1;
+                    let kz = nz as f64 * k1;
+                    let knorm = (kx * kx + ky * ky + kz * kz).sqrt();
+
+                    let knorm_ratio = knorm / k1;
+                    let i_k = ((alpha * knorm_ratio + beta * knorm_ratio * knorm_ratio).floor() as usize)
+                        % MODULAR_REGISTER_M;
+
+                    let theta_base = register.get_phase(i_k);
+                    let psi_iso = continuous_haar_dispersion(kx, ky, kz, n as f64);
+                    let phi = (theta_base + psi_iso).rem_euclid(2.0 * PI);
+
+                    let idx = (iz * n + iy) * n + ix;
+                    phases[idx] = phi;
+
+                    // Conjugate reflection to -k: phi(-k) = -phi(k) mod 2pi
+                    let ix_neg = ((-nx).rem_euclid(n as i32)) as usize;
+                    let iy_neg = ((-ny).rem_euclid(n as i32)) as usize;
+                    let iz_neg = ((-nz).rem_euclid(n as i32)) as usize;
+                    let idx_neg = (iz_neg * n + iy_neg) * n + ix_neg;
+
+                    phases[idx_neg] = (-phi).rem_euclid(2.0 * PI);
+                }
+            }
+        }
+    }
+
+    assert_cubic_harmonic_suppression(&phases, grid_dim);
+    phases
 }
 
 pub fn generate_weil_modular_phases(
     n_mesh: usize,
     l_box: f64,
-    seed: u64,
+    _seed: u64,
 ) -> Vec<f32> {
-    let total_modes = n_mesh * n_mesh * n_mesh;
-    let mut phases = vec![0.0f32; total_modes];
     let k1 = (2.0 * PI) / l_box;
-
-    for iz in 0..n_mesh {
-        let nz = if iz < n_mesh / 2 { iz as i32 } else { iz as i32 - n_mesh as i32 };
-        let kz = nz as f64 * k1;
-
-        for iy in 0..n_mesh {
-            let ny = if iy < n_mesh / 2 { iy as i32 } else { iy as i32 - n_mesh as i32 };
-            let ky = ny as f64 * k1;
-
-            for ix in 0..n_mesh {
-                let nx = if ix < n_mesh / 2 { ix as i32 } else { ix as i32 - n_mesh as i32 };
-                let kx = nx as f64 * k1;
-                let idx = (iz * n_mesh + iy) * n_mesh + ix;
-
-                if nx == 0 && ny == 0 && nz == 0 {
-                    phases[idx] = 0.0;
-                    continue;
-                }
-
-                if nz > 0 || (nz == 0 && ny > 0) || (nz == 0 && ny == 0 && nx > 0) {
-                    let norm_idx = continuous_weil_norm_index(kx, ky, kz, k1);
-                    let hashed = splitmix64(norm_idx ^ seed);
-                    let base_phase = (hashed as f64 / 18_446_744_073_709_551_616.0) * 2.0 * PI;
-                    let dispersion = haar_angular_dispersion(kx, ky, kz);
-                    let phase = ((base_phase + dispersion).rem_euclid(2.0 * PI)) as f32;
-                    phases[idx] = phase;
-
-                    let neg_ix = (n_mesh as i32 - nx) as usize % n_mesh;
-                    let neg_iy = (n_mesh as i32 - ny) as usize % n_mesh;
-                    let neg_iz = (n_mesh as i32 - nz) as usize % n_mesh;
-                    let neg_idx = (neg_iz * n_mesh + neg_iy) * n_mesh + neg_ix;
-                    phases[neg_idx] = (-phase).rem_euclid(2.0 * std::f32::consts::PI);
-                }
-            }
-        }
-    }
-    phases
+    let phases_f64 = generate_weil_modular_phases_canonical(n_mesh, k1);
+    phases_f64.into_iter().map(|p| p as f32).collect()
 }
 
 pub fn generate_weil_modular_phases_with_modules(

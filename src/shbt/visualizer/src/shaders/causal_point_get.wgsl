@@ -75,19 +75,31 @@ fn get_grid_index(coord: vec3<u32>, dim: u32) -> u32 {
     return coord.x + coord.y * dim + coord.z * dim * dim;
 }
 
-fn sample_density(pos: vec3<f32>, dim: u32) -> f32 {
-    let clamped_pos = clamp(pos, vec3<f32>(0.0), vec3<f32>(1.0)) * f32(dim - 1u);
-    let base = vec3<u32>(floor(clamped_pos));
-    let f = fract(clamped_pos);
+// Signed Euclidean modulo wrapping across periodic 3-torus
+fn periodic_coord(coord: vec3<i32>, dim: i32) -> vec3<i32> {
+    return ((coord % vec3<i32>(dim)) + vec3<i32>(dim)) % vec3<i32>(dim);
+}
 
-    let i000 = get_grid_index(base, dim);
-    let i100 = get_grid_index(base + vec3<u32>(1u, 0u, 0u), dim);
-    let i010 = get_grid_index(base + vec3<u32>(0u, 1u, 0u), dim);
-    let i110 = get_grid_index(base + vec3<u32>(1u, 1u, 0u), dim);
-    let i001 = get_grid_index(base + vec3<u32>(0u, 0u, 1u), dim);
-    let i101 = get_grid_index(base + vec3<u32>(1u, 0u, 1u), dim);
-    let i011 = get_grid_index(base + vec3<u32>(0u, 1u, 1u), dim);
-    let i111 = get_grid_index(base + vec3<u32>(1u, 1u, 1u), dim);
+fn grid_linear_index(c: vec3<i32>, dim: i32) -> u32 {
+    let p = periodic_coord(c, dim);
+    return u32((p.z * dim + p.y) * dim + p.x);
+}
+
+fn sample_density(pos: vec3<f32>, dim: u32) -> f32 {
+    let dim_f = f32(dim);
+    let dim_i = i32(dim);
+    let grid_pos = fract(pos) * dim_f;
+    let base = vec3<i32>(floor(grid_pos));
+    let f = grid_pos - floor(grid_pos);
+
+    let i000 = grid_linear_index(base, dim_i);
+    let i100 = grid_linear_index(base + vec3<i32>(1, 0, 0), dim_i);
+    let i010 = grid_linear_index(base + vec3<i32>(0, 1, 0), dim_i);
+    let i110 = grid_linear_index(base + vec3<i32>(1, 1, 0), dim_i);
+    let i001 = grid_linear_index(base + vec3<i32>(0, 0, 1), dim_i);
+    let i101 = grid_linear_index(base + vec3<i32>(1, 0, 1), dim_i);
+    let i011 = grid_linear_index(base + vec3<i32>(0, 1, 1), dim_i);
+    let i111 = grid_linear_index(base + vec3<i32>(1, 1, 1), dim_i);
 
     let c00 = mix(density_grid[i000], density_grid[i100], f.x);
     let c10 = mix(density_grid[i010], density_grid[i110], f.x);
@@ -101,10 +113,11 @@ fn sample_density(pos: vec3<f32>, dim: u32) -> f32 {
 }
 
 fn sample_density_gradient(pos: vec3<f32>, dim: u32) -> vec3<f32> {
-    let delta = 1.0 / f32(dim);
-    let dx = (sample_density(pos + vec3<f32>(delta, 0.0, 0.0), dim) - sample_density(pos - vec3<f32>(delta, 0.0, 0.0), dim)) / (2.0 * delta);
-    let dy = (sample_density(pos + vec3<f32>(0.0, delta, 0.0), dim) - sample_density(pos - vec3<f32>(0.0, delta, 0.0), dim)) / (2.0 * delta);
-    let dz = (sample_density(pos + vec3<f32>(0.0, 0.0, delta), dim) - sample_density(pos - vec3<f32>(0.0, 0.0, delta), dim)) / (2.0 * delta);
+    let dim_f = f32(dim);
+    let delta = 1.0 / dim_f;
+    let dx = (sample_density(pos + vec3<f32>(delta, 0.0, 0.0), dim) - sample_density(pos - vec3<f32>(delta, 0.0, 0.0), dim)) * (0.5 * dim_f);
+    let dy = (sample_density(pos + vec3<f32>(0.0, delta, 0.0), dim) - sample_density(pos - vec3<f32>(0.0, delta, 0.0), dim)) * (0.5 * dim_f);
+    let dz = (sample_density(pos + vec3<f32>(0.0, 0.0, delta), dim) - sample_density(pos - vec3<f32>(0.0, 0.0, delta), dim)) * (0.5 * dim_f);
     return vec3<f32>(dx, dy, dz);
 }
 

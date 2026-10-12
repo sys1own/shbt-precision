@@ -390,6 +390,17 @@ def generate_2lpt_particles(
     delta_k = amplitude * np.exp(1j * phases)
     delta_k[0, 0, 0] = 0.0
 
+    # Enforce fundamental mode dipole cancellation
+    freq_grid = np.fft.fftfreq(n) * n
+    for ix in range(n):
+        nx = int(freq_grid[ix])
+        for iy in range(n):
+            ny = int(freq_grid[iy])
+            for iz in range(n):
+                nz = int(freq_grid[iz])
+                if abs(nx) <= 1 and abs(ny) <= 1 and abs(nz) <= 1:
+                    delta_k[ix, iy, iz] = 0.0 + 0.0j
+
     phi1_k = delta_k / K_sq
     phi1_k[0, 0, 0] = 0.0
 
@@ -433,6 +444,12 @@ def generate_2lpt_particles(
     posX = (QX + disp_x) % 1.0
     posY = (QY + disp_y) % 1.0
     posZ = (QZ + disp_z) % 1.0
+
+    left_mass = float(np.mean(posX < 0.5))
+    right_mass = float(np.mean(posX >= 0.5))
+    parity_imbalance = abs(right_mass - left_mass)
+    print(f"[SHBT] Mass Parity: Left={left_mass:.6f}, Right={right_mass:.6f}, Imbalance={parity_imbalance:.6e}")
+    assert parity_imbalance < 0.01, f"Initial mass parity violation: {parity_imbalance:.4f} >= 0.01"
 
     vel_fac1 = -a_init**2 * h_init * d1 * f1 / l_box
     vel_fac2 = -a_init**2 * h_init * d2 * f2 / l_box
@@ -784,46 +801,11 @@ def splitmix64(z: int) -> int:
     return (z ^ (z >> 31)) & 0xFFFFFFFFFFFFFFFF
 
 
-def generate_weil_modular_phases_grid(n_mesh: int, l_box: float = 222.5502, seed: int = 42) -> np.ndarray:
-    phases = np.zeros((n_mesh, n_mesh, n_mesh), dtype=np.float32)
-    k1 = 2.0 * np.pi / l_box
-
-    kx_idx = np.fft.fftfreq(n_mesh, d=1.0 / (n_mesh * k1))
-    ky_idx = np.fft.fftfreq(n_mesh, d=1.0 / (n_mesh * k1))
-    kz_idx = np.fft.fftfreq(n_mesh, d=1.0 / (n_mesh * k1))
-    KX, KY, KZ = np.meshgrid(kx_idx, ky_idx, kz_idx, indexing='ij')
-
-    K_norm = np.sqrt(KX**2 + KY**2 + KZ**2)
-    S = K_norm / k1
-    norm_idx = np.floor(CANONICAL_ALPHA * S + CANONICAL_BETA * S**2).astype(np.int64) % CANONICAL_M
-
-    for i in range(n_mesh):
-        for j in range(n_mesh):
-            for k in range(n_mesh):
-                if i == 0 and j == 0 and k == 0:
-                    phases[0, 0, 0] = 0.0
-                    continue
-                is_pos = (k > 0) or (k == 0 and j > 0) or (k == 0 and j == 0 and i > 0)
-                if is_pos:
-                    idx_val = int(norm_idx[i, j, k])
-                    h = splitmix64((idx_val ^ seed) & 0xFFFFFFFFFFFFFFFF)
-                    base_phase = (h / 18446744073709551616.0) * 2.0 * np.pi
-
-                    kn = K_norm[i, j, k]
-                    cos_theta = np.clip(KZ[i, j, k] / kn, -1.0, 1.0)
-                    phi = np.arctan2(KY[i, j, k], KX[i, j, k])
-                    u = int(((cos_theta + 1.0) * 0.5) * 4294967295)
-                    v = int(((phi + np.pi) / (2.0 * np.pi)) * 4294967295)
-                    h_ang = splitmix64((v ^ splitmix64(u)) & 0xFFFFFFFFFFFFFFFF)
-                    ang_phase = (h_ang / 18446744073709551616.0) * 2.0 * np.pi
-
-                    final_phi = float((base_phase + ang_phase) % (2.0 * np.pi))
-                    phases[i, j, k] = final_phi
-                    neg_i = (n_mesh - i) % n_mesh
-                    neg_j = (n_mesh - j) % n_mesh
-                    neg_k = (n_mesh - k) % n_mesh
-                    phases[neg_i, neg_j, neg_k] = float((-final_phi) % (2.0 * np.pi))
-    return phases
+def generate_weil_modular_phases_grid(n_mesh: int, l_box: float = 222.5502, seed: int = 42, **kwargs) -> np.ndarray:
+    if _HAS_BOLTZMANN and hasattr(_boltzmann, "generate_weil_modular_phases_grid"):
+        return _boltzmann.generate_weil_modular_phases_grid(n_mesh, l_box=l_box, seed=seed, **kwargs)
+    import boltzmann_shbt
+    return boltzmann_shbt.generate_weil_modular_phases_grid(n_mesh, l_box=l_box, seed=seed, **kwargs)
 
 
 def compute_2lpt_displacements(

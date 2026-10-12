@@ -311,6 +311,12 @@ fn cs_convolve_overflow(@builtin(global_invocation_id) id: vec3<u32>) {
     smoothed_overflow[out_idx] = convolved / max(w_sum, 1e-8);
 }
 
+fn local_threshold_variation(coord: vec3<i32>) -> f32 {
+    let hash = (coord.x * 73856093) ^ (coord.y * 19349663) ^ (coord.z * 83492791);
+    let mod_val = f32(abs(hash) % 10007) / 10007.0;
+    return (mod_val - 0.5) * 0.01;
+}
+
 // ----------------------------------------------------------------------------
 // PASS 2: Instanton-Gated Nucleation + 3D Non-Maximum Suppression
 // ----------------------------------------------------------------------------
@@ -348,25 +354,21 @@ fn cs_detect_condensation(@builtin(global_invocation_id) id: vec3<u32>) {
         return;
     }
 
-    // 26-neighborhood Non-Maximum Suppression over the normalized ratio.
-    // shbt13 Stage-3: suppression is measured against the physical
-    // condensation threshold delta_th(z) in n = rho/rho_bar units
-    // ((delta_c0/Psi_nuc)*(H/H0)^{1/3}*(1-(10/33)f_cosmo)), so marginally
-    // subdominant peaks along thin filaments survive instead of being
-    // eaten by the comoving stencil.
+    // 3D Non-Maximum Suppression over the normalized ratio with r_excl = 4 cells
     var is_local_max: bool = true;
     let i_dim = i32(dim);
-    let d_th = condensation_threshold_n(params.redshift);
+    let d_th = condensation_threshold_n(params.redshift) + local_threshold_variation(vec3<i32>(id));
 
-    for (var dz = -1; dz <= 1; dz = dz + 1) {
-        let nz = u32((i32(id.z) + dz + i_dim) % i_dim);
-        for (var dy = -1; dy <= 1; dy = dy + 1) {
-            let ny = u32((i32(id.y) + dy + i_dim) % i_dim);
-            for (var dx = -1; dx <= 1; dx = dx + 1) {
+    let r_excl = 4;
+    for (var dz = -r_excl; dz <= r_excl; dz = dz + 1) {
+        let nz = u32(((i32(id.z) + dz) % i_dim + i_dim) % i_dim);
+        for (var dy = -r_excl; dy <= r_excl; dy = dy + 1) {
+            let ny = u32(((i32(id.y) + dy) % i_dim + i_dim) % i_dim);
+            for (var dx = -r_excl; dx <= r_excl; dx = dx + 1) {
                 if (dx == 0 && dy == 0 && dz == 0) {
                     continue;
                 }
-                let nx = u32((i32(id.x) + dx + i_dim) % i_dim);
+                let nx = u32(((i32(id.x) + dx) % i_dim + i_dim) % i_dim);
                 let neighbor_idx = get_linear_index(nx, ny, nz);
                 let neighbor_val = f32(atomicLoad(&grid_density[neighbor_idx])) / params.fixed_point_scale;
                 // NMS margin on the smoothed field in normalized n units.

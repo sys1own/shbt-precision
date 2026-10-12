@@ -97,16 +97,15 @@ fn project_phase_space(@builtin(global_invocation_id) global_id: vec3<u32>, @bui
     if (idx < uniforms.particle_count) {
         let p = particles[idx];
         // Comoving periodic wrapping x_norm in [0, 1)
-        let x_norm = fract(p.position.x * 0.005);
+        let x_norm = fract(p.position.x);
         let bin_x = clamp(u32(x_norm * 256.0), 0u, 255u);
 
         // Conformal velocity mapping centered at v_norm = 0.5
         let v_x = p.velocity.x;
         let v_norm = (v_x / (2.0 * max(uniforms.v_max, 1e-4))) + 0.5;
-
-        if (v_norm >= 0.0 && v_norm < 1.0) {
-            let bin_v = clamp(u32(v_norm * 256.0), 0u, 255u);
-            let tex_coords = vec2<i32>(i32(bin_x), i32(bin_v));
+        let clamped_v = clamp(v_norm, 0.0, 0.99999);
+        let bin_v = clamp(u32(clamped_v * 256.0), 0u, 255u);
+        let tex_coords = vec2<i32>(i32(bin_x), i32(bin_v));
 
             // Accumulate locally to estimate density
             let sub_x = bin_x % 32u;
@@ -136,7 +135,6 @@ fn project_phase_space(@builtin(global_invocation_id) global_id: vec3<u32>, @bui
             }
 
             textureStore(phase_space_tex, tex_coords, vec4<f32>(color, 1.0));
-        }
     }
 }
 

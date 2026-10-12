@@ -258,8 +258,9 @@ fn compute_hydro_force(x_tilde: vec3<f32>, a_eval: f32) -> vec3<f32> {
 const FIXED_POINT_SCALE: f32 = 1048576.0; // 2^20 atomic mass deposits
 
 fn grid_idx_cell(cell: vec3<i32>, gd: u32) -> u32 {
-    let wrap = (cell + vec3<i32>(i32(gd))) % vec3<i32>(i32(gd));
-    return u32(wrap.x + wrap.y * i32(gd) + wrap.z * i32(gd) * i32(gd));
+    let dim_i = i32(gd);
+    let wrap = ((cell % vec3<i32>(dim_i)) + vec3<i32>(dim_i)) % vec3<i32>(dim_i);
+    return u32(wrap.x + wrap.y * dim_i + wrap.z * dim_i * dim_i);
 }
 
 /// CIC-weighted central-difference pressure acceleration: for each of

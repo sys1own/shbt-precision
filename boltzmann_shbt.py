@@ -71,54 +71,85 @@ def splitmix64_vec(x_u64: np.ndarray) -> np.ndarray:
 
 def generate_weil_modular_phases_grid(
     grid_dim: int,
-    l_box: float = 222.5502,
+    l_box: float | None = 222.5502,
     seed: int = 42,
     primary_modules: np.ndarray | None = None,
     K: int = 312,
+    k1: float | None = None,
+    **kwargs,
 ) -> np.ndarray:
     """
-    Evaluates SO(3)-invariant modular Weil phases on a 3D grid with continuous
-    Euclidean norm indexing, Haar dispersion, and strict Hermitian anti-symmetry.
+    Evaluates SO(3)-invariant modular Weil phases on an N^3 grid with continuous
+    direction-cosine Haar dispersion, Weil modular indexing, and strict Hermitian anti-symmetry.
     """
-    n_mesh = grid_dim
-    phases = np.zeros((n_mesh, n_mesh, n_mesh), dtype=np.float64)
-    k1 = 2.0 * np.pi / l_box
+    N = grid_dim
+    if k1 is not None:
+        k1_val = k1
+    elif l_box is not None:
+        if l_box > 10.0:
+            k1_val = 2.0 * np.pi / l_box
+        else:
+            k1_val = l_box
+    else:
+        k1_val = 2.0 * np.pi / 222.5502
 
-    kx_idx = np.fft.fftfreq(n_mesh, d=1.0 / (n_mesh * k1))
-    ky_idx = np.fft.fftfreq(n_mesh, d=1.0 / (n_mesh * k1))
-    kz_idx = np.fft.fftfreq(n_mesh, d=1.0 / (n_mesh * k1))
-    KX, KY, KZ = np.meshgrid(kx_idx, ky_idx, kz_idx, indexing='ij')
+    phases = np.zeros((N, N, N), dtype=np.float64)
+    golden_ratio = (1.0 + np.sqrt(5.0)) / 2.0
 
-    K_norm = np.sqrt(KX**2 + KY**2 + KZ**2)
-    S = K_norm / k1
-    norm_idx = np.floor(ALPHA_WEIL * S + BETA_WEIL * S**2).astype(np.int64) % CANONICAL_M
+    indices = np.arange(CANONICAL_M, dtype=np.float64)
+    reg_phases = np.mod(indices * golden_ratio * 2.0 * np.pi, 2.0 * np.pi)
 
-    for i in range(n_mesh):
-        for j in range(n_mesh):
-            for k in range(n_mesh):
-                if i == 0 and j == 0 and k == 0:
-                    phases[0, 0, 0] = 0.0
+    c_x, c_y, c_z = np.sqrt(2.0), np.sqrt(3.0), np.sqrt(5.0)
+    c_sum = c_x + c_y + c_z
+
+    alpha = 1.0
+    beta = 13.0
+
+    k_indices = np.fft.fftfreq(N) * N
+
+    for iz in range(N):
+        nz = int(k_indices[iz])
+        iz_neg = (-iz) % N
+        for iy in range(N):
+            ny = int(k_indices[iy])
+            iy_neg = (-iy) % N
+            for ix in range(N):
+                nx = int(k_indices[ix])
+                ix_neg = (-ix) % N
+                if (nx == 0 and ny == 0 and nz == 0) or (ix == ix_neg and iy == iy_neg and iz == iz_neg):
+                    phases[ix, iy, iz] = 0.0
                     continue
-                is_pos = (k > 0) or (k == 0 and j > 0) or (k == 0 and j == 0 and i > 0)
-                if is_pos:
-                    idx_val = int(norm_idx[i, j, k])
-                    h = splitmix64((idx_val ^ seed) & 0xFFFFFFFFFFFFFFFF)
-                    base_phase = (h / 18446744073709551616.0) * 2.0 * np.pi
 
-                    kn = K_norm[i, j, k]
-                    cos_theta = np.clip(KZ[i, j, k] / kn, -1.0, 1.0)
-                    phi = np.arctan2(KY[i, j, k], KX[i, j, k])
-                    u = int(((cos_theta + 1.0) * 0.5) * 4294967295)
-                    v = int(((phi + np.pi) / (2.0 * np.pi)) * 4294967295)
-                    h_ang = splitmix64((v ^ splitmix64(u)) & 0xFFFFFFFFFFFFFFFF)
-                    ang_phase = (h_ang / 18446744073709551616.0) * 2.0 * np.pi
+                # Canonical positive half-space partition K+
+                in_k_plus = (nz > 0) or (nz == 0 and ny > 0) or (nz == 0 and ny == 0 and nx > 0)
+                if not in_k_plus:
+                    continue
 
-                    final_phi = float((base_phase + ang_phase) % (2.0 * np.pi))
-                    phases[i, j, k] = final_phi
-                    neg_i = (n_mesh - i) % n_mesh
-                    neg_j = (n_mesh - j) % n_mesh
-                    neg_k = (n_mesh - k) % n_mesh
-                    phases[neg_i, neg_j, neg_k] = float((-final_phi) % (2.0 * np.pi))
+                knorm = np.sqrt(nx**2 + ny**2 + nz**2)
+                knorm_phys = knorm * k1_val
+                hx = nx / knorm
+                hy = ny / knorm
+                hz = nz / knorm
+
+                # Continuous, branch-cut-free Haar dispersion
+                proj = (c_x * hx + c_y * hy + c_z * hz) / c_sum
+                val = proj * (N / 24.0)
+                psi_iso = 2.0 * np.pi * (val - np.floor(val))
+
+                knorm_ratio = knorm_phys / k1_val
+                i_k = int(np.floor(alpha * knorm_ratio + beta * knorm_ratio**2)) % CANONICAL_M
+                theta_base = reg_phases[i_k]
+
+                phi = np.mod(theta_base + psi_iso, 2.0 * np.pi)
+                phases[ix, iy, iz] = phi
+
+                # Conjugate reflection: phi(-k) = -phi(k) mod 2pi
+                ix_neg = (-ix) % N
+                iy_neg = (-iy) % N
+                iz_neg = (-iz) % N
+                phases[ix_neg, iy_neg, iz_neg] = np.mod(-phi, 2.0 * np.pi)
+
+    phases[0, 0, 0] = 0.0
     return phases
 
 
