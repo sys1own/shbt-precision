@@ -341,34 +341,24 @@ async function boot() {
   };
 
   // Spec Step 1.2: Expose explicit deterministic synchronous frame advance on window
-  window.advanceSimulationFrame = async function (arg1, arg2, arg3, arg4) {
+  window.advanceSimulationFrame = async function (arg1, arg2, arg3, arg4, arg5) {
     let pos = null;
     let look = null;
+    let z = undefined;
     let frameIndex = 0;
     if (Array.isArray(arg1) && Array.isArray(arg2)) {
       pos = arg1;
       look = arg2;
+      z = arg3;
     } else if (typeof arg1 === "number") {
       frameIndex = arg1;
       if (Array.isArray(arg3) && Array.isArray(arg4)) {
         pos = arg3;
         look = arg4;
+        z = arg5;
       }
     }
-    if (pos && look) {
-      engine.update_cosmic_state(engine.get_current_redshift(), pos[0], pos[1], pos[2], look[0], look[1], look[2]);
-    }
-    // 1. Dispatch compute passes (Poisson, GET, Hydro, KDK)
-    engine.step_deterministic();
-    // 2. Render to canvas target
-    engine.render_frame();
-    // 3. Synchronously await GPU completion
-    const device = window.__gpuDevice || (engine ? engine.device : null);
-    if (device && device.queue && device.queue.onSubmittedWorkDone) {
-      await device.queue.onSubmittedWorkDone();
-    }
-    const m = JSON.parse(engine.hud_json());
-    refreshHud(m);
+    await window.__SHBT_ENGINE__.stepOffline(1.0 / 60.0, z, pos, look);
     return {
       frame: frameIndex,
       z: engine.get_current_redshift(),

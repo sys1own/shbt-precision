@@ -591,8 +591,8 @@ async def record_video_session(p) -> Path | None:
 
             # Deterministic simulation advance synchronized with WebGPU onSubmittedWorkDone
             await page.evaluate(
-                "([pos, look]) => window.advanceSimulationFrame(pos, look)",
-                [cam_pos, cam_look],
+                "([pos, look, z]) => window.advanceSimulationFrame(pos, look, z)",
+                [cam_pos, cam_look, z_now],
             )
 
             # Synchronous CDP screenshot extraction
