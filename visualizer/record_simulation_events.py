@@ -578,6 +578,49 @@ def png_non_blank(path: Path) -> bool:
     return var > 1.0
 
 
+def analyze_void_blowout(image_path: str | Path) -> float:
+    """Computes radial mass concentration ratio from image center."""
+    from PIL import Image
+    with Image.open(image_path) as im:
+        img = np.array(im.convert("L"), dtype=np.float64)
+    h, w = img.shape
+    cy, cx = h // 2, w // 2
+    
+    y, x = np.ogrid[:h, :w]
+    r_sq = (x - cx)**2 + (y - cy)**2
+    
+    r_inner = min(h, w) * 0.15
+    r_outer = min(h, w) * 0.40
+    
+    inner_mask = r_sq < (r_inner**2)
+    outer_mask = (r_sq >= (r_inner**2)) & (r_sq < (r_outer**2))
+    
+    inner_mean = np.mean(img[inner_mask])
+    outer_mean = np.mean(img[outer_mask])
+    
+    return float(inner_mean / (outer_mean + 1e-5))
+
+
+def analyze_spoke_anisotropy(image_path: str | Path) -> tuple[float, float]:
+    """Computes Fourier power along Cartesian axes vs diagonals."""
+    from PIL import Image
+    with Image.open(image_path) as im:
+        img = np.array(im.convert("L"), dtype=np.float64)
+    f = np.fft.fftshift(np.fft.fft2(img))
+    f_power = np.abs(f)**2
+    
+    h, w = f_power.shape
+    cy, cx = h // 2, w // 2
+    
+    axis_power = np.mean(f_power[cy, :]) + np.mean(f_power[:, cx])
+    diag1 = np.mean(np.diag(f_power))
+    diag2 = np.mean(np.diag(np.fliplr(f_power)))
+    diag_power = diag1 + diag2
+    total_power = np.mean(f_power)
+    
+    return float(axis_power / (total_power + 1e-5)), float(diag_power / (total_power + 1e-5))
+
+
 def verify(milestones_only: bool = False) -> bool:
     ok = True
     if not milestones_only:
@@ -608,6 +651,23 @@ def verify(milestones_only: bool = False) -> bool:
                 ok = False
             else:
                 print(f"[VERIFY] ok {check_dir.name}/{png.name} ({png.stat().st_size:,} B)")
+
+        # Structural metric validation (shbt25 section 5.2)
+        p03 = check_dir / MILESTONE_PNG[2]
+        if p03.exists():
+            ratio = analyze_void_blowout(p03)
+            print(f"[METRIC] {check_dir.name}/{p03.name} void contrast ratio: {ratio:.4f}")
+
+        p04 = check_dir / MILESTONE_PNG[3]
+        if p04.exists():
+            axis_p, diag_p = analyze_spoke_anisotropy(p04)
+            print(f"[METRIC] {check_dir.name}/{p04.name} coordinate axis power ratio: {axis_p:.4f}")
+
+        p05 = check_dir / MILESTONE_PNG[4]
+        if p05.exists():
+            axis_p, diag_p = analyze_spoke_anisotropy(p05)
+            print(f"[METRIC] {check_dir.name}/{p05.name} diagonal caustic power ratio: {diag_p:.4f}")
+
     return ok
 
 

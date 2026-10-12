@@ -757,68 +757,119 @@ def generate_weil_modular_phases_grid(grid_size: int) -> np.ndarray:
 
 def compute_2lpt_displacements(
     delta_k: np.ndarray,
-    box_size: float,
-    z_init: float = 30.0,
+    box_size_mpc: float = 222.5502,
+    z_init: float = 100.0,
     omega_m: float = 0.3153,
-    omega_lambda: float = 0.6847,
-) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    h0: float = 67.40058,
+) -> tuple[np.ndarray, np.ndarray]:
     """
-    Computes exact 2LPT initial displacement fields x(q) = q - D1 nabla Phi^(1) + D2 nabla Phi^(2).
+    Computes 2LPT particle displacements and canonical momenta.
+    delta_k: Density field in Fourier space on a regular N_grid^3 grid.
+    Returns: (displacements_comoving_mpc, velocities_km_s)
     """
     n_grid = delta_k.shape[0]
-    k_1d = 2.0 * np.pi * np.fft.fftfreq(n_grid, d=box_size / n_grid)
-    kx, ky, kz = np.meshgrid(k_1d, k_1d, k_1d, indexing="ij")
-    k_sq = kx**2 + ky**2 + kz**2
-    k_sq[0, 0, 0] = 1.0
+    kx = 2.0 * np.pi * np.fft.fftfreq(n_grid, d=box_size_mpc / n_grid)
+    ky = 2.0 * np.pi * np.fft.fftfreq(n_grid, d=box_size_mpc / n_grid)
+    kz = 2.0 * np.pi * np.fft.fftfreq(n_grid, d=box_size_mpc / n_grid)
+    KX, KY, KZ = np.meshgrid(kx, ky, kz, indexing='ij')
 
-    # First-order gravitational potential Phi^(1) in Fourier space
-    phi1_k = -delta_k / k_sq
+    K_sq = KX**2 + KY**2 + KZ**2
+    K_sq[0, 0, 0] = 1.0  # Prevent divide-by-zero on DC mode
+
+    # 1LPT Potential: Phi_1(k) = -delta(k) / K^2
+    phi1_k = -delta_k / K_sq
     phi1_k[0, 0, 0] = 0.0
 
-    # First-order displacement components Psi^(1)_i = - d/dq_i Phi^(1)
-    psi1_x = np.fft.ifftn(-1j * kx * phi1_k).real
-    psi1_y = np.fft.ifftn(-1j * ky * phi1_k).real
-    psi1_z = np.fft.ifftn(-1j * kz * phi1_k).real
+    # First-order displacement components: Psi_1,i = -d(Phi_1)/dx_i
+    psi1_x = np.real(np.fft.ifftn(1j * KX * phi1_k))
+    psi1_y = np.real(np.fft.ifftn(1j * KY * phi1_k))
+    psi1_z = np.real(np.fft.ifftn(1j * KZ * phi1_k))
 
-    # Second derivatives of Phi^(1) for tidal tensor computation
-    phi1_xx = np.fft.ifftn(- (kx**2) * phi1_k).real
-    phi1_yy = np.fft.ifftn(- (ky**2) * phi1_k).real
-    phi1_zz = np.fft.ifftn(- (kz**2) * phi1_k).real
-    phi1_xy = np.fft.ifftn(- (kx * ky) * phi1_k).real
-    phi1_yz = np.fft.ifftn(- (ky * kz) * phi1_k).real
-    phi1_zx = np.fft.ifftn(- (kz * kx) * phi1_k).real
+    # Second-order source terms (Tidal shear tensor derivatives)
+    phi1_xx = np.real(np.fft.ifftn(-KX * KX * phi1_k))
+    phi1_yy = np.real(np.fft.ifftn(-KY * KY * phi1_k))
+    phi1_zz = np.real(np.fft.ifftn(-KZ * KZ * phi1_k))
+    phi1_xy = np.real(np.fft.ifftn(-KX * KY * phi1_k))
+    phi1_xz = np.real(np.fft.ifftn(-KX * KZ * phi1_k))
+    phi1_yz = np.real(np.fft.ifftn(-KY * KZ * phi1_k))
 
-    # Second-order source term: S^(2) = sum_{i>j} [Phi_ii Phi_jj - (Phi_ij)^2]
-    s2 = (
-        phi1_xx * phi1_yy
-        + phi1_yy * phi1_zz
-        + phi1_zz * phi1_xx
-        - phi1_xy**2
-        - phi1_yz**2
-        - phi1_zx**2
+    # 2LPT Source: S_2 = Sum_{i>j} [Phi_ii Phi_jj - (Phi_ij)^2]
+    source_2 = (
+        phi1_xx * phi1_yy + phi1_xx * phi1_zz + phi1_yy * phi1_zz
+        - (phi1_xy**2 + phi1_xz**2 + phi1_yz**2)
     )
 
-    # Invert Poisson equation for Phi^(2): nabla^2 Phi^(2) = S^(2)
-    s2_k = np.fft.fftn(s2)
-    phi2_k = -s2_k / k_sq
+    source_2_k = np.fft.fftn(source_2)
+    phi2_k = -source_2_k / K_sq
     phi2_k[0, 0, 0] = 0.0
 
-    # Second-order displacement components: Psi^(2)_i = - d/dq_i Phi^(2)
-    psi2_x = np.fft.ifftn(-1j * kx * phi2_k).real
-    psi2_y = np.fft.ifftn(-1j * ky * phi2_k).real
-    psi2_z = np.fft.ifftn(-1j * kz * phi2_k).real
+    # Second-order displacement components
+    psi2_x = np.real(np.fft.ifftn(1j * KX * phi2_k))
+    psi2_y = np.real(np.fft.ifftn(1j * KY * phi2_k))
+    psi2_z = np.real(np.fft.ifftn(1j * KZ * phi2_k))
 
-    # Growth factor evaluation at z_init
+    # Scale factor and growth functions
     a_init = 1.0 / (1.0 + z_init)
-    d1 = a_init  # Accurate to 0.01% in matter domination
-    d2 = - (3.0 / 7.0) * (d1**2)
+    d1 = a_init
+    d2 = -3.0 / 7.0 * (a_init**2)
 
-    # Eulerian displacement x(q) - q
-    disp_x = d1 * psi1_x - d2 * psi2_x
-    disp_y = d1 * psi1_y - d2 * psi2_y
-    disp_z = d1 * psi1_z - d2 * psi2_z
+    # Supercomoving growth velocities (dD1/dtau, dD2/dtau)
+    h_init = h0 * np.sqrt(omega_m * (1.0 + z_init)**3 + (1.0 - omega_m))
+    d1_dot = d1 * a_init * h_init
+    d2_dot = 2.0 * d2 * a_init * h_init
 
-    return disp_x, disp_y, disp_z
+    disp_x = d1 * psi1_x + d2 * psi2_x
+    disp_y = d1 * psi1_y + d2 * psi2_y
+    disp_z = d1 * psi1_z + d2 * psi2_z
+
+    vel_x = d1_dot * psi1_x + d2_dot * psi2_x
+    vel_y = d1_dot * psi1_y + d2_dot * psi2_y
+    vel_z = d1_dot * psi1_z + d2_dot * psi2_z
+
+    displacements = np.stack([disp_x, disp_y, disp_z], axis=-1)
+    velocities = np.stack([vel_x, vel_y, vel_z], axis=-1)
+    return displacements, velocities
+
+
+def export_particles_init_binary(
+    filename: str,
+    displacements: np.ndarray,
+    velocities: np.ndarray,
+    box_size_mpc: float = 222.5502,
+):
+    """
+    Exports initial 32-byte Particle records into binary file matching WebGPU Particle struct:
+    pos: vec3<f32>, mass: f32, vel: vec3<f32>, baryon_charge: f32.
+    """
+    n_grid = displacements.shape[0]
+    total_particles = n_grid**3
+
+    grid_indices = np.indices((n_grid, n_grid, n_grid)).reshape(3, -1).T
+    dx = box_size_mpc / n_grid
+
+    unperturbed_pos = (grid_indices + 0.5) * dx
+    disp_flat = displacements.reshape(-1, 3)
+    vel_flat = velocities.reshape(-1, 3)
+
+    final_pos = np.mod(unperturbed_pos + disp_flat, box_size_mpc)
+
+    buf = bytearray(total_particles * 32)
+    for i in range(total_particles):
+        px, py, pz = final_pos[i]
+        vx, vy, vz = vel_flat[i]
+        mass = 1.0
+        baryon_charge = 1.0 if (i % 7 == 0) else 0.0  # h_i >= 23/33 threshold compatible
+        struct.pack_into(
+            "<8f",
+            buf,
+            i * 32,
+            float(px), float(py), float(pz), float(mass),
+            float(vx), float(vy), float(vz), float(baryon_charge),
+        )
+
+    with open(filename, "wb") as f:
+        f.write(buf)
+    return filename
 
 
 def generate_isotropic_weil_phases(kx: np.ndarray, ky: np.ndarray, kz: np.ndarray) -> np.ndarray:

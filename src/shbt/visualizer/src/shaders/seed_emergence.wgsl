@@ -447,9 +447,9 @@ fn cs_detect_condensation(@builtin(global_invocation_id) id: vec3<u32>) {
 // Psi_nuc-weighted precursor mass grid.
 const ETA_D: f32 = 0.6969696970;      // 23/33
 const Z_NUC_START: f32 = 30.0;        // precursor incubation window open
-const Z_NUC_END: f32 = 17.782386;     // condensation onset handoff (30.0 * 0.59274621)
+const Z_NUC_END: f32 = 18.0;           // condensation onset handoff (z in [18, 30])
 
-// C^2 quintic nucleation weight Psi_nuc(z) with open floor Psi_nuc(z <= 17.782386) = 1.0:
+// C^2 quintic nucleation weight Psi_nuc(z) with open floor Psi_nuc(z <= 18.0) = 1.0:
 fn compute_nucleation_weight(z: f32, z_start: f32, z_end: f32) -> f32 {
     if (z >= z_start) {
         return 0.0;

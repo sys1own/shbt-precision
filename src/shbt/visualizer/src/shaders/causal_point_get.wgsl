@@ -129,9 +129,12 @@ fn cs_causal_point_get(@builtin(global_invocation_id) global_id: vec3<u32>) {
         cp.collapse_phase = min(1.0, cp.collapse_phase + params.dt * 1.8);
         // Entropic erasure rate scales with the derived GET coupling.
         cp.entropy_budget -= cp.get_cost * kappa_get * params.dt;
-        let grad_ln_rho = sample_density_gradient(cp.center, params.mesh_dim)
-            / (sample_density(cp.center, params.mesh_dim) + rho_cardy_floor);
-        cp.center -= params.dt * kappa_get * grad_ln_rho * 1e-3;
+        let rho_bulk = sample_density(cp.center, params.mesh_dim);
+        let grad_rho = sample_density_gradient(cp.center, params.mesh_dim);
+        let rho_reg = rho_bulk + rho_cardy_floor;
+        let grad_ln_rho = grad_rho / rho_reg;
+        let a_get_cp = -kappa_get * (1.0 + params.load_fraction) * grad_ln_rho;
+        cp.center += params.dt * a_get_cp * 1e-3;
     } else {
         cp.active_flag = 0u;
         cp.collapse_phase = max(0.0, cp.collapse_phase - params.dt * 0.5);
@@ -154,9 +157,6 @@ fn apply_get_acceleration(@builtin(global_invocation_id) global_id: vec3<u32>) {
     let rel_z = clamp((1.0 + params.redshift) / 18.0, 1.0e-3, 50.0);
     let n_limit = (params.c_eff / 6.0) * pow(rel_z, 7.5);
 
-    // Virial velocity dispersion at holographic saturation: sigma_vir^2 ~ 0.05
-    let sigma_vir_sq = 0.05;
-
     for (var i = 0u; i < params.causal_point_count; i = i + 1u) {
         let cp = causal_points[i];
         if (cp.active_flag == 1u) {
@@ -167,28 +167,38 @@ fn apply_get_acceleration(@builtin(global_invocation_id) global_id: vec3<u32>) {
                 let rho = sample_density(p.pos, params.mesh_dim);
                 let grad_rho = sample_density_gradient(p.pos, params.mesh_dim);
 
-                // Cardy holographic capacity saturation ratio: eta_sat = N_local / N_limit
-                let eta_sat = clamp(rho / max(n_limit, 1.0e-4), 0.0, 2.0);
+                // Cardy holographic capacity saturation ratio: eta_sat = clamp(rho / n_limit, 0, 1)
+                let eta_sat = clamp(rho / max(n_limit, 1.0e-4), 0.0, 1.0);
 
                 // Dynamic Cardy capacity floor: rho_floor = max(0.00696738, 1 / (39 * a))
                 let a_curr = 1.0 / (1.0 + max(params.redshift, -0.999));
                 let rho_floor = max(0.00696738, 1.0 / (39.0 * max(a_curr, 0.001)));
-                let grad_ln_rho = grad_rho / (rho + rho_floor);
+                let rho_reg = rho + rho_floor;
+                let grad_ln_rho = grad_rho / rho_reg;
 
-                // Emergent velocity dispersion floor via quartic Cardy activation (shbt20):
-                // sigma_v^2 = 0.5 * kappa_GET * (eta_sat^4 / (1 + eta_sat^4))
+                // Generalized Entropic Transport acceleration:
+                // a_GET = -kappa_GET * (1 + f_load) * grad_ln_rho
                 let kappa_get = compute_kappa_get(params.load_fraction);
-                let eta_sq = eta_sat * eta_sat;
-                let eta_pow4 = eta_sq * eta_sq;
-                let cardy_switch = eta_pow4 / (1.0 + eta_pow4);
-                let sigma_v_sq = 0.5 * kappa_get * cardy_switch;
+                let a_get = -kappa_get * (1.0 + params.load_fraction) * grad_ln_rho;
+
+                // Halo core virial dispersion acceleration:
+                // a_disp = -2 * sigma_v^2 * grad_ln_rho with sigma_v^2 = (T_vir * 8.314e-3) * eta_sat
+                let t_vir = 1.0e5; // Virial halo temperature (K)
+                let sigma_v_sq = (t_vir * 8.314e-3 * 1.0e-4) * eta_sat;
+                let a_disp = -2.0 * sigma_v_sq * grad_ln_rho;
+
+                // Visible baryon hydrodynamic acceleration: a_hydro = -c_s^2 * a * grad_ln_rho_b
+                // for particles with h_i >= 23/33 (0.6969697)
+                var a_hydro = vec3<f32>(0.0);
+                if (p.grav_mass >= 0.6969697) {
+                    let z = max(params.redshift, 0.0);
+                    let t_b = 2.7255 * (1.0 + z) * (z / (z + 137.0));
+                    let c_s_sq = 1.666667 * 1.380649e-23 * t_b / (1.22 * 1.67262e-27);
+                    a_hydro = -c_s_sq * a_curr * grad_ln_rho * 1.0e-6;
+                }
 
                 let window = 1.0 - smoothstep(0.0, cp.radius, dist);
-
-                // Inward entropic clustering kick balanced by outward dispersion pressure:
-                // a_net = (-kappa_get + 2.0 * sigma_v_sq) * cp.collapse_phase * grad_ln_rho * window
-                let effective_coupling = -kappa_get + 2.0 * sigma_v_sq;
-                let a_net = effective_coupling * cp.collapse_phase * grad_ln_rho * window;
+                let a_net = (a_get + a_disp + a_hydro) * cp.collapse_phase * window;
 
                 total_a_get += a_net;
 

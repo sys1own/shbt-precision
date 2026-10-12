@@ -199,6 +199,32 @@ mod tests {
         );
     }
 
+    #[test]
+    fn test_symplectic_leapfrog_energy_conservation() {
+        let mut x: f64 = 0.5;
+        let mut p: f64 = 0.1;
+        let dt_tau: f64 = 1e-4;
+        let n_steps: usize = 10_000;
+
+        let omega: f64 = 1.0;
+        let initial_energy = 0.5 * p * p + 0.5 * omega * omega * x * x;
+
+        for _ in 0..n_steps {
+            p -= 0.5 * dt_tau * (omega * omega * x);
+            x += dt_tau * p;
+            p -= 0.5 * dt_tau * (omega * omega * x);
+        }
+
+        let final_energy = 0.5 * p * p + 0.5 * omega * omega * x * x;
+        let relative_drift = ((final_energy - initial_energy) / initial_energy).abs();
+
+        assert!(
+            relative_drift < 1e-4,
+            "Symplectic KDK energy drift exceeded tolerance: {} >= 1e-4",
+            relative_drift
+        );
+    }
+
     /// Branchless degree-(2,2) rational Planckian palette used by
     /// `blackbody_to_linear_rgb` in dual_channel_render.wgsl: every RGB
     /// component must stay inside [0, 1.05] with no NaN across the

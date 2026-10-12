@@ -588,6 +588,13 @@ fn cs_solve_poisson(@builtin(global_invocation_id) global_id: vec3<u32>) {
         return;
     }
 
+    // SPHERICAL NYQUIST TRUNCATION
+    let m_nyq = f32(N) * 0.5;
+    if (m_sq >= m_nyq * m_nyq) {
+        grid_pressure_baryon[flat_idx] = 0.0;
+        return;
+    }
+
     // Physical continuous wavenumbers k = (2*pi/L) * m
     let k_fac = 6.28318530718 / cosmo.box_size;
     let k_sq = m_sq * (k_fac * k_fac);

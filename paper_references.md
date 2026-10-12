@@ -296,6 +296,15 @@ Bidirectional technology transfer: `shbt-precision` is the computational authori
 
 ---
 
+## 5.1 Anchoring Literature References
+
+- **Martel & Shapiro (1998)**: *A convenient set of comoving variables and a clean formulation of the cosmological N-body and hydrodynamic equations*, MNRAS, 297, 467. [Establishes supercomoving time $d\tau = H_0 a^{-2} dt$, canonical momenta $\mathbf{p} = a \mathbf{v} / V_0$, and exact absorption of Hubble drag for symplectic leapfrog solvers].
+- **Hockney & Eastwood (1988)**: *Computer Simulation Using Particles*, Taylor & Francis. [Establishes 4th-order Cloud-In-Cell Fourier-space deconvolution factors $D_{\mathrm{CIC}}(\mathbf{k}) = \operatorname{sinc}^{-4}(\pi k_i / N)$ for Particle-Mesh gravitational solvers].
+- **Crocce, Pueblas, & Scoccimarro (2006)**: *Transients from Initial Conditions and Higher Order Perturbation Theory in N-body Simulations*, MNRAS, 373, 369. [Establishes 2LPT displacement formulation $D_2(a) = -\frac{3}{7} a^2$ to suppress premature shell crossing].
+- **Kovtun, Son, & Starinets (2005)**: *Viscosity in Strongly Coupled Gauge Field Theories and Holographic Duals*, Phys. Rev. Lett., 94, 111601. [Provides the universal boundary diffusion floor $\kappa_{\mathrm{diff}} = 2 / (17 \pi)$ on the holographic horizon screen].
+
+---
+
 ## 6. Quick Verification
 
 ```bash

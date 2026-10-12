@@ -727,6 +727,47 @@ The system is integrated using a time-symmetric Kick-Drift-Kick (KDK) symplectic
 \tilde{\mathbf{x}}^{n+1} &= \tilde{\mathbf{x}}^n + \Delta \tilde{t}\, \tilde{\mathbf{v}}^{n+1/2}, \\
 \tilde{\mathbf{v}}^{n+1} &= \tilde{\mathbf{v}}^{n+1/2} + \frac{1}{2} \Delta \tilde{t}\, \left[ -\tilde{\nabla}\tilde{\Phi}(\tilde{\mathbf{x}}^{n+1}, a^{n+1}) + \tilde{\mathbf{a}}_{\mathrm{ext}}(\tilde{\mathbf{x}}^{n+1}, a^{n+1}) \right].
 \end{align}
-This discretization preserves the canonical phase-space symplectic 2-form $\omega = \sum_i d\tilde{\mathbf{x}}_i \wedge d\tilde{\mathbf{v}}_i$, guaranteeing bounded energy drift $|\Delta E / E_0| < 10^{-4}$ across the entire simulation runtime.
+\section{Appendix D: Holographic Jeans Core Virialization, Cardy Capacity Floor, and Non-Singular Cosmic Web Dynamics}
+\label{app:jeans_virialization_cardy}
+
+Non-linear structure formation in SHBT incorporates Causal-Point Generalized Entropic Transport (GET) balancing gravitational collapse against boundary holographic entropy production. The unregularized entropic acceleration $\mathbf{a}_{\text{GET}} \sim -\nabla \ln \rho_{\text{bulk}}$ exhibits a formal coordinate singularity in cosmic voids ($\rho_{\text{bulk}} \to 0$). We resolve this by coupling the bulk transport kernel to the dynamic Cardy capacity floor:
+\begin{equation}
+    \rho_{\text{floor}}(a) = \max\left( 0.00696738, \, \frac{1}{39a} \right), \quad \rho_{\text{reg}}(\mathbf{x}, a) = \rho_{\text{bulk}}(\mathbf{x}) + \rho_{\text{floor}}(a).
+\end{equation}
+The regularized entropic transport acceleration is:
+\begin{equation}
+    \mathbf{a}_{\text{GET}}(\mathbf{x}) = -\kappa_{\text{GET}}(f_{\text{load}}) \nabla \ln \rho_{\text{reg}}(\mathbf{x}) = -\kappa_{\text{GET}}(f_{\text{load}}) \frac{\nabla \rho_{\text{bulk}}(\mathbf{x})}{\rho_{\text{bulk}}(\mathbf{x}) + \rho_{\text{floor}}(a)}.
+\end{equation}
+Because $\lim_{\rho_{\text{bulk}} \to 0} \|\nabla \rho_{\text{bulk}}\| = 0$ and the denominator is strictly bounded from below by $\rho_{\text{floor}}(a) \ge 0.00696738$, we have $\lim_{\rho_{\text{bulk}} \to 0} \mathbf{a}_{\text{GET}}(\mathbf{x}) = \mathbf{0}$, extinguishing repulsive blowout forces in deep voids.
+
+In collapsed virialized halos, boundary bit saturation $\eta_{\text{sat}}(\mathbf{x}) = \operatorname{clamp}(\rho_{\text{bulk}} / \rho_{\text{sat}}(z), 0, 1) \to 1$ activates holographic virial velocity dispersion acceleration:
+\begin{equation}
+    \mathbf{a}_{\text{disp}}(\mathbf{x}) = -2\sigma_v^2(\mathbf{x}, z) \nabla \ln \rho_{\text{reg}}(\mathbf{x}), \quad \sigma_v^2(\mathbf{x}, z) = \frac{k_B T_{\text{vir}}}{m_p} \eta_{\text{sat}}(\mathbf{x}).
+\end{equation}
+Under hydrostatic equilibrium $\nabla \Phi + 2\sigma_v^2 \nabla \ln \rho_{\text{bulk}} = \mathbf{0}$, substituting into the Poisson equation yields an isothermal core equation with finite, non-singular Jeans core radius:
+\begin{equation}
+    r_c = \sqrt{\frac{\sigma_v^2}{2\pi G \rho_0}} > 0,
+\end{equation}
+which halts artificial caustic collapse and prevents the formation of diamond-shaped hyperoctahedral singularities.
+
+\section{Appendix F: Precision Primordial Initial Conditions, 2LPT Displacements, and Supercomoving Martel--Shapiro Integration}
+\label{app:supercomoving_pm_2lpt}
+
+To prevent spurious shell-crossing artifacts arising from linear Zel'dovich displacement fields, primordial initial conditions are integrated using Second-Order Lagrangian Perturbation Theory (2LPT). For a particle at unperturbed Lagrangian coordinate $\mathbf{q}$, the comoving Eulerian position $\mathbf{x}$ and supercomoving canonical momentum $\tilde{\mathbf{p}}$ at $z_{\text{init}} = 100$ are given by:
+\begin{equation}
+    \mathbf{x}(\mathbf{q}) = \mathbf{q} + D_1(a) \mathbf{\Psi}_1(\mathbf{q}) + D_2(a) \mathbf{\Psi}_2(\mathbf{q}),
+\end{equation}
+\begin{equation}
+    \tilde{\mathbf{p}}(\mathbf{q}) = \frac{a}{V_0} \left[ \dot{D}_1(a) \mathbf{\Psi}_1(\mathbf{q}) + \dot{D}_2(a) \mathbf{\Psi}_2(\mathbf{q}) \right],
+\end{equation}
+where $\nabla \cdot \mathbf{\Psi}_1 = -\delta$, $\nabla \cdot \mathbf{\Psi}_2 = \sum_{i>j} [ \Psi_{1,ii} \Psi_{1,jj} - (\Psi_{1,ij})^2 ]$, $D_1(a) = a$, and $D_2(a) = -\frac{3}{7}a^2$.
+
+Time evolution is computed in supercomoving variables $\tilde{\mathbf{x}} = \mathbf{x} / L_{\text{box}}$, $d\tilde{\tau} = (H_0 / a^2) dt$, $\tilde{\mathbf{p}} = d\tilde{\mathbf{x}} / d\tilde{\tau}$ under a symplectic Kick-Drift-Kick (KDK) leapfrog scheme:
+\begin{align}
+    \tilde{\mathbf{p}}_{n+1/2} &= \tilde{\mathbf{p}}_n + \frac{\Delta \tilde{\tau}}{2} \mathbf{a}_{\text{tot}}(\tilde{\mathbf{x}}_n, a_n), \\
+    \tilde{\mathbf{x}}_{n+1} &= \left[ \tilde{\mathbf{x}}_n + \Delta \tilde{\tau} \tilde{\mathbf{p}}_{n+1/2} \right] \pmod{1.0}, \\
+    \tilde{\mathbf{p}}_{n+1} &= \tilde{\mathbf{p}}_{n+1/2} + \frac{\Delta \tilde{\tau}}{2} \mathbf{a}_{\text{tot}}(\tilde{\mathbf{x}}_{n+1}, a_{n+1}).
+\end{align}
+Gravitational potential solving employs the spectral Green's function $G_{\text{spectral}}(\mathbf{k})$ incorporating zero-mode nullification $G(\mathbf{0}) \equiv 0$, fourth-order Cloud-In-Cell deconvolution $D_{\text{CIC}}(\mathbf{k}) = \prod_{i=1}^3 \operatorname{sinc}^{-4}(\pi k_i / N)$, and conformal coupling $A(a) = \frac{3}{2}\Omega_{m,0} a (1 - \frac{10}{33}f_{\text{load}})$.
 
 \end{document}

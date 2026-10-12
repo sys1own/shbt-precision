@@ -48,55 +48,75 @@ def generate_isotropic_weil_phases(kx: np.ndarray, ky: np.ndarray, kz: np.ndarra
     return phases
 
 
+CANONICAL_M = 2901360
+ALPHA_WEIL = 24.0 / np.sqrt(3.0)  # 13.856406460551018
+BETA_WEIL = np.pi / np.sqrt(2.0)   # 2.221441469079183
+
+
+def splitmix64_vec(x_u64: np.ndarray) -> np.ndarray:
+    z = np.bitwise_and(x_u64 + np.uint64(0x9E3779B97F4A7C15), np.uint64(0xFFFFFFFFFFFFFFFF))
+    z = np.bitwise_and((z ^ (z >> np.uint64(30))) * np.uint64(0xBF58476D1CE4E5B9), np.uint64(0xFFFFFFFFFFFFFFFF))
+    z = np.bitwise_and((z ^ (z >> np.uint64(27))) * np.uint64(0x94D049BB133111EB), np.uint64(0xFFFFFFFFFFFFFFFF))
+    return z ^ (z >> np.uint64(31))
+
+
 def generate_weil_modular_phases_grid(
     grid_dim: int,
+    primary_modules: np.ndarray | None = None,
     K: int = 312,
-    seed: int = 42
+    seed: int = 42,
 ) -> np.ndarray:
     """
     Evaluates SO(3)-invariant modular Weil phases on a 3D grid with strict Hermitian anti-symmetry.
     """
-    n = grid_dim
-    freq = np.fft.fftfreq(n, d=1.0) * n
-    kx, ky, kz = np.meshgrid(freq, freq, freq, indexing='ij')
-    s = kx**2 + ky**2 + kz**2
-    weil_phase = (2.0 * np.pi / float(K)) * np.fmod(s, float(K))
+    n_grid = grid_dim
+    freq = np.fft.fftfreq(n_grid, d=1.0) * n_grid
+    nx, ny, nz = np.meshgrid(freq, freq, freq, indexing='ij')
 
-    rng = np.random.default_rng(seed)
-    uniform_random_phases = rng.uniform(0.0, 2.0 * np.pi, size=(n, n, n))
-    raw_phases = np.mod(weil_phase + uniform_random_phases, 2.0 * np.pi)
+    norm_sq = nx**2 + ny**2 + nz**2
+    norm = np.sqrt(norm_sq)
 
-    symmetrized_phases = np.zeros((n, n, n), dtype=np.float64)
-    visited = np.zeros((n, n, n), dtype=bool)
+    raw_indices = np.floor(ALPHA_WEIL * norm + BETA_WEIL * norm_sq).astype(np.int64)
+    mod_indices = np.mod(raw_indices, CANONICAL_M)
+    if primary_modules is None:
+        primary_modules = (2.0 * np.pi * (np.arange(CANONICAL_M, dtype=np.float64) + 0.5)) / CANONICAL_M
+    base_phases = primary_modules[mod_indices]
 
-    for ix in range(n):
-        opp_ix = (-ix) % n
-        for iy in range(n):
-            opp_iy = (-iy) % n
-            for iz in range(n):
-                opp_iz = (-iz) % n
+    grid = np.arange(n_grid)
+    IX, IY, IZ = np.meshgrid(grid, grid, grid, indexing='ij')
+    opp_IX = (-IX) % n_grid
+    opp_IY = (-IY) % n_grid
+    opp_IZ = (-IZ) % n_grid
 
-                if visited[ix, iy, iz]:
-                    continue
+    # Self-conjugate modes (DC and Nyquist)
+    self_conj = (IX == opp_IX) & (IY == opp_IY) & (IZ == opp_IZ)
 
-                if ix == 0 and iy == 0 and iz == 0:
-                    symmetrized_phases[0, 0, 0] = 0.0
-                    visited[0, 0, 0] = True
-                    continue
+    # Upper-hemisphere partition K+
+    k_plus = ((IX > opp_IX) | ((IX == opp_IX) & (IY > opp_IY)) | ((IX == opp_IX) & (IY == opp_IY) & (IZ > opp_IZ))) & (~self_conj)
 
-                if ix == opp_ix and iy == opp_iy and iz == opp_iz:
-                    symmetrized_phases[ix, iy, iz] = 0.0 if raw_phases[ix, iy, iz] < np.pi else np.pi
-                    visited[ix, iy, iz] = True
-                    continue
+    nx_i64 = nx.astype(np.int64)
+    ny_i64 = ny.astype(np.int64)
+    nz_i64 = nz.astype(np.int64)
 
-                p = raw_phases[ix, iy, iz]
-                symmetrized_phases[ix, iy, iz] = p
-                symmetrized_phases[opp_ix, opp_iy, opp_iz] = (-p) % (2.0 * np.pi)
+    ux = np.bitwise_and(nx_i64.astype(np.uint64), np.uint64(0xFFFFFFFF))
+    uy = np.bitwise_and(ny_i64.astype(np.uint64), np.uint64(0xFFFFFFFF))
+    uz = np.bitwise_and(nz_i64.astype(np.uint64), np.uint64(0xFFFFFFFF))
 
-                visited[ix, iy, iz] = True
-                visited[opp_ix, opp_iy, opp_iz] = True
+    seed_val = ux ^ (uy << np.uint64(21)) ^ (uz << np.uint64(42))
+    h1 = splitmix64_vec(seed_val)
+    h2 = splitmix64_vec(h1 ^ np.uint64(0x517CC1B727220A95))
+    psi_iso = (h2.astype(np.float64) / 18446744073709551616.0) * (2.0 * np.pi)
 
-    return symmetrized_phases
+    phases = np.zeros((n_grid, n_grid, n_grid), dtype=np.float64)
+
+    # Assign positive modes
+    phases[k_plus] = np.mod(base_phases[k_plus] + psi_iso[k_plus], 2.0 * np.pi)
+
+    # Hermitian anti-symmetry: phi(-k) = -phi(k) mod 2pi
+    phases[opp_IX[k_plus], opp_IY[k_plus], opp_IZ[k_plus]] = np.mod(-phases[k_plus], 2.0 * np.pi)
+    phases[self_conj] = 0.0
+
+    return phases
 
 
 def generate_weil_modular_phases(

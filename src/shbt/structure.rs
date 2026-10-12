@@ -463,98 +463,156 @@ mod tests {
 }
 
 pub const N_MOD: i64 = 2_901_360;
+pub const CANONICAL_M: usize = 2_901_360;
 pub const CFT_MODULE_COUNT: u64 = 2_901_360;
+pub const ALPHA_WEIL: f64 = 13.856_406_460_551_018; // 24.0 / sqrt(3.0)
+pub const BETA_WEIL: f64 = 2.221_441_469_079_183;   // pi / sqrt(2.0)
+
 const PRIME_C1: u64 = 73_856_093;
 const PRIME_C2: u64 = 19_349_663;
 const PRIME_C3: u64 = 83_492_791;
 const SPLITMIX_C1: u64 = 0xBF58_476D_1CE4_E5B9;
 const SPLITMIX_C2: u64 = 0x94D0_49BB_1331_11EB;
 
-/// Deterministic, PRNG-free phase generation mapping lattice modes onto CFT primary modules.
+#[inline]
+pub fn splitmix64(mut x: u64) -> u64 {
+    x = x.wrapping_add(0x9E3779B97F4A7C15);
+    x = (x ^ (x >> 30)).wrapping_mul(0xBF58476D1CE4E5B9);
+    x = (x ^ (x >> 27)).wrapping_mul(0x94D049BB133111EB);
+    x ^ (x >> 31)
+}
+
+#[inline]
+pub fn haar_angular_dispersion(nx: i32, ny: i32, nz: i32) -> f64 {
+    let ux = nx as u64 & 0x0000_0000_FFFF_FFFF;
+    let uy = ny as u64 & 0x0000_0000_FFFF_FFFF;
+    let uz = nz as u64 & 0x0000_0000_FFFF_FFFF;
+
+    // Bi-permutative directional mixing
+    let seed = ux ^ (uy << 21) ^ (uz << 42);
+    let h1 = splitmix64(seed);
+    let h2 = splitmix64(h1 ^ 0x517CC1B727220A95);
+
+    // Map to Haar phase on [0, 2*pi)
+    (h2 as f64 / 18_446_744_073_709_551_616.0) * std::f64::consts::TAU
+}
+
+/// First-principles SO(3) isotropic modular Weil phase generator mapping lattice modes onto CFT primary modules.
 ///
 /// Ensures:
-/// - Exact Hermitian anti-symmetry: phi(-k) == -phi(k) (mod 2*pi)
-/// - Total breaking of O_h point-group symmetries on individual realizations
-/// - Ergodic uniform distribution over [0, 2*pi)
+/// - Exact Euclidean norm modular index I(k) = floor(alpha * ||k||/k1 + beta * (||k||/k1)^2) mod M
+/// - Bi-permutative SplitMix64 Haar dispersion Psi_iso on upper-hemisphere partition K+
+/// - Exact Hermitian anti-symmetry: phi(-k) == -phi(k) (mod 2*pi) with phi(0) = 0
 pub fn generate_weil_modular_phases(grid_size: usize) -> Vec<f64> {
     let total_elements = grid_size * grid_size * grid_size;
     let mut phases = vec![0.0f64; total_elements];
-    let half_n = (grid_size / 2) as i64;
+    let half_n = (grid_size / 2) as i32;
 
     for ix in 0..grid_size {
-        let kx = if ix as i64 >= half_n {
-            ix as i64 - grid_size as i64
+        let neg_ix = (grid_size - ix) % grid_size;
+        let nx = if ix as i32 <= half_n {
+            ix as i32
         } else {
-            ix as i64
+            ix as i32 - grid_size as i32
         };
 
         for iy in 0..grid_size {
-            let ky = if iy as i64 >= half_n {
-                iy as i64 - grid_size as i64
+            let neg_iy = (grid_size - iy) % grid_size;
+            let ny = if iy as i32 <= half_n {
+                iy as i32
             } else {
-                iy as i64
+                iy as i32 - grid_size as i32
             };
 
             for iz in 0..grid_size {
-                let kz = if iz as i64 >= half_n {
-                    iz as i64 - grid_size as i64
-                } else {
-                    iz as i64
-                };
-                let idx = (ix * grid_size + iy) * grid_size + iz;
-
-                // For periodic FFT lattice indices, the negative mode -k has coordinates in [0, grid_size):
-                // neg_ix = (grid_size - ix) % grid_size, etc.
-                // The corresponding Fourier mode k_neg is:
-                let neg_ix = (grid_size - ix) % grid_size;
-                let neg_iy = (grid_size - iy) % grid_size;
                 let neg_iz = (grid_size - iz) % grid_size;
+                let nz = if iz as i32 <= half_n {
+                    iz as i32
+                } else {
+                    iz as i32 - grid_size as i32
+                };
+                let flat_idx = ix * grid_size * grid_size + iy * grid_size + iz;
+                let opp_idx = neg_ix * grid_size * grid_size + neg_iy * grid_size + neg_iz;
 
-                let kx_neg = if neg_ix as i64 >= half_n { neg_ix as i64 - grid_size as i64 } else { neg_ix as i64 };
-                let ky_neg = if neg_iy as i64 >= half_n { neg_iy as i64 - grid_size as i64 } else { neg_iy as i64 };
-                let kz_neg = if neg_iz as i64 >= half_n { neg_iz as i64 - grid_size as i64 } else { neg_iz as i64 };
-
-                // Modes that map to themselves under periodic negation:
+                // Strict zero-mode and self-conjugate (Nyquist) clamp: phi(0) = 0
                 if ix == neg_ix && iy == neg_iy && iz == neg_iz {
-                    phases[idx] = 0.0;
+                    phases[flat_idx] = 0.0;
                     continue;
                 }
 
-                // Lexicographical positive half-space partition:
-                // (ix, iy, iz) vs (neg_ix, neg_iy, neg_iz)
-                let is_positive = (ix, iy, iz) > (neg_ix, neg_iy, neg_iz);
+                // Upper-hemisphere partition K+
+                let is_in_k_plus = (ix > neg_ix)
+                    || (ix == neg_ix && iy > neg_iy)
+                    || (ix == neg_ix && iy == neg_iy && iz > neg_iz);
 
-                let (kx_c, ky_c, kz_c) = if is_positive {
-                    (kx, ky, kz)
-                } else {
-                    (kx_neg, ky_neg, kz_neg)
-                };
+                if is_in_k_plus {
+                    let norm_sq = (nx * nx + ny * ny + nz * nz) as f64;
+                    let norm = norm_sq.sqrt();
 
-                // Cast to unsigned 64-bit coordinates
-                let ux = kx_c as u64;
-                let uy = ky_c as u64;
-                let uz = kz_c as u64;
+                    // SO(3) invariant module mapping: I(k) = floor(alpha * norm + beta * norm^2) mod M
+                    let raw_idx = (ALPHA_WEIL * norm + BETA_WEIL * norm_sq).floor() as i64;
+                    let mod_idx = raw_idx.rem_euclid(CANONICAL_M as i64) as usize;
+                    let base_phase = std::f64::consts::TAU * ((mod_idx as f64 + 0.5) / (CANONICAL_M as f64));
 
-                // Asymmetric linear coordinate projection
-                let w = (ux.wrapping_mul(PRIME_C1))
-                    ^ (uy.wrapping_mul(PRIME_C2))
-                    ^ (uz.wrapping_mul(PRIME_C3));
+                    let psi = haar_angular_dispersion(nx, ny, nz);
+                    let phase = (base_phase + psi).rem_euclid(std::f64::consts::TAU);
+                    phases[flat_idx] = phase;
+                    // Strict Hermitian anti-symmetry: phi(-k) = -phi(k) mod 2*pi
+                    phases[opp_idx] = (-phase).rem_euclid(std::f64::consts::TAU);
+                }
+            }
+        }
+    }
 
-                // SplitMix64 bi-permutative mixing
-                let xi1 = (w ^ (w >> 30)).wrapping_mul(SPLITMIX_C1);
-                let xi2 = (xi1 ^ (xi1 >> 27)).wrapping_mul(SPLITMIX_C2);
-                let xi = xi2 ^ (xi2 >> 31);
+    phases
+}
 
-                // Modular CFT projection
-                let module_idx = xi % CFT_MODULE_COUNT;
-                let phi_canon = (2.0 * PI) * ((module_idx as f64 + 0.5) / (CFT_MODULE_COUNT as f64));
+pub fn generate_weil_modular_phases_with_modules(
+    n_grid: usize,
+    primary_modules: &[f64; CANONICAL_M],
+) -> Vec<f64> {
+    let half_n = (n_grid / 2) as i32;
+    let total_elements = n_grid * n_grid * n_grid;
+    let mut phases = vec![0.0f64; total_elements];
 
-                phases[idx] = if is_positive {
-                    phi_canon
-                } else {
-                    let wrapped = (2.0 * PI) - phi_canon;
-                    if wrapped >= 2.0 * PI { 0.0 } else { wrapped }
-                };
+    for ix in 0..n_grid {
+        let neg_ix = (n_grid - ix) % n_grid;
+        let nx = if ix as i32 <= half_n { ix as i32 } else { ix as i32 - n_grid as i32 };
+        for iy in 0..n_grid {
+            let neg_iy = (n_grid - iy) % n_grid;
+            let ny = if iy as i32 <= half_n { iy as i32 } else { iy as i32 - n_grid as i32 };
+            for iz in 0..n_grid {
+                let neg_iz = (n_grid - iz) % n_grid;
+                let nz = if iz as i32 <= half_n { iz as i32 } else { iz as i32 - n_grid as i32 };
+                let flat_idx = ix * n_grid * n_grid + iy * n_grid + iz;
+                let opp_idx = neg_ix * n_grid * n_grid + neg_iy * n_grid + neg_iz;
+
+                // Strict zero-mode and self-conjugate (Nyquist) clamp
+                if ix == neg_ix && iy == neg_iy && iz == neg_iz {
+                    phases[flat_idx] = 0.0;
+                    continue;
+                }
+
+                // Upper-hemisphere partition determination
+                let is_in_k_plus = (ix > neg_ix)
+                    || (ix == neg_ix && iy > neg_iy)
+                    || (ix == neg_ix && iy == neg_iy && iz > neg_iz);
+
+                if is_in_k_plus {
+                    let norm_sq = (nx * nx + ny * ny + nz * nz) as f64;
+                    let norm = norm_sq.sqrt();
+
+                    // SO(3) invariant module mapping
+                    let raw_idx = (ALPHA_WEIL * norm + BETA_WEIL * norm_sq).floor() as i64;
+                    let mod_idx = raw_idx.rem_euclid(CANONICAL_M as i64) as usize;
+                    let base_phase = primary_modules[mod_idx];
+
+                    let psi = haar_angular_dispersion(nx, ny, nz);
+                    let phase = (base_phase + psi).rem_euclid(std::f64::consts::TAU);
+                    phases[flat_idx] = phase;
+                    // Strict Hermitian anti-symmetry: phi(-k) = -phi(k) mod 2*pi
+                    phases[opp_idx] = (-phase).rem_euclid(std::f64::consts::TAU);
+                }
             }
         }
     }
