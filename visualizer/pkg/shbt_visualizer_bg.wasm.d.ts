@@ -10,6 +10,7 @@ export function shbtwebgpuengine_create(a: number, b: number): number;
 export function shbtwebgpuengine_debug_eparams(a: number, b: number): void;
 export function shbtwebgpuengine_get_active_observers_count(a: number): number;
 export function shbtwebgpuengine_hud_json(a: number, b: number): void;
+export function shbtwebgpuengine_load_particles_binary(a: number, b: number, c: number, d: number): void;
 export function shbtwebgpuengine_particle_count(a: number): number;
 export function shbtwebgpuengine_set_channels(a: number, b: number, c: number): void;
 export function shbtwebgpuengine_set_dark_glow(a: number, b: number): void;

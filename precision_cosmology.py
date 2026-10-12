@@ -2882,6 +2882,20 @@ def main(argv: Sequence[str] | None = None) -> int:
     return 0
 
 
+def generate_telemetry_table(
+    path: str = "data/telemetry.bin",
+    z_start: float = 100.0,
+    z_end: float = -0.999,
+    steps: int = 4096,
+) -> str:
+    """Generate SHBT-MMIO telemetry table / binary frame for WebGPU visualizer."""
+    from boltzmann_shbt import export_webgpu_telemetry
+    import os
+    os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
+    export_webgpu_telemetry(path, redshift=z_start)
+    return path
+
+
 if __name__ == "__main__":
     sys.exit(main())
 

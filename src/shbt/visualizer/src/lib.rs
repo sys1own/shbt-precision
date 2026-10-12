@@ -1515,12 +1515,12 @@ impl ShbtWebGpuEngine {
             device.create_buffer_init(&BufferInitDescriptor {
                 label: Some("ParticleBuffer_Ping"),
                 contents: bytemuck::cast_slice(&particles),
-                usage: BufferUsages::STORAGE | BufferUsages::COPY_SRC,
+                usage: BufferUsages::STORAGE | BufferUsages::COPY_SRC | BufferUsages::COPY_DST,
             }),
             device.create_buffer_init(&BufferInitDescriptor {
                 label: Some("ParticleBuffer_Pong"),
                 contents: bytemuck::cast_slice(&particles),
-                usage: BufferUsages::STORAGE | BufferUsages::COPY_DST,
+                usage: BufferUsages::STORAGE | BufferUsages::COPY_SRC | BufferUsages::COPY_DST,
             }),
         ];
         let cosmo_buffer = device.create_buffer(&BufferDescriptor {
@@ -4568,6 +4568,61 @@ impl ShbtWebGpuEngine {
     #[wasm_bindgen]
     pub fn particle_count(&self) -> u32 {
         self.num_particles
+    }
+
+    /// Upload initial 2LPT particle records from binary format (particles_init_z100.bin).
+    #[wasm_bindgen]
+    pub fn load_particles_binary(&mut self, data: &[u8]) -> Result<u32, JsValue> {
+        if data.len() < 16 {
+            return Err(JsValue::from_str("particles binary buffer too small"));
+        }
+        if &data[0..4] != b"SHBT" {
+            return Err(JsValue::from_str("invalid SHBT magic header"));
+        }
+        let count = u32::from_le_bytes(data[4..8].try_into().unwrap()) as usize;
+        let stride = u32::from_le_bytes(data[8..12].try_into().unwrap()) as usize;
+        if data.len() < 16 + count * stride {
+            return Err(JsValue::from_str("particles binary buffer truncated"));
+        }
+        let mut particles = Vec::with_capacity(count);
+        let mut raw_sum = 0.0f64;
+        for i in 0..count {
+            let offset = 16 + i * stride;
+            let px = f32::from_le_bytes(data[offset..offset + 4].try_into().unwrap());
+            let py = f32::from_le_bytes(data[offset + 4..offset + 8].try_into().unwrap());
+            let pz = f32::from_le_bytes(data[offset + 8..offset + 12].try_into().unwrap());
+            let _mass = f32::from_le_bytes(data[offset + 12..offset + 16].try_into().unwrap());
+            let vx = f32::from_le_bytes(data[offset + 16..offset + 20].try_into().unwrap());
+            let vy = f32::from_le_bytes(data[offset + 20..offset + 24].try_into().unwrap());
+            let vz = f32::from_le_bytes(data[offset + 24..offset + 28].try_into().unwrap());
+
+            let pos_x = if px <= 1.05 { px * BOX_SIZE } else { px };
+            let pos_y = if py <= 1.05 { py * BOX_SIZE } else { py };
+            let pos_z = if pz <= 1.05 { pz * BOX_SIZE } else { pz };
+
+            let branch_hash = ((i as f32 * 12.9898).sin() * 43758.5453).fract().abs();
+            let dark = branch_hash < (23.0 / 33.0);
+            let gmass = if dark { 1.0 } else { 0.45 };
+            raw_sum += gmass as f64;
+
+            particles.push(Particle {
+                position: [pos_x % BOX_SIZE, pos_y % BOX_SIZE, pos_z % BOX_SIZE],
+                channel: 0,
+                velocity: [vx, vy, vz],
+                charge_flags: if dark { 1 } else { 0 },
+                shear: [0.0; 4],
+                landauer_debt: 0.0,
+                grav_mass: gmass,
+                _pad: [0.0; 2],
+            });
+        }
+
+        self.mean_raw_total = raw_sum;
+        self.num_particles = count as u32;
+        let bytes = bytemuck::cast_slice(&particles);
+        self.queue.write_buffer(&self.particle_buffers[0], 0, bytes);
+        self.queue.write_buffer(&self.particle_buffers[1], 0, bytes);
+        Ok(count as u32)
     }
 
     #[wasm_bindgen]

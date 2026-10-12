@@ -2412,6 +2412,19 @@ def _build_arg_parser() -> argparse.ArgumentParser:
         help="write one SHBT-MMIO telemetry frame (128-byte header + T/P grids + seed records) for the WebGPU visualizer",
     )
     parser.add_argument(
+        "--export-init-binary",
+        type=str,
+        default=None,
+        metavar="PATH",
+        help="export initial condition binary buffer (e.g. particles_init_z100.bin)",
+    )
+    parser.add_argument(
+        "--box",
+        type=float,
+        default=None,
+        help="comoving box length in Mpc (default: 222.5502)",
+    )
+    parser.add_argument(
         "--sim-speed",
         type=float,
         default=DEFAULT_CONFIG["sim_speed"],
@@ -2612,6 +2625,14 @@ def main(argv: list[str] | None = None) -> int:
         # PyO3 extension shutdown can segfault during interpreter teardown on
         # this build-only invocation; exit immediately after the build succeeds.
         os._exit(0)
+
+    if args.export_init_binary:
+        n_p = int(round(args.particles ** (1.0 / 3.0))) if args.particles else 64
+        box = args.box if args.box else (150.0 / 0.6740058)
+        parts = generate_2lpt_particles(n_particles_1d=n_p, l_box=box, z_init=100.0)
+        serialize_particles_binary(parts, args.export_init_binary)
+        print(f"Serialized {len(parts)} particles to {args.export_init_binary}")
+        return 0
 
     # 2LPT Initial conditions generator & isotropy audit mode
     if args.grid is not None or args.zinit is not None:

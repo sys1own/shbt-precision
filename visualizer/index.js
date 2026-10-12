@@ -146,6 +146,7 @@ async function boot() {
       delete descriptor.requiredLimits.maxInterStageShaderComponents;
     }
     return origRequestDevice.call(this, descriptor).then((device) => {
+      window.__gpuDevice = device;
       device.addEventListener("uncapturederror", (e) =>
         console.error(`[webgpu] ${e.error.message}`)
       );
@@ -160,6 +161,44 @@ async function boot() {
       `engine online\nparticles: ${engine.particle_count().toLocaleString()}\n` +
       "timeline: z = 1e14 \u2192 \u22121"
     );
+
+    // Deterministically load 2LPT initial conditions from particles_init_z100.bin
+    try {
+      console.log("[SHBT] Fetching particles_init_z100.bin...");
+      let resp = await fetch("/visualizer/particles_init_z100.bin");
+      if (!resp.ok) resp = await fetch("/particles_init_z100.bin");
+      if (!resp.ok) resp = await fetch("particles_init_z100.bin");
+      if (!resp.ok) {
+        throw new Error(`HTTP ${resp.status} fetching particles_init_z100.bin`);
+      }
+      const pBuf = await resp.arrayBuffer();
+      if (pBuf.byteLength !== 8388624) {
+        throw new Error(`particles_init_z100.bin size ${pBuf.byteLength} != expected 8388624`);
+      }
+      const loadedCount = engine.load_particles_binary(new Uint8Array(pBuf));
+      console.log(`[SHBT] Successfully loaded ${loadedCount} particles from particles_init_z100.bin`);
+      window.__particlesLoaded = true;
+    } catch (err) {
+      console.error(`[SHBT FATAL] Particle initialization fallback triggered: ${err.message}`);
+      window.__particlesFallback = true;
+      status(`FATAL: Fallback grid triggered: ${err.message}`);
+      throw err;
+    }
+
+    try {
+      let tResp = await fetch("/visualizer/data/telemetry.bin");
+      if (!tResp.ok) tResp = await fetch("/data/telemetry.bin");
+      if (!tResp.ok) tResp = await fetch("data/telemetry.bin");
+      if (tResp.ok) {
+        const tBuf = await tResp.arrayBuffer();
+        if (tBuf.byteLength >= 128) {
+          engine.update_frame_telemetry(new Uint8Array(tBuf));
+          console.log("[SHBT] Initialized telemetry from telemetry.bin");
+        }
+      }
+    } catch (e) {
+      console.warn("[SHBT] Telemetry preload note:", e.message);
+    }
   } catch (e) {
     status(`engine init failed:\n${e}`);
     throw e;
@@ -169,11 +208,11 @@ async function boot() {
   // frame into an offscreen RGBA target, reads it back, and blits it into a
   // 2D overlay canvas that captures correctly. The WebGPU canvas stays live
   // underneath for interactive use without the flag.
-  if (new URLSearchParams(location.search).get("capture") === "1") {
+  if (new URLSearchParams(location.search).get("capture") === "1" || new URLSearchParams(location.search).get("record") === "1") {
     // capture_frame_rgba holds &mut engine across an await; serialize every
     // mutating call through a queue so event handlers cannot re-enter it.
     const mutating = new Set([
-      "step_frame", "capture_frame_rgba", "update_frame_telemetry",
+      "step_frame", "capture_frame_rgba", "update_frame_telemetry", "load_particles_binary",
       "set_redshift", "set_speed", "set_playing", "set_projection",
       "set_unwrap_transition", "set_channels", "set_lensing_enabled",
       "set_lensing_scale", "set_dispersion", "set_doppler_enabled",
@@ -247,6 +286,39 @@ async function boot() {
     update_cosmic_state: (z, pos, look) =>
       engine.update_cosmic_state(z, pos[0], pos[1], pos[2], look[0], look[1], look[2]),
     clearCameraOverride: () => engine.clear_camera_override(),
+    // Deterministic offline fixed-timestep stepping hook for recording / CI
+    stepOffline: async (dt, z, pos, look) => {
+      if (z !== undefined && pos !== undefined && look !== undefined) {
+        engine.update_cosmic_state(z, pos[0], pos[1], pos[2], look[0], look[1], look[2]);
+      } else if (z !== undefined) {
+        engine.set_redshift(z);
+      }
+      const stepDt = (dt !== undefined && dt > 0) ? dt : (1.0 / 60.0);
+      if (captureCtx) {
+        const px = await engine.capture_frame_rgba(stepDt);
+        if (window.__gpuDevice) {
+          await window.__gpuDevice.queue.onSubmittedWorkDone();
+        }
+        const c = captureCtx.canvas;
+        captureCtx.putImageData(
+          new ImageData(new Uint8ClampedArray(px), c.width, c.height),
+          0, 0
+        );
+      } else {
+        engine.step_frame(stepDt);
+        if (window.__gpuDevice) {
+          await window.__gpuDevice.queue.onSubmittedWorkDone();
+        }
+      }
+      const m = JSON.parse(engine.hud_json());
+      refreshHud(m);
+      return m;
+    },
+    syncGpu: async () => {
+      if (window.__gpuDevice) {
+        await window.__gpuDevice.queue.onSubmittedWorkDone();
+      }
+    },
   };
   // Push the DOM control state into the engine once so the page defaults
   // are authoritative (shbt12: seed glitch defaults OFF for clean
@@ -254,7 +326,12 @@ async function boot() {
   applyOptics();
   applyGlitch();
   applySandboxControls();
-  requestAnimationFrame(frame);
+
+  const isOffline = new URLSearchParams(location.search).get("offline") === "1" || new URLSearchParams(location.search).get("record") === "1";
+  window.__SHBT_OFFLINE__ = isOffline;
+  if (!isOffline) {
+    requestAnimationFrame(frame);
+  }
 }
 
 let captureCtx = null;
@@ -283,6 +360,7 @@ function easeRedshift(dt) {
 }
 
 function frame(now) {
+  if (window.__SHBT_OFFLINE__) return;
   const dt = Math.min((now - lastT) / 1000, 0.1);
   lastT = now;
   if (dt > 0) {

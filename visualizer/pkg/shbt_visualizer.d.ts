@@ -169,6 +169,12 @@ export class ShbtWebGpuEngine {
 */
   set_show_observers(show: boolean): void;
 /**
+* Upload initial 2LPT particle records from binary format (particles_init_z100.bin).
+* @param {Uint8Array} data
+* @returns {number}
+*/
+  load_particles_binary(data: Uint8Array): number;
+/**
 */
   show_observers: boolean;
 }
@@ -335,6 +341,7 @@ export interface InitOutput {
   readonly shbtwebgpuengine_debug_eparams: (a: number, b: number) => void;
   readonly shbtwebgpuengine_get_active_observers_count: (a: number) => number;
   readonly shbtwebgpuengine_hud_json: (a: number, b: number) => void;
+  readonly shbtwebgpuengine_load_particles_binary: (a: number, b: number, c: number, d: number) => void;
   readonly shbtwebgpuengine_particle_count: (a: number) => number;
   readonly shbtwebgpuengine_set_channels: (a: number, b: number, c: number) => void;
   readonly shbtwebgpuengine_set_dark_glow: (a: number, b: number) => void;

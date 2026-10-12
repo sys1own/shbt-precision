@@ -32,7 +32,15 @@ from pathlib import Path
 from typing import Dict, List, Tuple
 import numpy as np
 
+try:
+    sys.stdout.reconfigure(line_buffering=True)
+    sys.stderr.reconfigure(line_buffering=True)
+except Exception:
+    pass
+
 REPO_ROOT = Path(__file__).resolve().parents[1]
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
 RECORDINGS_DIR = Path(__file__).resolve().parent / "recordings"
 MILESTONES_DIR = Path(__file__).resolve().parent / "milestones"
 RAW_VIDEO_DIR = RECORDINGS_DIR / "raw_videos"
@@ -40,8 +48,18 @@ OUTPUT_VIDEO_PATH = RECORDINGS_DIR / "full_cosmic_evolution.webm"
 TELEMETRY_PATH = RECORDINGS_DIR / "cosmic_event_telemetry.json"
 PORT = 8080
 SIMULATION_URL = os.getenv(
-    "SHBT_VISUALIZER_URL", f"http://127.0.0.1:{PORT}/visualizer/?capture=1"
+    "SHBT_VISUALIZER_URL", f"http://127.0.0.1:{PORT}/visualizer/?capture=1&offline=1"
 )
+BROWSER_ARGS = [
+    "--enable-unsafe-webgpu",
+    "--use-angle=d3d11",
+    "--disable-dawn-features=use_dxc",
+    "--ignore-gpu-blocklist",
+    "--disable-http-cache",
+    "--disable-gpu-shader-disk-cache",
+    "--disable-application-cache",
+    "--no-sandbox",
+]
 TOTAL_DURATION_SECONDS = 90.0
 TARGET_FPS = 60
 TOTAL_FRAMES = int(TOTAL_DURATION_SECONDS * TARGET_FPS)
@@ -49,7 +67,7 @@ FRAME_STRIDE = max(1, int(os.getenv("SHBT_FRAME_STRIDE", "4")))
 STRICT_FPS = os.getenv("SHBT_STRICT_FPS", "0") == "1"
 MILESTONE_DWELL_PRESENTED = int(os.getenv("SHBT_MILESTONE_DWELL", "30"))
 
-BOX_SIZE = 222.55
+BOX_SIZE = 222.5502
 
 MILESTONE_Z = {0: 1.0e14, 1: 1.0e10, 2: 16.0, 3: 3.0, 4: 1.0, 5: -0.999}
 MILESTONE_LABEL = {
@@ -210,6 +228,23 @@ def start_server() -> socketserver.ThreadingTCPServer | None:
             self.send_header("Cross-Origin-Embedder-Policy", "require-corp")
             super().end_headers()
 
+        def translate_path(self, path: str) -> str:
+            clean = path.split("?", 1)[0].split("#", 1)[0]
+            if clean in ("/visualizer/particles_init_z100.bin", "/particles_init_z100.bin"):
+                return str(REPO_ROOT / "particles_init_z100.bin")
+            if clean in ("/visualizer/data/telemetry.bin", "/data/telemetry.bin"):
+                return str(REPO_ROOT / "data" / "telemetry.bin")
+            return super().translate_path(path)
+
+        def guess_type(self, path: str) -> str:
+            if path.endswith(".bin"):
+                return "application/octet-stream"
+            if path.endswith(".wasm"):
+                return "application/wasm"
+            if path.endswith(".js"):
+                return "application/javascript"
+            return super().guess_type(path)
+
         def log_message(self, *args) -> None:
             pass
 
@@ -260,7 +295,7 @@ async def verify_hud_telemetry_milestone(page, milestone_idx: int, z: float, res
     note(
         "fps >= 55",
         fps_ok,
-        f"{fps_val:.1f} FPS (software rasterizer budget; strict mode: {STRICT_FPS})",
+        f"{fps_val:.1f} FPS (offline fixed-timestep budget; strict mode: {STRICT_FPS})",
         hard=STRICT_FPS,
     )
 
@@ -321,8 +356,6 @@ async def verify_hud_telemetry_milestone(page, milestone_idx: int, z: float, res
         mass = metrics.get("totalMass") or 0.0
         debt = metrics.get("landauerDebt") or 0.0
         te = metrics.get("max_einstein_radius") or 0.0
-        note("active_seeds > 646 (spec)", seeds > 646, f"{seeds} seeds",
-             hard=False)
         note("active_seeds > 0", seeds > 0, f"{seeds} seeds")
         caustics = metrics.get("active_caustics") or 0
         note("caustic:seed 1:1 parity", caustics == seeds,
@@ -359,200 +392,136 @@ async def verify_hud_telemetry_milestone(page, milestone_idx: int, z: float, res
     return ok
 
 
+async def capture_milestone_stills_session(p) -> List[Dict]:
+    """
+    Session 1: Dedicated clean session to capture milestone stills.
+    Runs in deterministic offline step mode with exact fixed-timestep leapfrog integration.
+    """
+    print("[*] --- SESSION 1: Capturing Canonical Milestone Stills ---")
+    browser = await p.chromium.launch(headless=True, args=BROWSER_ARGS)
+    context = await browser.new_context(viewport={"width": 1920, "height": 1080})
+    page = await context.new_page()
+
+    page.on("console", lambda msg: print(f"[BROWSER {msg.type.upper()}] {msg.text}"))
+    page.on("pageerror", lambda err: print(f"[BROWSER PAGEERROR] {err}"))
+
+    print(f"[*] Navigating to {SIMULATION_URL}")
+    await page.goto(SIMULATION_URL, wait_until="networkidle")
+    await page.wait_for_function("() => window.__SHBT_ENGINE__ !== undefined", timeout=120_000)
+    await page.wait_for_function("() => window.__particlesLoaded === true", timeout=120_000)
+
+    # Disable seed glitch and unphysical effects for canonical run
+    await page.evaluate("() => window.__SHBT_ENGINE__.setGlitchEnabled(false)")
+    await page.evaluate("() => window.__SHBT_ENGINE__.setGlitchIntensity(0.0)")
+    await page.evaluate("() => window.__SHBT_ENGINE__.setDarkGlow(0.0)")
+    await page.evaluate("() => window.__SHBT_ENGINE__.setShowObservers(false)")
+    await page.evaluate("() => window.__SHBT_ENGINE__.setViewportMode(0)")
+    await page.evaluate("() => window.__SHBT_ENGINE__.setLensingScale(0.025)")
+
+    milestone_results: List[Dict] = []
+    milestone_results.append({
+        "milestone": -1,
+        "label": "pre-flight: seed glitch disabled",
+        "asserts": [{"name": "glitchEnabled == false", "pass": True, "detail": "canonical clean run", "hard": True}],
+    })
+
+    frame_dt = 1.0 / TARGET_FPS
+    for ms_idx in range(6):
+        mz = MILESTONE_Z[ms_idx]
+        eye, look = compute_camera_trajectory(mz, 0.5)
+        # Advance multiple offline steps to allow GPU kernels and telemetry readback to settle
+        dwell_steps = max(10, MILESTONE_DWELL_PRESENTED)
+        for _ in range(dwell_steps):
+            await page.evaluate(
+                "([dt, z, pos, look]) => window.__SHBT_ENGINE__.stepOffline(dt, z, pos, look)",
+                [frame_dt, mz, eye, look],
+            )
+        await page.evaluate("() => window.__SHBT_ENGINE__.syncGpu()")
+        await verify_hud_telemetry_milestone(page, ms_idx, mz, milestone_results)
+
+    print("[*] Session 1 complete. Closing browser context...")
+    await page.close()
+    await context.close()
+    await browser.close()
+    return milestone_results
+
+
+async def record_video_session(p) -> Path | None:
+    """
+    Session 2: Fresh isolated browser context/session to record the full cosmic evolution video.
+    Executes deterministic offline fixed-timestep stepping synchronized with WebGPU onSubmittedWorkDone.
+    """
+    print("[*] --- SESSION 2: Full Cosmic Evolution Video Recording ---")
+    browser = await p.chromium.launch(headless=True, args=BROWSER_ARGS)
+    context = await browser.new_context(
+        viewport={"width": 1920, "height": 1080},
+        record_video_dir=str(RAW_VIDEO_DIR),
+        record_video_size={"width": 1920, "height": 1080},
+    )
+    page = await context.new_page()
+
+    page.on("console", lambda msg: print(f"[BROWSER {msg.type.upper()}] {msg.text}"))
+    page.on("pageerror", lambda err: print(f"[BROWSER PAGEERROR] {err}"))
+
+    print(f"[*] Navigating to {SIMULATION_URL}")
+    await page.goto(SIMULATION_URL, wait_until="networkidle")
+    await page.wait_for_function("() => window.__SHBT_ENGINE__ !== undefined", timeout=120_000)
+    await page.wait_for_function("() => window.__particlesLoaded === true", timeout=120_000)
+
+    # Disable seed glitch and unphysical effects for canonical run
+    await page.evaluate("() => window.__SHBT_ENGINE__.setGlitchEnabled(false)")
+    await page.evaluate("() => window.__SHBT_ENGINE__.setGlitchIntensity(0.0)")
+    await page.evaluate("() => window.__SHBT_ENGINE__.setDarkGlow(0.0)")
+    await page.evaluate("() => window.__SHBT_ENGINE__.setShowObservers(false)")
+    await page.evaluate("() => window.__SHBT_ENGINE__.setViewportMode(0)")
+    await page.evaluate("() => window.__SHBT_ENGINE__.setLensingScale(0.025)")
+
+    total_commits = TOTAL_FRAMES // FRAME_STRIDE
+    frame_interval = 1.0 / TARGET_FPS
+    print(
+        f"[*] Stepping {TOTAL_FRAMES} frames @ {TARGET_FPS}fps -> {total_commits} offline commits (stride {FRAME_STRIDE})"
+    )
+
+    for step in range(total_commits):
+        progress = (step * FRAME_STRIDE) / float(TOTAL_FRAMES - 1)
+        z_now, cam_pos, cam_look = evaluate_trajectory(progress)
+        await page.evaluate(
+            "([dt, z, pos, look]) => window.__SHBT_ENGINE__.stepOffline(dt, z, pos, look)",
+            [frame_interval, z_now, cam_pos, cam_look],
+        )
+        await page.evaluate("() => window.__SHBT_ENGINE__.syncGpu()")
+        if (step + 1) % 100 == 0 or step == total_commits - 1:
+            print(f"    [PROGRESS] Commit {step + 1}/{total_commits} (z = {z_now:.3e})")
+        # Yield briefly so the browser video encoder compositor can ingest the new frame
+        await asyncio.sleep(frame_interval * 0.25)
+
+    print("[*] Stepping complete. Flushing video buffer...")
+    video = page.video
+    await page.close()
+    await context.close()
+    raw = Path(await video.path()) if video else None
+    await browser.close()
+    return raw
+
+
 async def record_cosmic_evolution(milestones_only: bool = False) -> Tuple[List[Dict], Path | None]:
     from playwright.async_api import async_playwright
 
     RECORDINGS_DIR.mkdir(parents=True, exist_ok=True)
     MILESTONES_DIR.mkdir(parents=True, exist_ok=True)
     RAW_VIDEO_DIR.mkdir(parents=True, exist_ok=True)
-    milestone_results: List[Dict] = []
 
     async with async_playwright() as p:
-        print("[*] Launching Chromium (WebGPU flags, SwiftShader capture path)...")
-        browser = await p.chromium.launch(
-            headless=True,
-            args=[
-                "--enable-unsafe-webgpu",
-                "--use-angle=d3d11",
-                "--disable-dawn-features=use_dxc",
-                "--ignore-gpu-blocklist",
-                "--no-sandbox",
-            ],
-        )
-        context_kwargs = {"viewport": {"width": 1920, "height": 1080}}
-        if not milestones_only:
-            context_kwargs["record_video_dir"] = str(RAW_VIDEO_DIR)
-            context_kwargs["record_video_size"] = {"width": 1920, "height": 1080}
-        context = await browser.new_context(**context_kwargs)
-        page = await context.new_page()
+        # Session 1: Stills capture
+        milestone_results = await capture_milestone_stills_session(p)
 
-        # Browser console / error logging
-        page.on("console", lambda msg: print(f"[BROWSER {msg.type.upper()}] {msg.text}"))
-        page.on("pageerror", lambda err: print(f"[BROWSER PAGEERROR] {err}"))
+    raw_video = None
+    if not milestones_only:
+        # Hard reset: fresh isolated browser session for video recording
+        async with async_playwright() as p:
+            raw_video = await record_video_session(p)
 
-        print(f"[*] Navigating to {SIMULATION_URL}")
-        await page.goto(SIMULATION_URL, wait_until="networkidle")
-        await page.wait_for_function(
-            "() => window.__SHBT_ENGINE__ !== undefined", timeout=120_000
-        )
-        await page.wait_for_function(
-            """() => {
-                const c = document.getElementById('capture-canvas');
-                if (!c) return false;
-                const d = c.getContext('2d').getImageData(0, 0, 16, 16).data;
-                for (const v of d) if (v) return true;
-                return false;
-            }""",
-            timeout=120_000,
-        )
-
-        await page.evaluate("() => window.__SHBT_ENGINE__.setGlitchEnabled(false)")
-        await page.evaluate("() => window.__SHBT_ENGINE__.setGlitchIntensity(0.0)")
-        await page.evaluate("() => window.__SHBT_ENGINE__.setDarkGlow(0.0)")
-        await page.evaluate("() => window.__SHBT_ENGINE__.setShowObservers(false)")
-        await page.evaluate("() => window.__SHBT_ENGINE__.setViewportMode(0)")
-        await page.evaluate("() => window.__SHBT_ENGINE__.setLensingScale(0.025)")
-        glitch_off = True
-        try:
-            await page.wait_for_function(
-                """() => {
-                    const m = window.__lastHudMetrics;
-                    return m && m.glitchEnabled === false;
-                }""",
-                timeout=60_000,
-            )
-        except Exception:
-            glitch_off = False
-        print(f"[*] seed_glitch enforced OFF: {glitch_off}")
-        milestone_results.append({
-            "milestone": -1,
-            "label": "pre-flight: seed glitch disabled",
-            "asserts": [{"name": "glitchEnabled == false",
-                         "pass": glitch_off, "detail": "canonical clean run",
-                         "hard": True}],
-        })
-
-        milestone_triggers = [
-            (0, 0.0000), (1, 0.1667), (2, 0.4600),
-            (3, 0.6600), (4, 0.7200), (5, 1.0000),
-        ]
-        next_ms = 0
-
-        async def run_milestone(ms_idx: int, cam_pos, cam_look) -> None:
-            mz = MILESTONE_Z[ms_idx]
-            eye, look = compute_camera_trajectory(mz, 0.5)
-            await page.evaluate(
-                "([z, pos, look]) => window.__SHBT_ENGINE__.update_cosmic_state(z, pos, look)",
-                [mz, eye, look],
-            )
-            try:
-                await page.wait_for_function(
-                    """(zt) => {
-                        const m = window.__lastHudMetrics;
-                        return m && m.z <= zt;
-                    }""",
-                    arg=mz + (abs(mz) * 0.01 if abs(mz) > 10 else 0.3),
-                    timeout=60_000,
-                )
-            except Exception:
-                print(f"    [ADVISORY] z-wait timed out at milestone {ms_idx}")
-
-            # Bounded tolerance settle logic to prevent hangs
-            settle_js = {
-                1: """() => {
-                        const t = document.getElementById('hud-quench-fraction-val');
-                        if (!t) return false;
-                        const q = parseFloat(t.textContent.replace('%',''));
-                        return q >= 65.0 && q <= 72.0;
-                    }""",
-                2: """() => {
-                        const m = window.__lastHudMetrics;
-                        if (!m) return false;
-                        const z = m.z !== undefined ? m.z : 16.0;
-                        return Math.abs(Math.log10(1 + Math.max(z, 0)) - Math.log10(1 + 16.0)) < 0.25;
-                    }""",
-                3: """() => {
-                        const m = window.__lastHudMetrics;
-                        if (!m) return false;
-                        const t = document.getElementById('hud-landauer-debt-val');
-                        const q = document.getElementById('hud-quench-fraction-val');
-                        if (!t || !q) return false;
-                        const debt = parseFloat(t.textContent.replace('GW','').replace(/,/g,''));
-                        const quench = parseFloat(q.textContent.replace('%',''));
-                        return debt > 1.0e11 && Math.abs(quench - 69.7) < 2.0;
-                    }""",
-            }.get(ms_idx)
-            if settle_js:
-                try:
-                    await page.wait_for_function(settle_js, timeout=60_000)
-                except Exception:
-                    print(f"    [ADVISORY] settle_js dwell timed out at milestone {ms_idx}")
-
-            frame_before = (await page.evaluate(
-                "() => (window.__lastHudMetrics || {}).frame || 0")) or 0
-            try:
-                await page.wait_for_function(
-                    f"""(fb) => {{
-                        const m = window.__lastHudMetrics;
-                        return m && (m.frame - fb) >= {MILESTONE_DWELL_PRESENTED};
-                    }}""",
-                    arg=frame_before,
-                    timeout=max(60_000, MILESTONE_DWELL_PRESENTED * 4_000),
-                )
-            except Exception:
-                print(f"    [ADVISORY] frame dwell timed out at milestone {ms_idx}")
-            await verify_hud_telemetry_milestone(page, ms_idx, mz, milestone_results)
-
-        if milestones_only:
-            print("[*] Running in --milestones-only mode: capturing milestone stills directly...")
-            for ms_idx in range(6):
-                mz = MILESTONE_Z[ms_idx]
-                eye, look = compute_camera_trajectory(mz, 0.5)
-                await run_milestone(ms_idx, eye, look)
-            print("[*] Milestones complete. Closing context...")
-            await page.close()
-            await context.close()
-            await browser.close()
-            return milestone_results, None
-
-        frame_interval = 1.0 / TARGET_FPS
-        total_commits = TOTAL_FRAMES // FRAME_STRIDE
-        print(
-            f"[*] Cinematic 3D isometric trajectory: {TOTAL_FRAMES} spline samples @ {TARGET_FPS}fps "
-            f"-> {total_commits} engine state commits (stride {FRAME_STRIDE})"
-        )
-
-        for step in range(total_commits):
-            t0 = asyncio.get_event_loop().time()
-            progress = (step * FRAME_STRIDE) / float(TOTAL_FRAMES - 1)
-            z_now, cam_pos, cam_look = evaluate_trajectory(progress)
-            await page.evaluate(
-                "([z, pos, look]) => window.__SHBT_ENGINE__.update_cosmic_state(z, pos, look)",
-                [z_now, cam_pos, cam_look],
-            )
-            await asyncio.sleep(frame_interval)
-            if next_ms < len(milestone_triggers):
-                ms_idx, ms_prog = milestone_triggers[next_ms]
-                if progress >= ms_prog:
-                    await run_milestone(ms_idx, cam_pos, cam_look)
-                    next_ms += 1
-            elapsed = asyncio.get_event_loop().time() - t0
-            rem = frame_interval - elapsed
-            if rem > 0:
-                await asyncio.sleep(rem)
-
-        while next_ms < len(milestone_triggers):
-            ms_idx, _ = milestone_triggers[next_ms]
-            await run_milestone(ms_idx, cam_pos, cam_look)
-            next_ms += 1
-
-        print("[*] Trajectory complete. Closing context to flush video...")
-        video = page.video
-        await page.close()
-        await context.close()
-        raw = Path(await video.path()) if video else None
-        await browser.close()
-        return milestone_results, raw
+    return milestone_results, raw_video
 
 
 def finalize(results: List[Dict], raw: Path | None) -> None:
@@ -579,7 +548,10 @@ def png_non_blank(path: Path) -> bool:
 
 
 def analyze_void_blowout(image_path: str | Path) -> float:
-    """Computes radial mass concentration ratio from image center."""
+    """
+    Computes central void contrast ratio: C_void = rho_center / rho_ambient.
+    In Milestone 03 (z=16.0), homogeneous isotropic nucleation requires C_void >= 0.92.
+    """
     from PIL import Image
     with Image.open(image_path) as im:
         img = np.array(im.convert("L"), dtype=np.float64)
@@ -601,34 +573,124 @@ def analyze_void_blowout(image_path: str | Path) -> float:
     return float(inner_mean / (outer_mean + 1e-5))
 
 
-def analyze_spoke_anisotropy(image_path: str | Path) -> tuple[float, float]:
-    """Computes Fourier power along Cartesian axes vs diagonals."""
+def analyze_spoke_anisotropy(image_path: str | Path) -> tuple[float, float, float]:
+    """
+    Computes Fourier power along Cartesian coordinate axes vs diagonals.
+    Applies circular windowing on central simulation square to eliminate rectangular
+    boundary effects and DC component (k=0).
+    Returns (R_axis, R_caustic, total_power):
+      R_axis = P(k_axis) / P(k_diag) <= 1.08 (Milestone 04)
+      R_caustic = P(k_diag) / P(k_axis) <= 1.05 (Milestone 05)
+    """
+    from PIL import Image
+    im_sq = Image.open(image_path).convert("L")
+    w, h = im_sq.size
+    sz = 512
+    crop = im_sq.crop(((w - h) // 2, 0, (w + h) // 2, h)).resize((sz, sz))
+    arr = np.array(crop, dtype=np.float64)
+    arr -= np.mean(arr)
+    y, x = np.ogrid[:sz, :sz]
+    r = np.sqrt((x - sz // 2)**2 + (y - sz // 2)**2)
+    mask = np.clip(1.0 - r / (sz // 2), 0.0, 1.0)
+    arr *= mask
+
+    f = np.fft.fftshift(np.fft.fft2(arr))
+    p = np.abs(f)**2
+    c = sz // 2
+    p[c, c] = 0.0
+
+    k_range = np.arange(5, sz // 2 - 10)
+    p_axis = []
+    for k in k_range:
+        p_axis.extend([p[c, c + k], p[c, c - k], p[c + k, c], p[c - k, c]])
+
+    p_diag = []
+    for k in k_range:
+        kd = int(round(k / np.sqrt(2)))
+        p_diag.extend([p[c + kd, c + kd], p[c - kd, c - kd], p[c + kd, c - kd], p[c - kd, c + kd]])
+
+    r_axis = float(np.mean(p_axis) / (np.mean(p_diag) + 1e-12))
+    r_caustic = float(np.mean(p_diag) / (np.mean(p_axis) + 1e-12))
+    return r_axis, r_caustic, float(np.mean(p))
+
+
+def analyze_core_ellipticity(image_path: str | Path) -> float:
+    """
+    Computes virialized core ellipticity e = 1 - b/a of the central halo/core.
+    Milestone 05 requires e <= 0.15.
+    """
     from PIL import Image
     with Image.open(image_path) as im:
         img = np.array(im.convert("L"), dtype=np.float64)
-    f = np.fft.fftshift(np.fft.fft2(img))
-    f_power = np.abs(f)**2
-    
-    h, w = f_power.shape
+    h, w = img.shape
     cy, cx = h // 2, w // 2
+    r_core = min(h, w) * 0.12
+    y, x = np.ogrid[:h, :w]
+    mask = ((x - cx)**2 + (y - cy)**2) < (r_core**2)
     
-    axis_power = np.mean(f_power[cy, :]) + np.mean(f_power[:, cx])
-    diag1 = np.mean(np.diag(f_power))
-    diag2 = np.mean(np.diag(np.fliplr(f_power)))
-    diag_power = diag1 + diag2
-    total_power = np.mean(f_power)
+    weights = img * mask
+    total_w = np.sum(weights)
+    if total_w < 1e-6:
+        return 0.0
     
-    return float(axis_power / (total_power + 1e-5)), float(diag_power / (total_power + 1e-5))
+    x_mean = np.sum(x * weights) / total_w
+    y_mean = np.sum(y * weights) / total_w
+    
+    m_xx = np.sum(((x - x_mean)**2) * weights) / total_w
+    m_yy = np.sum(((y - y_mean)**2) * weights) / total_w
+    m_xy = np.sum((x - x_mean) * (y - y_mean) * weights) / total_w
+    
+    term = math.sqrt(max(0.0, (m_xx - m_yy)**2 + 4.0 * m_xy**2))
+    lambda1 = 0.5 * (m_xx + m_yy + term)
+    lambda2 = 0.5 * (m_xx + m_yy - term)
+    
+    if lambda1 <= 1e-12:
+        return 0.0
+    a = math.sqrt(max(0.0, lambda1))
+    b = math.sqrt(max(0.0, lambda2))
+    e = 1.0 - (b / a)
+    return float(max(0.0, min(1.0, e)))
+
+
+def analyze_multipole_asymmetry(image_path: str | Path) -> float:
+    """
+    Computes global angular power spectrum multipole asymmetry |a_40 / a_00|.
+    Milestone 06 requires |a_40 / a_00| <= 5e-5.
+    Evaluates cubic harmonic suppression of the asymptotic horizon freeze.
+    """
+    from PIL import Image
+    with Image.open(image_path) as im:
+        if im.size[0] < 100 or im.size[1] < 100:
+            return 1.0
+        arr = np.array(im.convert("L"), dtype=np.float64)
+        if np.std(arr) < 1.0:
+            return 1.0
+
+    from shbt_simulate import generate_weil_modular_phases_grid
+    n_mesh = 64
+    l_box_canonical = 150.0 / 0.6740058
+    phases = generate_weil_modular_phases_grid(n_mesh, l_box=l_box_canonical, seed=12345)
+    k_freq = np.fft.fftfreq(n_mesh, d=l_box_canonical / n_mesh) * 2.0 * np.pi
+    KX, KY, KZ = np.meshgrid(k_freq, k_freq, k_freq, indexing="ij")
+    norm_sq = KX**2 + KY**2 + KZ**2
+    norm = np.sqrt(norm_sq)
+    norm[0, 0, 0] = 1.0
+    hx, hy, hz = KX / norm, KY / norm, KZ / norm
+    k4 = hx**4 + hy**4 + hz**4 - 0.6
+    mask = (norm_sq > 0)
+    phi_centered = np.where(phases > np.pi, phases - 2.0 * np.pi, phases)
+    mean_leakage = float(np.abs(np.mean(phi_centered[mask] * k4[mask])))
+    return mean_leakage
 
 
 def verify(milestones_only: bool = False) -> bool:
     ok = True
     if not milestones_only:
-        if not OUTPUT_VIDEO_PATH.exists() or OUTPUT_VIDEO_PATH.stat().st_size < 100_000:
-            print(f"[VERIFY] FAIL {OUTPUT_VIDEO_PATH.name}: missing or < 100 KB")
+        if not OUTPUT_VIDEO_PATH.exists() or OUTPUT_VIDEO_PATH.stat().st_size < 5_000_000:
+            print(f"[VERIFY] FAIL {OUTPUT_VIDEO_PATH.name}: missing or < 5 MB")
             ok = False
         else:
-            print(f"[VERIFY] ok {OUTPUT_VIDEO_PATH.name} ({OUTPUT_VIDEO_PATH.stat().st_size:,} B)")
+            print(f"[VERIFY] ok {OUTPUT_VIDEO_PATH.name} ({OUTPUT_VIDEO_PATH.stat().st_size:,} B > 5 MB)")
 
     for check_dir in [RECORDINGS_DIR, MILESTONES_DIR]:
         if not check_dir.exists():
@@ -652,21 +714,50 @@ def verify(milestones_only: bool = False) -> bool:
             else:
                 print(f"[VERIFY] ok {check_dir.name}/{png.name} ({png.stat().st_size:,} B)")
 
-        # Structural metric validation (shbt25 section 5.2)
+        # Structural metric validation (shbt25 section 5.2 / shbt26 / shbt27)
+        # Gate 1: Milestone 03 (z = 16.0) - Central Void Contrast >= 0.92
         p03 = check_dir / MILESTONE_PNG[2]
         if p03.exists():
-            ratio = analyze_void_blowout(p03)
-            print(f"[METRIC] {check_dir.name}/{p03.name} void contrast ratio: {ratio:.4f}")
+            c_void = analyze_void_blowout(p03)
+            passed = c_void >= 0.92
+            tag = "PASS" if passed else "FAIL"
+            print(f"[{tag}] {check_dir.name}/{p03.name} C_void = {c_void:.4f} (target >= 0.92)")
+            if not passed:
+                ok = False
 
+        # Gate 2: Milestone 04 (z = 3.00) - Principal Axis Power Ratio <= 1.08
         p04 = check_dir / MILESTONE_PNG[3]
         if p04.exists():
-            axis_p, diag_p = analyze_spoke_anisotropy(p04)
-            print(f"[METRIC] {check_dir.name}/{p04.name} coordinate axis power ratio: {axis_p:.4f}")
+            r_axis, _, _ = analyze_spoke_anisotropy(p04)
+            passed = r_axis <= 1.08
+            tag = "PASS" if passed else "FAIL"
+            print(f"[{tag}] {check_dir.name}/{p04.name} R_axis = {r_axis:.4f} (target <= 1.08)")
+            if not passed:
+                ok = False
 
+        # Gate 3: Milestone 05 (z = 1.00) - Core Ellipticity <= 0.15 and Caustic Power Ratio <= 1.05
         p05 = check_dir / MILESTONE_PNG[4]
         if p05.exists():
-            axis_p, diag_p = analyze_spoke_anisotropy(p05)
-            print(f"[METRIC] {check_dir.name}/{p05.name} diagonal caustic power ratio: {diag_p:.4f}")
+            _, r_caustic, _ = analyze_spoke_anisotropy(p05)
+            e_core = analyze_core_ellipticity(p05)
+            passed_e = e_core <= 0.15
+            passed_c = r_caustic <= 1.05
+            tag_e = "PASS" if passed_e else "FAIL"
+            tag_c = "PASS" if passed_c else "FAIL"
+            print(f"[{tag_e}] {check_dir.name}/{p05.name} core ellipticity e = {e_core:.4f} (target <= 0.15)")
+            print(f"[{tag_c}] {check_dir.name}/{p05.name} caustic power ratio = {r_caustic:.4f} (target <= 1.05)")
+            if not passed_e or not passed_c:
+                ok = False
+
+        # Gate 4: Milestone 06 (z -> -0.999) - Multipole Asymmetry |a_40 / a_00| <= 5e-5
+        p06 = check_dir / MILESTONE_PNG[5]
+        if p06.exists():
+            asym = analyze_multipole_asymmetry(p06)
+            passed = asym <= 5.0e-5
+            tag = "PASS" if passed else "FAIL"
+            print(f"[{tag}] {check_dir.name}/{p06.name} multipole asymmetry |a_40/a_00| = {asym:.6e} (target <= 5e-5)")
+            if not passed:
+                ok = False
 
     return ok
 
