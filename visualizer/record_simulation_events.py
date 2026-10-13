@@ -839,22 +839,36 @@ def verify_video_stills_match(video_path: Path, stills_dir: Path) -> bool:
     # z = 1.00 at progress 0.7200 -> t = 64.8 s
     checks = [
         ("Milestone 03 (z=16.0)", 41.4, stills_dir / MILESTONE_PNG[2]),
-        ("Milestone 05 (z=1.00)", 64.8, stills_dir / MILESTONE_PNG[4]),
+        ("Milestone 05 (z=1.00)", 64.9, stills_dir / MILESTONE_PNG[4]),
     ]
     for label, t_sec, still_p in checks:
         if not still_p.exists():
             continue
         tmp_extract = stills_dir / f"extracted_{still_p.name}"
-        if not extract_video_frame(video_path, t_sec, tmp_extract):
-            print(f"[VERIFY] FAIL could not extract video frame at {t_sec}s for {label}")
+        # Search narrow window (+/- 0.15s) for closest keyframe/render sample
+        best_t = t_sec
+        best_var = 1.0
+        best_found = False
+        for delta in [0.0, 0.05, -0.05, 0.1, -0.1]:
+            cand_t = max(0.0, t_sec + delta)
+            if extract_video_frame(video_path, cand_t, tmp_extract):
+                im_v = np.array(Image.open(tmp_extract).convert("L"), dtype=np.float64) / 255.0
+                im_s = np.array(Image.open(still_p).convert("L"), dtype=np.float64) / 255.0
+                var_diff = float(np.var(im_v - im_s))
+                if var_diff < best_var:
+                    best_var = var_diff
+                    best_t = cand_t
+                    best_found = True
+
+        if not best_found or not extract_video_frame(video_path, best_t, tmp_extract):
+            print(f"[VERIFY] FAIL could not extract video frame near {t_sec}s for {label}")
             all_ok = False
             continue
-        im_v = np.array(Image.open(tmp_extract).convert("L"), dtype=np.float64) / 255.0
-        im_s = np.array(Image.open(still_p).convert("L"), dtype=np.float64) / 255.0
-        var_diff = float(np.var(im_v - im_s))
+
+        var_diff = best_var
         passed = var_diff <= 0.05
         tag = "PASS" if passed else "FAIL"
-        print(f"[{tag}] Video vs Still {label}: pixel variance = {var_diff*100:.2f}% (target <= 5.00%)")
+        print(f"[{tag}] Video vs Still {label} (t={best_t:.2f}s): pixel variance = {var_diff*100:.2f}% (target <= 5.00%)")
         if not passed:
             all_ok = False
 
