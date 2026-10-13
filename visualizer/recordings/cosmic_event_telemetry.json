@@ -59,8 +59,8 @@
       "totalMass": 0,
       "landauerDebt": 0,
       "active_caustics": 0,
-      "peak_shear": 0.439962,
-      "peak_convergence": 0.514823,
+      "peak_shear": 0,
+      "peak_convergence": 0,
       "max_einstein_radius": 0,
       "horizon_frozen": false
     }
@@ -95,8 +95,8 @@
       "totalMass": 0,
       "landauerDebt": 0,
       "active_caustics": 0,
-      "peak_shear": 0.409306,
-      "peak_convergence": 0.666698,
+      "peak_shear": 0,
+      "peak_convergence": 0,
       "max_einstein_radius": 0,
       "horizon_frozen": false
     }

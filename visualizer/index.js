@@ -237,6 +237,8 @@ async function boot() {
     // mutating call through a queue so event handlers cannot re-enter it.
     const mutating = new Set([
       "step_frame", "capture_frame_rgba", "update_frame_telemetry", "load_particles_binary",
+      "load_particle_data", "clear_simulation_textures", "reset_telemetry", "step_offline",
+      "render_frame", "step_deterministic",
       "set_redshift", "set_speed", "set_playing", "set_projection",
       "set_unwrap_transition", "set_channels", "set_lensing_enabled",
       "set_lensing_scale", "set_dispersion", "set_doppler_enabled",
@@ -267,11 +269,47 @@ async function boot() {
       "position:absolute;inset:0;width:100%;height:100%;z-index:0";
     src.parentElement.insertBefore(overlay, src.nextSibling);
     captureCtx = overlay.getContext("2d");
+    window.captureCtx = captureCtx;
   }
+
+  // Primordial reset hook: strictly strip 16-byte SHBT header and clear GPU state
+  window.reset_to_primordial = async function () {
+    let resp = await fetch("/visualizer/particles_init_z100.bin");
+    if (!resp.ok) resp = await fetch("/particles_init_z100.bin");
+    if (!resp.ok) resp = await fetch("particles_init_z100.bin");
+    if (!resp.ok) {
+      throw new Error(`CRITICAL: particles_init_z100.bin fetch failed: ${resp.status}`);
+    }
+    const rawBuffer = await resp.arrayBuffer();
+    if (rawBuffer.byteLength !== 8388624) {
+      throw new Error(`CRITICAL: Invalid binary size: ${rawBuffer.byteLength} (expected 8388624)`);
+    }
+
+    // Strictly strip 16-byte SHBT header: 8,388,624 - 16 = 8,388,608 bytes (262,144 particles * 32 bytes)
+    const particleData = new Float32Array(rawBuffer, 16, 262144 * 8);
+
+    // Upload clean primordial records to GPU storage buffer
+    await engine.load_particle_data(particleData);
+
+    // Clear density textures, potential grids, and seed defect buffers
+    await engine.clear_simulation_textures();
+    await engine.reset_telemetry(1e14); // Set z = 1e14, a = 1e-14
+
+    const dev = window.__gpuDevice || (engine ? engine.device : null);
+    if (dev && dev.queue && dev.queue.onSubmittedWorkDone) {
+      await dev.queue.onSubmittedWorkDone();
+    }
+    window.__particlesLoaded = true;
+    window.__PARTICLES_LOADED__ = true;
+    window.__ENGINE_INITIALIZED__ = true;
+    console.log("[SHBT] Successfully reset engine to pristine primordial state (z = 1e14)");
+  };
+
   // Test hook (Phase 3 invariant gates): deterministic redshift scrub +
   // emergent-seed telemetry readout. Works in both interactive and
   // ?capture=1 (queued) modes.
   window.__SHBT_ENGINE__ = {
+    reset_to_primordial: () => window.reset_to_primordial(),
     setRedshift: (z) => engine.set_redshift(z),
     // In ?capture=1 mode hud_json can race capture_frame_rgba's &mut
     // borrow of the engine; fall back to the last metrics pushed into the
@@ -313,15 +351,16 @@ async function boot() {
     // Deterministic offline fixed-timestep stepping hook for recording / CI
     stepOffline: async (dt, z, pos, look) => {
       if (z !== undefined && pos !== undefined && look !== undefined) {
-        engine.update_cosmic_state(z, pos[0], pos[1], pos[2], look[0], look[1], look[2]);
+        await engine.update_cosmic_state(z, pos[0], pos[1], pos[2], look[0], look[1], look[2]);
       } else if (z !== undefined) {
-        engine.set_redshift(z);
+        await engine.set_redshift(z);
       }
       const stepDt = (dt !== undefined && dt > 0) ? dt : (1.0 / 60.0);
       if (captureCtx) {
         const px = await engine.capture_frame_rgba(stepDt);
-        if (window.__gpuDevice) {
-          await window.__gpuDevice.queue.onSubmittedWorkDone();
+        const dev = window.__gpuDevice || (engine ? engine.device : null);
+        if (dev && dev.queue && dev.queue.onSubmittedWorkDone) {
+          await dev.queue.onSubmittedWorkDone();
         }
         const c = captureCtx.canvas;
         captureCtx.putImageData(
@@ -329,9 +368,10 @@ async function boot() {
           0, 0
         );
       } else {
-        engine.step_frame(stepDt);
-        if (window.__gpuDevice) {
-          await window.__gpuDevice.queue.onSubmittedWorkDone();
+        await engine.step_frame(stepDt);
+        const dev = window.__gpuDevice || (engine ? engine.device : null);
+        if (dev && dev.queue && dev.queue.onSubmittedWorkDone) {
+          await dev.queue.onSubmittedWorkDone();
         }
       }
       const m = JSON.parse(engine.hud_json());
@@ -349,33 +389,84 @@ async function boot() {
     get_current_redshift: () => engine.get_current_redshift(),
     get_current_scale_factor: () => engine.get_current_scale_factor(),
     get_current_f_load: () => engine.get_current_f_load(),
+    get_kappa_max: () => engine.get_kappa_max(),
+    get_gamma_max: () => engine.get_gamma_max(),
     reset_deterministic: () => engine.reset_deterministic(),
   };
 
-  // Spec Step 1.2: Expose explicit deterministic synchronous frame advance on window
+  // Spec Step 1.3: Deterministic synchronous frame advance on window
   window.advanceSimulationFrame = async function (arg1, arg2, arg3, arg4, arg5) {
+    // If called with (pos, look, z) or (frameIndex, totalFrames, pos, look, z)
     let pos = null;
     let look = null;
     let z = undefined;
     let frameIndex = 0;
+    let totalFrames = 5400;
+
     if (Array.isArray(arg1) && Array.isArray(arg2)) {
       pos = arg1;
       look = arg2;
       z = arg3;
     } else if (typeof arg1 === "number") {
       frameIndex = arg1;
+      if (typeof arg2 === "number") {
+        totalFrames = arg2;
+      }
       if (Array.isArray(arg3) && Array.isArray(arg4)) {
         pos = arg3;
         look = arg4;
         z = arg5;
       }
     }
-    await window.__SHBT_ENGINE__.stepOffline(1.0 / 60.0, z, pos, look);
+
+    if (pos !== null && look !== null && z !== undefined) {
+      await window.__SHBT_ENGINE__.stepOffline(1.0 / 60.0, z, pos, look);
+    } else {
+      const a_start = 1e-14;
+      const a_end = 2.0;
+      const delta_a = (a_end - a_start) / totalFrames;
+
+             // Epoch gating: skip gravity integration for early epochs (a < 0.0099, i.e., z > 100)
+       const curA = engine.get_current_scale_factor();
+       if (curA < 0.0099) {
+         const newA = curA + delta_a;
+         const newZ = 1 / newA - 1;
+         await engine.set_redshift(newZ);
+       } else {
+         await engine.step_offline(delta_a);
+       }
+      if (captureCtx) {
+        const px = await engine.capture_frame_rgba(1.0 / 60.0);
+        const c = captureCtx.canvas;
+        captureCtx.putImageData(
+          new ImageData(new Uint8ClampedArray(px), c.width, c.height),
+          0, 0
+        );
+      } else {
+        await engine.render_frame();
+      }
+      const dev = window.__gpuDevice || (engine ? engine.device : null);
+      if (dev && dev.queue && dev.queue.onSubmittedWorkDone) {
+        await dev.queue.onSubmittedWorkDone();
+      }
+    }
+
+    const currentZ = engine.get_current_redshift();
+    const currentA = engine.get_current_scale_factor();
+    const currentKappa = engine.get_kappa_max();
+    const currentGamma = engine.get_gamma_max();
+    const currentFLoad = engine.get_current_f_load();
+
+    const m = JSON.parse(engine.hud_json());
+    refreshHud(m);
+
     return {
       frame: frameIndex,
-      z: engine.get_current_redshift(),
-      a: engine.get_current_scale_factor(),
-      f_load: engine.get_current_f_load(),
+      z: currentZ,
+      a: currentA,
+      kappa_max: currentKappa,
+      gamma_max: currentGamma,
+      f_load: currentFLoad,
     };
   };
   window.__SHBT_ENGINE__.advanceSimulationFrame = window.advanceSimulationFrame;
