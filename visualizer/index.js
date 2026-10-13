@@ -162,31 +162,43 @@ async function boot() {
       "timeline: z = 1e14 \u2192 \u22121"
     );
 
+    window.__PARTICLES_LOADED__ = false;
+    window.__ENGINE_INITIALIZED__ = false;
+
     // Deterministically load 2LPT initial conditions from particles_init_z100.bin
     const isRecordMode =
       window.__RECORDING_MODE__ ||
       new URLSearchParams(window.location.search).has("record") ||
       new URLSearchParams(window.location.search).has("capture");
 
-    try {
+    async function loadInitialParticles() {
       console.log("[SHBT] Fetching particles_init_z100.bin...");
       let resp = await fetch("/visualizer/particles_init_z100.bin");
       if (!resp.ok) resp = await fetch("/particles_init_z100.bin");
       if (!resp.ok) resp = await fetch("particles_init_z100.bin");
       if (!resp.ok) {
-        throw new Error(`CRITICAL: particles_init_z100.bin failed to fetch: ${resp.status}`);
+        throw new Error(`CRITICAL: particles_init_z100.bin fetch failed: ${resp.status}`);
       }
-      const pBuf = await resp.arrayBuffer();
-      if (pBuf.byteLength !== 8388624) {
+      const rawBuffer = await resp.arrayBuffer();
+      if (rawBuffer.byteLength !== 8388624) {
         throw new Error(
-          `CRITICAL: particles_init_z100.bin invalid byteLength: ${pBuf.byteLength} (expected 8388624)`
+          `CRITICAL: particles_init_z100.bin invalid byteLength: ${rawBuffer.byteLength} (expected 8388624)`
         );
       }
-      window.__FALLBACK_GRID_ALLOWED__ = false;
-      const loadedCount = engine.load_particles_binary(new Uint8Array(pBuf));
+
+      // Check header or upload to engine
+      const loadedCount = engine.load_particles_binary(new Uint8Array(rawBuffer));
       console.log(`[SHBT] Successfully loaded ${loadedCount} particles from particles_init_z100.bin`);
+      if (window.__gpuDevice && window.__gpuDevice.queue) {
+        await window.__gpuDevice.queue.onSubmittedWorkDone();
+      }
       window.__particlesLoaded = true;
+      window.__PARTICLES_LOADED__ = true;
       window.__ENGINE_INITIALIZED__ = true;
+    }
+
+    try {
+      await loadInitialParticles();
     } catch (err) {
       console.error(`[SHBT FATAL] Particle initialization fallback triggered: ${err.message}`);
       window.__particlesFallback = true;

@@ -280,6 +280,13 @@ async def verify_hud_telemetry_milestone(page, milestone_idx: int, z: float, res
     print(f"[*] Milestone {milestone_idx} ({MILESTONE_LABEL[milestone_idx]}, target z = {z:.3e})")
     ok = True
     await page.wait_for_selector("#hud-telemetry-overlay", state="attached", timeout=30_000)
+    MILESTONES_DIR.mkdir(parents=True, exist_ok=True)
+    shot1 = RECORDINGS_DIR / MILESTONE_PNG[milestone_idx]
+    shot2 = MILESTONES_DIR / MILESTONE_PNG[milestone_idx]
+    await page.screenshot(path=str(shot1))
+    await page.screenshot(path=str(shot2))
+    print(f"    [SAVED] {shot1.name} (recordings/ and milestones/)")
+
     redshift_text = await page.inner_text("#hud-redshift-val")
     quench_text = await page.inner_text("#hud-quench-fraction-val")
     landauer_text = await page.inner_text("#hud-landauer-debt-val")
@@ -398,12 +405,6 @@ async def verify_hud_telemetry_milestone(page, milestone_idx: int, z: float, res
         note("R_adm == 0", frozen,
              "0 admitted observers" if frozen else "observers active")
 
-    MILESTONES_DIR.mkdir(parents=True, exist_ok=True)
-    shot1 = RECORDINGS_DIR / MILESTONE_PNG[milestone_idx]
-    shot2 = MILESTONES_DIR / MILESTONE_PNG[milestone_idx]
-    await page.screenshot(path=str(shot1))
-    await page.screenshot(path=str(shot2))
-    print(f"    [SAVED] {shot1.name} (recordings/ and milestones/)")
     results.append(record)
     return ok
 
@@ -445,7 +446,9 @@ async def capture_milestone_stills_session(p) -> List[Dict]:
     await page.goto(SIMULATION_URL, wait_until="networkidle")
     await page.wait_for_function("() => window.__SHBT_ENGINE__ !== undefined", timeout=120_000)
     await page.wait_for_function("() => window.__particlesLoaded === true", timeout=120_000)
+    await page.wait_for_function("() => window.__PARTICLES_LOADED__ === true", timeout=120_000)
     await page.wait_for_function("() => window.__ENGINE_INITIALIZED__ === true", timeout=120_000)
+    await page.evaluate("() => window.__SHBT_ENGINE__.syncGpu()")
 
     # Check for unrecoverable fallback
     is_fallback = await page.evaluate("() => window.__particlesFallback === true")
@@ -467,11 +470,20 @@ async def capture_milestone_stills_session(p) -> List[Dict]:
         "asserts": [{"name": "glitchEnabled == false", "pass": True, "detail": "canonical clean run", "hard": True}],
     })
 
+    MILESTONES = [
+        {"id": 0, "name": "01_primordial_bit_loading.png", "target_z": 1.0e14, "progress": 0.0000, "captured": False},
+        {"id": 1, "name": "02_baryogenesis_derendering.png", "target_z": 1.0e10, "progress": 0.1667, "captured": False},
+        {"id": 2, "name": "03_ghost_seed_genesis.png", "target_z": 16.0, "progress": 0.4600, "captured": False},
+        {"id": 3, "name": "04_causal_point_proto_galaxies.png", "target_z": 3.0, "progress": 0.6600, "captured": False},
+        {"id": 4, "name": "05_cosmic_web_lensing.png", "target_z": 1.0, "progress": 0.7200, "captured": False},
+        {"id": 5, "name": "06_asymptotic_horizon_freeze.png", "target_z": -0.999, "progress": 1.0000, "captured": False},
+    ]
+
     frame_dt = 1.0 / TARGET_FPS
-    MILESTONE_PROGRESS = {0: 0.0000, 1: 0.1667, 2: 0.4600, 3: 0.6600, 4: 0.7200, 5: 1.0000}
-    for ms_idx in range(6):
-        mz = MILESTONE_Z[ms_idx]
-        prog = MILESTONE_PROGRESS.get(ms_idx, 0.5)
+    for m in MILESTONES:
+        ms_idx = m["id"]
+        mz = m["target_z"]
+        prog = m["progress"]
         eye, look = compute_camera_trajectory(mz, prog)
         # Advance multiple offline steps to allow GPU kernels and telemetry readback to settle
         dwell_steps = max(10, MILESTONE_DWELL_PRESENTED)
@@ -482,6 +494,10 @@ async def capture_milestone_stills_session(p) -> List[Dict]:
             )
         await page.evaluate("() => window.__SHBT_ENGINE__.syncGpu()")
         await verify_hud_telemetry_milestone(page, ms_idx, mz, milestone_results)
+        m["captured"] = True
+
+    for m in MILESTONES:
+        assert m["captured"], f"CRITICAL: Milestone {m['name']} was never triggered during simulation run!"
 
     print("[*] Session 1 complete. Closing browser context...")
     await browser.close()
@@ -530,7 +546,9 @@ async def record_video_session(p) -> Path | None:
     await page.goto(SIMULATION_URL, wait_until="networkidle")
     await page.wait_for_function("() => window.__SHBT_ENGINE__ !== undefined", timeout=120_000)
     await page.wait_for_function("() => window.__particlesLoaded === true", timeout=120_000)
+    await page.wait_for_function("() => window.__PARTICLES_LOADED__ === true", timeout=120_000)
     await page.wait_for_function("() => window.__ENGINE_INITIALIZED__ === true", timeout=120_000)
+    await page.evaluate("() => window.__SHBT_ENGINE__.syncGpu()")
 
     # Check for unrecoverable fallback
     is_fallback = await page.evaluate("() => window.__particlesFallback === true")
