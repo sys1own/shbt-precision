@@ -116,6 +116,10 @@ class ZeroParameterCosmology:
     tau_reio_base: Decimal
     tau_reio_tot: Decimal
 
+    def to_dict(self) -> dict:
+        """JSON-safe dictionary of all fields."""
+        return {k: _as_json_safe(v) for k, v in asdict(self).items()}
+
 
 def derive_zero_parameter_cosmology() -> ZeroParameterCosmology:
     """Compute the exact zero‑parameter cosmology using high‑precision Decimal arithmetic."""
@@ -3024,6 +3028,8 @@ def neutrino_hierarchy_masses(target_str: str, delta_m21_sq_ev2: Decimal, delta_
 
     # The full audit returns a dict; the flavor mixing block contains the neutrino data.
     audit = rs.run_full_audit()
+    if hasattr(audit, "to_dict"):
+        audit = audit.to_dict()
     # Try known keys – the Rust audit emits a top‑level "flavor_mixing" entry.
     flavor = audit.get("flavor_mixing", audit)
 
