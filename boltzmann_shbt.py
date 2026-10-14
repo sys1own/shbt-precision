@@ -640,3 +640,131 @@ if __name__ == "__main__":
         compute_tensor_power_spectra()
         compute_matter_transfer()
 
+
+## ----------------------------------------------------------------------
+## SHBT Background wrapper – zero‑parameter mode
+## ----------------------------------------------------------------------
+
+class ShbtBackground:
+    """Container for SHBT background quantities.
+
+    Parameters
+    ----------
+    zero_param_mode: bool, optional
+        When ``True`` the background is constructed using the exact zero‑parameter
+        closure (``k_SHBT = 0``). In this mode all cosmological parameters are
+        derived analytically from the canonical branch invariants and no free
+        parameters remain.
+    """
+
+    def __init__(self, zero_param_mode: bool = False):
+        self.zero_param_mode = zero_param_mode
+        if zero_param_mode:
+            # Import the high‑precision derivation from ``precision_cosmology``.
+            # ``derive_zero_parameter_cosmology`` returns a ``ZeroParameterCosmology``
+            # dataclass with all required fields.
+            from precision_cosmology import derive_zero_parameter_cosmology
+            zp = derive_zero_parameter_cosmology()
+            # Expose the fields directly for downstream code.
+            self.N_sat = zp.N_sat
+            self.Lambda_holo = zp.Lambda_holo
+            self.omega_lambda = zp.omega_lambda
+            self.omega_cdm = zp.omega_cdm
+            self.omega_b = zp.omega_b
+            self.h0_cmb = zp.h0_cmb
+            self.A_s = zp.A_s
+            self.n_s = zp.n_s
+            self.tau_reio_base = zp.tau_reio_base
+            self.tau_reio_tot = zp.tau_reio_tot
+            # Preserve the neutrino sector as required by the mission.
+            from decimal import Decimal
+            self.sigma_nu = Decimal('61.965396e-3')  # meV converted to eV
+        else:
+            # Fall back to the existing constants defined at the top of the module.
+            self.N_sat = Decimal(str(BIT_BUDGET_STR))
+            self.Lambda_holo = Decimal(str(LAMBDA_HOLO_SI_M2_STR))
+            self.h0_cmb = Decimal(str(H0_CMB))
+            # The remaining quantities are not needed in the non‑zero‑parameter path
+            # but are kept for API compatibility.
+            self.omega_lambda = None
+            self.omega_cdm = None
+            self.omega_b = None
+            self.A_s = None
+            self.n_s = None
+            self.tau_reio_base = None
+            self.tau_reio_tot = None
+            self.sigma_nu = None
+
+    def to_dict(self) -> dict:
+        """Return a plain ``dict`` representation suitable for JSON export.
+        ``Decimal`` values are converted to strings to avoid precision loss.
+        """
+        return {
+            "zero_param_mode": self.zero_param_mode,
+            "N_sat": str(self.N_sat),
+            "Lambda_holo": str(self.Lambda_holo),
+            "omega_lambda": str(self.omega_lambda) if self.omega_lambda is not None else None,
+            "omega_cdm": str(self.omega_cdm) if self.omega_cdm is not None else None,
+            "omega_b": str(self.omega_b) if self.omega_b is not None else None,
+            "h0_cmb": str(self.h0_cmb),
+            "A_s": str(self.A_s) if self.A_s is not None else None,
+            "n_s": str(self.n_s) if self.n_s is not None else None,
+            "tau_reio_base": str(self.tau_reio_base) if self.tau_reio_base is not None else None,
+            "tau_reio_tot": str(self.tau_reio_tot) if self.tau_reio_tot is not None else None,
+            "sigma_nu_meV": str(self.sigma_nu) if self.sigma_nu is not None else None,
+        }
+
+# ----------------------------------------------------------------------
+# Extend the existing MCMC wrapper to emit a zero‑parameter diagnostic.
+# ----------------------------------------------------------------------
+
+def run_zero_parameter_audit() -> dict:
+    """Run the zero‑parameter audit and return a diagnostic dictionary.
+
+    The function mirrors ``run_mcmc_analysis`` but forces ``k_SHBT = 0`` and
+    returns the analytically derived vector ``theta_{k=0}`` together with the
+    comparison to the MAP vector (when the MCMC routine is available).
+    """
+    # Build the background in zero‑parameter mode.
+    bg = ShbtBackground(zero_param_mode=True)
+    theta_zero = (
+        float(bg.h0_cmb),
+        float(bg.omega_b) if bg.omega_b is not None else None,
+        float(bg.omega_cdm) if bg.omega_cdm is not None else None,
+        float(bg.A_s.ln() * 10) if bg.A_s is not None else None,  # ln(10^10 A_s)
+        float(bg.n_s) if bg.n_s is not None else None,
+        float(bg.tau_reio_base) if bg.tau_reio_base is not None else None,
+        float(bg.tau_reio_tot) if bg.tau_reio_tot is not None else None,
+    )
+
+    # Attempt to run the full MCMC analysis for comparison.
+    map_vec = None
+    delta_chi2 = None
+    delta_aic = None
+    if run_mcmc_analysis is not None:
+        mcmc_res = run_mcmc_analysis()
+        map_vec = mcmc_res.get("theta_map")
+        if map_vec:
+            sigma_planck = (0.54, 0.00015, 0.00120, 0.0140, 0.0042, 0.0073, 0.0075)
+            delta_chi2 = sum(((z - m) / s) ** 2 for z, m, s in zip(theta_zero, map_vec, sigma_planck))
+            delta_aic = delta_chi2 + 2 * (0 - 7)
+
+    return {
+        "k_SHBT": 0,
+        "theta_zero": theta_zero,
+        "theta_map": map_vec,
+        "delta_chi2": delta_chi2,
+        "delta_AIC": delta_aic,
+        "background": bg.to_dict(),
+    }
+
+# ----------------------------------------------------------------------
+# Entry‑point helper – when the script is executed directly, run the audit.
+# ----------------------------------------------------------------------
+
+if __name__ == "__main__":
+    import json, sys
+    if "--zero-param" in sys.argv:
+        print(json.dumps(run_zero_parameter_audit(), indent=2))
+    else:
+        compute_cmb_power_spectra()

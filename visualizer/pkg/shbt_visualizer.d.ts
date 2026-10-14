@@ -44,11 +44,26 @@ export class ShbtWebGpuEngine {
 */
   set_redshift(z: number): void;
 /**
+* Advance one offline step by delta_a.
+* @param {number} delta_a
+*/
+  step_offline(delta_a: number): void;
+/**
 * Debug export: emergence uniform inputs + readback state as seen by
 * the wasm host (diagnoses host-vs-GPU discrepancies in Dawn runs).
 * @returns {string}
 */
   debug_eparams(): string;
+/**
+* Query current maximum shear gamma.
+* @returns {number}
+*/
+  get_gamma_max(): number;
+/**
+* Query current maximum convergence kappa.
+* @returns {number}
+*/
+  get_kappa_max(): number;
 /**
 * Volumetric dark-matter halo glow intensity, clamped to [0.0, 2.0].
 * @param {number} intensity
@@ -65,6 +80,11 @@ export class ShbtWebGpuEngine {
 */
   set_projection(mode: number): void;
 /**
+* Reset deterministic frame counter and telemetry to redshift z.
+* @param {number} z
+*/
+  reset_telemetry(z: number): void;
+/**
 * Lensing strength scale (lambda_lens), clamped to [0.0, 5.0].
 * @param {number} scale
 */
@@ -79,6 +99,12 @@ export class ShbtWebGpuEngine {
 * @returns {number}
 */
   get_current_f_load(): number;
+/**
+* Upload clean primordial particle records from raw Float32Array (262,144 * 8 floats).
+* @param {Float32Array} data
+* @returns {number}
+*/
+  load_particle_data(data: Float32Array): number;
 /**
 * Toggle the emergent seed-glitch post effect (Enhancement 11).
 * @param {boolean} enabled
@@ -160,6 +186,10 @@ export class ShbtWebGpuEngine {
 * @returns {number}
 */
   get_current_scale_factor(): number;
+/**
+* Clear density textures, potential grids, and seed defect buffers to pristine state.
+*/
+  clear_simulation_textures(): void;
 /**
 * Count of active sandbox observers (click-dispatched records whose
 * entropy budget has not depleted).
@@ -372,17 +402,22 @@ export interface InitOutput {
   readonly __wbg_shbtwebgpuengine_free: (a: number) => void;
   readonly shbtwebgpuengine_capture_frame_rgba: (a: number, b: number) => number;
   readonly shbtwebgpuengine_clear_camera_override: (a: number) => void;
+  readonly shbtwebgpuengine_clear_simulation_textures: (a: number) => void;
   readonly shbtwebgpuengine_create: (a: number, b: number) => number;
   readonly shbtwebgpuengine_debug_eparams: (a: number, b: number) => void;
   readonly shbtwebgpuengine_get_active_observers_count: (a: number) => number;
   readonly shbtwebgpuengine_get_current_f_load: (a: number) => number;
   readonly shbtwebgpuengine_get_current_redshift: (a: number) => number;
   readonly shbtwebgpuengine_get_current_scale_factor: (a: number) => number;
+  readonly shbtwebgpuengine_get_gamma_max: (a: number) => number;
+  readonly shbtwebgpuengine_get_kappa_max: (a: number) => number;
   readonly shbtwebgpuengine_hud_json: (a: number, b: number) => void;
+  readonly shbtwebgpuengine_load_particle_data: (a: number, b: number, c: number, d: number) => void;
   readonly shbtwebgpuengine_load_particles_binary: (a: number, b: number, c: number, d: number) => void;
   readonly shbtwebgpuengine_particle_count: (a: number) => number;
   readonly shbtwebgpuengine_render_frame: (a: number, b: number) => void;
   readonly shbtwebgpuengine_reset_deterministic: (a: number) => void;
+  readonly shbtwebgpuengine_reset_telemetry: (a: number, b: number) => void;
   readonly shbtwebgpuengine_set_channels: (a: number, b: number, c: number) => void;
   readonly shbtwebgpuengine_set_dark_glow: (a: number, b: number) => void;
   readonly shbtwebgpuengine_set_dispersion: (a: number, b: number) => void;
@@ -400,6 +435,7 @@ export interface InitOutput {
   readonly shbtwebgpuengine_set_viewport_mode: (a: number, b: number) => void;
   readonly shbtwebgpuengine_step_deterministic: (a: number, b: number) => void;
   readonly shbtwebgpuengine_step_frame: (a: number, b: number, c: number) => void;
+  readonly shbtwebgpuengine_step_offline: (a: number, b: number) => void;
   readonly shbtwebgpuengine_unproject_and_dispatch_causal_point: (a: number, b: number, c: number, d: number, e: number) => number;
   readonly shbtwebgpuengine_update_cosmic_state: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number) => void;
   readonly shbtwebgpuengine_update_frame_telemetry: (a: number, b: number, c: number, d: number) => void;

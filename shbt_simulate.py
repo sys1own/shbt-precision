@@ -2000,6 +2000,11 @@ def simulate(config: dict[str, Any]) -> dict[str, Any]:
         report = sim.run_full_audit()
         audit_dict = report.to_dict()
         result["audit"] = audit_dict
+        # Zero-parameter ($k_{\text{SHBT}} = 0$) closure data
+        if _HAS_PC:
+            result["zero_parameter_closure"] = _pc.derive_zero_parameter_cosmology().to_dict()
+        else:
+            result["zero_parameter_closure"] = _rs.ZeroParameterCosmologyClosure.from_boundary(sim.boundary).to_dict()
         # High-precision stationarity and thermal-flux audit (Section 9.12).
         result["stability_audit"] = _rs.get_stability_audit()
 
@@ -2363,7 +2368,7 @@ def _build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--mode",
         "-m",
-        choices=["audit", "cosmology", "cosmology-test", "baryogenesis", "history", "visualize", "all"],
+        choices=["audit", "cosmology", "cosmology-test", "baryogenesis", "history", "visualize", "zero", "all"],
         default=DEFAULT_CONFIG["mode"],
         help="simulation mode (default: all)",
     )

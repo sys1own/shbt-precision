@@ -219,13 +219,6 @@ function __wbg_adapter_29(arg0, arg1, arg2) {
     wasm._dyn_core_608f92abc48d28da___ops__function__FnMut_______Output______as_wasm_bindgen_551d08d34b350dd1___closure__WasmClosure___describe__invoke___wasm_bindgen_551d08d34b350dd1___JsValue_____(arg0, arg1, addHeapObject(arg2));
 }
 
-function passArray8ToWasm0(arg, malloc) {
-    const ptr = malloc(arg.length * 1, 1) >>> 0;
-    getUint8Memory0().set(arg, ptr / 1);
-    WASM_VECTOR_LEN = arg.length;
-    return ptr;
-}
-
 let cachedFloat32Memory0 = null;
 
 function getFloat32Memory0() {
@@ -238,6 +231,13 @@ function getFloat32Memory0() {
 function passArrayF32ToWasm0(arg, malloc) {
     const ptr = malloc(arg.length * 4, 4) >>> 0;
     getFloat32Memory0().set(arg, ptr / 4);
+    WASM_VECTOR_LEN = arg.length;
+    return ptr;
+}
+
+function passArray8ToWasm0(arg, malloc) {
+    const ptr = malloc(arg.length * 1, 1) >>> 0;
+    getUint8Memory0().set(arg, ptr / 1);
     WASM_VECTOR_LEN = arg.length;
     return ptr;
 }
@@ -263,7 +263,7 @@ function handleError(f, args) {
         wasm.__wbindgen_exn_store(addHeapObject(e));
     }
 }
-function __wbg_adapter_422(arg0, arg1, arg2, arg3) {
+function __wbg_adapter_428(arg0, arg1, arg2, arg3) {
     wasm.wasm_bindgen_551d08d34b350dd1___convert__closures__invoke2_mut___wasm_bindgen_551d08d34b350dd1___JsValue__wasm_bindgen_551d08d34b350dd1___JsValue_____(arg0, arg1, addHeapObject(arg2), addHeapObject(arg3));
 }
 
@@ -399,6 +399,13 @@ export class ShbtWebGpuEngine {
         wasm.shbtwebgpuengine_set_redshift(this.__wbg_ptr, z);
     }
     /**
+    * Advance one offline step by delta_a.
+    * @param {number} delta_a
+    */
+    step_offline(delta_a) {
+        wasm.shbtwebgpuengine_step_offline(this.__wbg_ptr, delta_a);
+    }
+    /**
     * Debug export: emergence uniform inputs + readback state as seen by
     * the wasm host (diagnoses host-vs-GPU discrepancies in Dawn runs).
     * @returns {string}
@@ -418,6 +425,22 @@ export class ShbtWebGpuEngine {
             wasm.__wbindgen_add_to_stack_pointer(16);
             wasm.__wbindgen_free(deferred1_0, deferred1_1, 1);
         }
+    }
+    /**
+    * Query current maximum shear gamma.
+    * @returns {number}
+    */
+    get_gamma_max() {
+        const ret = wasm.shbtwebgpuengine_get_gamma_max(this.__wbg_ptr);
+        return ret;
+    }
+    /**
+    * Query current maximum convergence kappa.
+    * @returns {number}
+    */
+    get_kappa_max() {
+        const ret = wasm.shbtwebgpuengine_get_kappa_max(this.__wbg_ptr);
+        return ret;
     }
     /**
     * Volumetric dark-matter halo glow intensity, clamped to [0.0, 2.0].
@@ -441,6 +464,13 @@ export class ShbtWebGpuEngine {
         wasm.shbtwebgpuengine_set_projection(this.__wbg_ptr, mode);
     }
     /**
+    * Reset deterministic frame counter and telemetry to redshift z.
+    * @param {number} z
+    */
+    reset_telemetry(z) {
+        wasm.shbtwebgpuengine_reset_telemetry(this.__wbg_ptr, z);
+    }
+    /**
     * Lensing strength scale (lambda_lens), clamped to [0.0, 5.0].
     * @param {number} scale
     */
@@ -461,6 +491,28 @@ export class ShbtWebGpuEngine {
     get_current_f_load() {
         const ret = wasm.shbtwebgpuengine_get_current_f_load(this.__wbg_ptr);
         return ret;
+    }
+    /**
+    * Upload clean primordial particle records from raw Float32Array (262,144 * 8 floats).
+    * @param {Float32Array} data
+    * @returns {number}
+    */
+    load_particle_data(data) {
+        try {
+            const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
+            const ptr0 = passArrayF32ToWasm0(data, wasm.__wbindgen_malloc);
+            const len0 = WASM_VECTOR_LEN;
+            wasm.shbtwebgpuengine_load_particle_data(retptr, this.__wbg_ptr, ptr0, len0);
+            var r0 = getInt32Memory0()[retptr / 4 + 0];
+            var r1 = getInt32Memory0()[retptr / 4 + 1];
+            var r2 = getInt32Memory0()[retptr / 4 + 2];
+            if (r2) {
+                throw takeObject(r1);
+            }
+            return r0 >>> 0;
+        } finally {
+            wasm.__wbindgen_add_to_stack_pointer(16);
+        }
     }
     /**
     * Toggle the emergent seed-glitch post effect (Enhancement 11).
@@ -592,6 +644,12 @@ export class ShbtWebGpuEngine {
     get_current_scale_factor() {
         const ret = wasm.shbtwebgpuengine_get_current_scale_factor(this.__wbg_ptr);
         return ret;
+    }
+    /**
+    * Clear density textures, potential grids, and seed defect buffers to pristine state.
+    */
+    clear_simulation_textures() {
+        wasm.shbtwebgpuengine_clear_simulation_textures(this.__wbg_ptr);
     }
     /**
     * Count of active sandbox observers (click-dispatched records whose
@@ -1750,7 +1808,7 @@ function __wbg_get_imports() {
                 const a = state0.a;
                 state0.a = 0;
                 try {
-                    return __wbg_adapter_422(a, state0.b, arg0, arg1);
+                    return __wbg_adapter_428(a, state0.b, arg0, arg1);
                 } finally {
                     state0.a = a;
                 }
@@ -1821,11 +1879,11 @@ function __wbg_get_imports() {
         getInt32Memory0()[arg0 / 4 + 1] = len1;
         getInt32Memory0()[arg0 / 4 + 0] = ptr1;
     };
-    imports.wbg.__wbindgen_closure_wrapper793 = function(arg0, arg1, arg2) {
+    imports.wbg.__wbindgen_closure_wrapper803 = function(arg0, arg1, arg2) {
         const ret = makeMutClosure(arg0, arg1, 253, __wbg_adapter_26);
         return addHeapObject(ret);
     };
-    imports.wbg.__wbindgen_closure_wrapper1199 = function(arg0, arg1, arg2) {
+    imports.wbg.__wbindgen_closure_wrapper1209 = function(arg0, arg1, arg2) {
         const ret = makeMutClosure(arg0, arg1, 259, __wbg_adapter_29);
         return addHeapObject(ret);
     };

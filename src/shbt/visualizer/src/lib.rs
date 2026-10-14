@@ -3555,10 +3555,17 @@ impl ShbtWebGpuEngine {
 
         // Caustic telemetry for the HUD ledger (analytic estimates — the
         // post pass itself never read-backs G-buffer data).
-        let strength = self.channel_b;
-        let peak_gamma = 0.428 * strength + 0.05 * strength * (self.frame_index as f32 * 0.1).sin();
-        let peak_kappa = 1.185 * strength * (0.5 + 0.5 * f_load as f32)
-            + 0.08 * strength * (self.frame_index as f32 * 0.1).cos();
+        // Epoch Gating: for a < 0.0099 (z > 100), convergence and shear are pinned to 0.0.
+        let (peak_gamma, peak_kappa) = if a_now < 0.0099 {
+            (0.0f32, 0.0f32)
+        } else {
+            let strength = self.channel_b;
+            (
+                0.428 * strength + 0.05 * strength * (self.frame_index as f32 * 0.1).sin(),
+                1.185 * strength * (0.5 + 0.5 * f_load as f32)
+                    + 0.08 * strength * (self.frame_index as f32 * 0.1).cos(),
+            )
+        };
         // Physical Einstein radii for the HUD ledger
         // (same distance-duality geometry as update_seed_table).
         let z_d = self.redshift.max(0.05);
@@ -3606,6 +3613,9 @@ impl ShbtWebGpuEngine {
             bytemuck::bytes_of(&causal_uniforms),
         );
 
+        // Epoch Gating: for a < 0.0099 (z > 100), bypass emergence condensation
+        let epoch_active = a_now >= 0.0099;
+
         // ---- Encoder A: emergent condensation tri-pass + seed readback ----
         let mut encoder_a = self
             .device
@@ -3626,7 +3636,7 @@ impl ShbtWebGpuEngine {
         // rebuild a clean lifecycle union each frame.
         encoder_a.clear_buffer(&self.active_seeds_buffer, 0, None);
         encoder_a.clear_buffer(&self.tracking_state_buffer, 16, Some((MAX_SEEDS * 4) as u64));
-        {
+        if epoch_active {
             let (g0, g1) = self.emergence_bind_groups();
             let mut cpass = encoder_a.begin_compute_pass(&ComputePassDescriptor {
                 label: Some("emergent condensation passes"),
@@ -3660,7 +3670,7 @@ impl ShbtWebGpuEngine {
             cpass.dispatch_workgroups((GRID_DIM + 3) / 4, (GRID_DIM + 3) / 4, (GRID_DIM + 3) / 4);
         }
         // Entropy streamline advection (Enhancement 3).
-        {
+        if epoch_active {
             let tbg = self.tracer_compute_bind_group();
             let mut cpass = encoder_a.begin_compute_pass(&ComputePassDescriptor {
                 label: Some("entropy tracer pass"),
@@ -3680,7 +3690,7 @@ impl ShbtWebGpuEngine {
             .create_command_encoder(&CommandEncoderDescriptor {
                 label: Some("frame encoder"),
             });
-        {
+        if epoch_active {
             let (g0, g1) = self.compute_bind_group();
             let mut cpass = encoder.begin_compute_pass(&ComputePassDescriptor {
                 label: Some("nbody_pm compute pass"),
@@ -3700,7 +3710,7 @@ impl ShbtWebGpuEngine {
         }
         // shbt9 sandbox GET backaction (causal_point_get.wgsl Pass 3):
         // user-dispatched observers pull + FDT-stabilize nearby particles.
-        if self.sandbox_count > 0 {
+        if epoch_active && self.sandbox_count > 0 {
             let sbg = self.sandbox_bind_group();
             let mut cpass = encoder.begin_compute_pass(&ComputePassDescriptor {
                 label: Some("sandbox GET pass"),
@@ -4410,6 +4420,121 @@ impl ShbtWebGpuEngine {
     pub fn get_current_f_load(&self) -> f64 {
         let (f_load, _) = self.update_redshift_and_loading(self.redshift);
         f_load
+    }
+
+    /// Query current maximum convergence kappa.
+    #[wasm_bindgen]
+    pub fn get_kappa_max(&self) -> f32 {
+        self.telemetry.peak_convergence
+    }
+
+    /// Query current maximum shear gamma.
+    #[wasm_bindgen]
+    pub fn get_gamma_max(&self) -> f32 {
+        self.telemetry.peak_shear
+    }
+
+    /// Reset deterministic frame counter and telemetry to redshift z.
+    #[wasm_bindgen]
+    pub fn reset_telemetry(&mut self, z: f64) {
+        self.deterministic_step = 0;
+        self.redshift = z;
+        self.timeline.seek(z);
+        self.telemetry = VisualizerTelemetry::default();
+    }
+
+    /// Clear density textures, potential grids, and seed defect buffers to pristine state.
+    #[wasm_bindgen]
+    pub fn clear_simulation_textures(&mut self) {
+        let zeros_grid = vec![0u8; (GRID_DIM * GRID_DIM * GRID_DIM * 4) as usize];
+        self.queue.write_buffer(&self.grid_density_buffer, 0, &zeros_grid);
+        self.queue.write_buffer(&self.rho_tot_atomic_buffer, 0, &zeros_grid);
+        self.queue.write_buffer(&self.rho_baryon_atomic_buffer, 0, &zeros_grid);
+        self.queue.write_buffer(&self.tracking_state_buffer, 0, &[0u8; 16]);
+        self.queue.write_buffer(
+            &self.tether_indirect_buffer,
+            0,
+            bytemuck::cast_slice(&[0u32, 1u32, 0u32, 0u32]),
+        );
+
+        let zeros_seeds = vec![0u8; (MAX_SEEDS * 32) as usize];
+        self.queue.write_buffer(&self.active_seeds_buffer, 0, &zeros_seeds);
+        self.queue.write_buffer(&self.prev_seeds_buffer, 0, &zeros_seeds);
+
+        self.emergent_seeds.clear();
+        self.seed_count = 0;
+        self.delta_n_bits = 0.0;
+        self.telemetry = VisualizerTelemetry::default();
+    }
+
+    /// Upload clean primordial particle records from raw Float32Array (262,144 * 8 floats).
+    #[wasm_bindgen]
+    pub fn load_particle_data(&mut self, data: &[f32]) -> Result<u32, JsValue> {
+        let count = data.len() / 8;
+        if count == 0 {
+            return Err(JsValue::from_str("empty particle buffer"));
+        }
+        let mut particles = Vec::with_capacity(count);
+        let mut raw_sum = 0.0f64;
+
+        for i in 0..count {
+            let offset = i * 8;
+            let px = data[offset];
+            let py = data[offset + 1];
+            let pz = data[offset + 2];
+            let _mass = data[offset + 3];
+            let vx = data[offset + 4];
+            let vy = data[offset + 5];
+            let vz = data[offset + 6];
+
+            let pos_x = if px <= 1.05 { px * BOX_SIZE } else { px };
+            let pos_y = if py <= 1.05 { py * BOX_SIZE } else { py };
+            let pos_z = if pz <= 1.05 { pz * BOX_SIZE } else { pz };
+
+            let branch_hash = ((i as f32 * 12.9898).sin() * 43758.5453).fract().abs();
+            let dark = branch_hash < (23.0 / 33.0);
+            let gmass = if dark { 1.0 } else { 0.45 };
+            raw_sum += gmass as f64;
+
+            particles.push(Particle {
+                position: [pos_x % BOX_SIZE, pos_y % BOX_SIZE, pos_z % BOX_SIZE],
+                channel: 0,
+                velocity: [vx, vy, vz],
+                charge_flags: if dark { 1 } else { 0 },
+                shear: [0.0; 4],
+                landauer_debt: 0.0,
+                grav_mass: gmass,
+                _pad: [0.0; 2],
+            });
+        }
+
+        self.mean_raw_total = raw_sum;
+        self.num_particles = count as u32;
+        let bytes = bytemuck::cast_slice(&particles);
+        self.queue.write_buffer(&self.particle_buffers[0], 0, bytes);
+        self.queue.write_buffer(&self.particle_buffers[1], 0, bytes);
+        Ok(count as u32)
+    }
+
+    /// Advance one offline step by delta_a.
+    #[wasm_bindgen]
+    pub fn step_offline(&mut self, delta_a: f32) {
+        let a_curr = self.get_current_scale_factor() as f32;
+        let a_next = a_curr + delta_a;
+        let z_next = (1.0 / a_next.max(1e-14)) - 1.0;
+        self.redshift = z_next as f64;
+        self.timeline.seek(self.redshift);
+
+        let h_h0 = units::CosmologicalContext::h_of_z(self.redshift) as f32;
+        let a_half = (a_curr + 0.5 * delta_a).max(1e-14);
+        let dtau = if a_half < 0.0099 {
+            // For a < 0.0099, conformal drift / kick is bypassed by epoch gating anyway
+            0.0
+        } else {
+            units::MetrologyPipeline::calculate_conformal_time_step(delta_a, a_half, h_h0)
+        };
+
+        self.step_with_params(a_curr, delta_a, dtau, h_h0, 1.0 / 60.0, None);
     }
 
     /// Reset deterministic frame counter back to z = 100.

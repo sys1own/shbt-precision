@@ -8,6 +8,9 @@
 //! 10^-120 manuscript gate.
 
 use rug::Float;
+use pyo3::prelude::*;
+use pyo3::types::PyDict;
+use rug::ops::Pow;
 use serde::{Deserialize, Serialize};
 
 use crate::shbt::boundary::StaticBoundary;
@@ -393,6 +396,211 @@ impl ShbtUniverse {
         (residual <= 0.0, self.float(residual))
     }
 }
+
+// --- Zero‑Parameter Closure ---------------------------------------------------
+
+/// Derived cosmological constants for the strict $k_{\text{SHBT}}=0$ closure.
+#[pyclass]
+#[derive(Debug, Clone)]
+/// Derived cosmological constants for the strict $k_{\text{SHBT}}=0$ closure.
+#[pyclass]
+#[derive(Debug, Clone)]
+/// Derived cosmological constants for the strict $k_{\text{SHBT}}=0$ closure.
+#[pyclass]
+#[derive(Debug, Clone)]
+pub struct ZeroParameterCosmologyClosure {
+    // Primary invariants
+    pub primary_weil_modules: u64,
+    pub c_dark_comp: Float,
+    pub delta_mod: Float,
+    pub n_sat: Float,
+    pub n_sat_legacy: Float,
+    pub w_cv: Float,
+
+    // Cosmological constants
+    pub lambda_holo: Float,
+    pub omega_lambda: Float,
+    pub omega_cdm: Float,
+    pub omega_b: Float,
+    pub h0_cmb: Float,
+    pub h0_mat_lambda: Float,
+    pub h0_rad_alg: Float,
+    pub h0_bare: Float,
+    pub a_h: Float,
+    pub gamma_lock: Float,
+    pub h0_late: Float,
+
+    // Inflation parameters
+    pub epsilon_load: Float,
+    pub n_t: Float,
+    pub r_tensor: Float,
+    pub f_nl_local: Float,
+    pub tau_nl: Float,
+    pub n2_over_n1_sq: Float,
+    pub as_amp: Float,
+    pub ln_10e10_a_s: Float,
+    pub n_s: Float,
+
+    // Reionization optical depth
+    pub tau_reio_base: Float,
+    pub delta_tau_seeds_18_30: Float,
+    pub tau_reio_total: Float,
+}
+    // Primary invariants
+    pub primary_weil_modules: u64,
+    pub c_dark_comp: Float,
+    pub delta_mod: Float,
+    pub n_sat: Float,
+    pub n_sat_legacy: Float,
+    pub w_cv: Float,
+
+    // Cosmological constants
+    pub lambda_holo: Float,
+    pub omega_lambda: Float,
+    pub omega_cdm: Float,
+    pub omega_b: Float,
+    pub h0_cmb: Float,
+    pub h0_mat_lambda: Float,
+    pub h0_rad_alg: Float,
+    pub h0_bare: Float,
+    pub a_h: Float,
+    pub gamma_lock: Float,
+    pub h0_late: Float,
+
+    // Inflation parameters
+    pub epsilon_load: Float,
+    pub n_t: Float,
+    pub r_tensor: Float,
+    pub f_nl_local: Float,
+    pub tau_nl: Float,
+    pub n2_over_n1_sq: Float,
+    pub as_amp: Float,
+    pub ln_10e10_a_s: Float,
+    pub n_s: Float,
+
+    // Reionization optical depth
+    pub tau_reio_base: Float,
+    pub delta_tau_seeds_18_30: Float,
+    pub tau_reio_total: Float,
+}
+    pub lambda_holo: Float,
+    pub omega_lambda: Float,
+    pub omega_cdm: Float,
+    pub omega_b: Float,
+    pub h0_cmb: Float,
+    pub a_h: Float,
+    pub as_amp: Float,
+    pub n_s: Float,
+    pub tau_reio_base: Float,
+    pub tau_reio_total: Float,
+}
+
+impl ZeroParameterCosmologyClosure {
+    /// Construct the closure from a fully‑initialized `StaticBoundary`.
+    pub fn from_boundary(boundary: &StaticBoundary) -> Self {
+        // Physical constants (SI) – values are hard‑coded for reproducibility.
+        const C_LIGHT: f64 = 299_792_458.0; // m s⁻¹
+        const H100_SI: f64 = 3.240779289444365e-18; // 100 km s⁻¹ Mpc⁻¹ in s⁻¹
+
+        let prec = PREC;
+        let delta_mod = boundary.delta_mod(); // Δ_mod
+        let n2_n1_sq = Float::with_val(prec, 0.018); // N₂/N₁² = 6/5 * f_NL_local
+        let epsilon_load = Float::with_val(prec, 0.0002); // ε_load
+
+        // ----- λ_holo -------------------------------------------------------
+        let lambda_holo = boundary.lambda_holo.clone();
+
+        // ----- ω_Λ ----------------------------------------------------------
+        let omega_lambda = {
+            let num = Float::with_val(prec, lambda_holo * C_LIGHT * C_LIGHT);
+            let denom = Float::with_val(prec, 3.0 * H100_SI * H100_SI);
+            num / denom
+        };
+
+        // ----- ω_cdm --------------------------------------------------------
+        // ω_cdm = Δ_mod - N₂/N₁²
+        let omega_cdm = &delta_mod - &n2_n1_sq;
+
+        // ----- ω_b ----------------------------------------------------------
+        // ω_b = N₂/N₁² + (k_q/K) Δ_mod (1 + N₂/N₁²) + 4 ε_load
+        let k_q = Float::with_val(prec, boundary.quark_level as f64);
+        let K = Float::with_val(prec, boundary.parent_level as f64);
+        let term = &k_q / &K * &delta_mod * (Float::with_val(prec, 1.0) + &n2_n1_sq);
+        let omega_b = &n2_n1_sq + term + Float::with_val(prec, 4.0) * &epsilon_load;
+
+        // ----- Matter density ω_m (from manuscript) ------------------------
+        let omega_m = Float::with_val(prec, 0.14359088);
+
+        // ----- H₀(CMB) -------------------------------------------------------
+        // h = sqrt(ω_Λ + ω_m)
+        let h = (&omega_lambda + &omega_m).sqrt();
+        let h0_cmb = Float::with_val(prec, &h * 100.0);
+
+        // ----- Scanning frequency A_H --------------------------------------
+        let a_h = Float::with_val(prec, A_H_KM_S_MPC);
+
+        // ----- Primordial amplitude A_s ------------------------------------
+        // A_s = √2/6 * ε_load * (N₂/N₁²)² * Δ_mod * (1 + 3 ε_load)
+        let sqrt2 = Float::with_val(prec, std::f64::consts::SQRT_2);
+        let as_amp = &sqrt2 / Float::with_val(prec, 6.0)
+            * &epsilon_load
+            * &n2_n1_sq.pow(2)
+            * &delta_mod
+            * (Float::with_val(prec, 1.0) + Float::with_val(prec, 3.0) * &epsilon_load);
+
+        // ----- Spectral index n_s ------------------------------------------
+        // n_s = 1 - 2 ε_load - 2 (N₂/N₁²) (1 - Δ_mod/4)
+        let n_s = Float::with_val(
+            prec,
+            1.0 - 2.0 * epsilon_load.to_f64()
+                - 2.0 * n2_n1_sq.to_f64() * (1.0 - delta_mod.to_f64() / 4.0),
+        );
+
+        // ----- Optical depth ------------------------------------------------
+        // τ_base = 2/5 Δ_mod - 2 ε_load
+        let tau_base = Float::with_val(prec, 2.0 / 5.0) * &delta_mod - Float::with_val(prec, 2.0) * &epsilon_load;
+        // Δτ_seeds = (4/3) (N₂/N₁²) Δ_mod (1 + 5/3 (N₂/N₁²))
+        let delta_tau = Float::with_val(prec, 4.0 / 3.0)
+            * &n2_n1_sq
+            * &delta_mod
+            * (Float::with_val(prec, 1.0) + Float::with_val(prec, 5.0 / 3.0) * &n2_n1_sq);
+        let tau_total = &tau_base + &delta_tau;
+
+        Self {
+            lambda_holo,
+            omega_lambda,
+            omega_cdm,
+            omega_b,
+            h0_cmb,
+            a_h,
+            as_amp,
+            n_s,
+            tau_reio_base: tau_base,
+            tau_reio_total: tau_total,
+        }
+    }
+}
+
+#[pymethods]
+impl ZeroParameterCosmologyClosure {
+    /// Serialize the closure to a Python dictionary for JSON output.
+    pub fn to_dict<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyDict>> {
+        let d = PyDict::new_bound(py);
+        d.set_item("lambda_holo", self.lambda_holo.to_f64())?;
+        d.set_item("omega_lambda", self.omega_lambda.to_f64())?;
+        d.set_item("omega_cdm", self.omega_cdm.to_f64())?;
+        d.set_item("omega_b", self.omega_b.to_f64())?;
+        d.set_item("h0_cmb", self.h0_cmb.to_f64())?;
+        d.set_item("a_h", self.a_h.to_f64())?;
+        d.set_item("as_amp", self.as_amp.to_f64())?;
+        d.set_item("n_s", self.n_s.to_f64())?;
+        d.set_item("tau_reio_base", self.tau_reio_base.to_f64())?;
+        d.set_item("tau_reio_total", self.tau_reio_total.to_f64())?;
+        Ok(d)
+    }
+}
+
+// End of Zero‑Parameter closure insertion
 
 /// Adaptive Simpson quadrature over [a, b] in f64 (used for the loading ODE;
 /// ledger identities are re-evaluated in `Float` afterwards).
@@ -977,4 +1185,31 @@ mod tests {
         assert!((cs_drag - 5.709).abs() < 0.05);
     }
 }
+
+
+#[pymethods]
+impl ZeroParameterCosmologyClosure {
+    #[getter]
+    fn lambda_holo(&self) -> f64 { self.lambda_holo.to_f64() }
+    #[getter]
+    fn omega_lambda(&self) -> f64 { self.omega_lambda.to_f64() }
+    #[getter]
+    fn omega_cdm(&self) -> f64 { self.omega_cdm.to_f64() }
+    #[getter]
+    fn omega_b(&self) -> f64 { self.omega_b.to_f64() }
+    #[getter]
+    fn h0_cmb(&self) -> f64 { self.h0_cmb.to_f64() }
+    #[getter]
+    fn a_h(&self) -> f64 { self.a_h.to_f64() }
+    #[getter]
+    fn as_amp(&self) -> f64 { self.as_amp.to_f64() }
+    #[getter]
+    fn n_s(&self) -> f64 { self.n_s.to_f64() }
+    #[getter]
+    fn tau_reio_base(&self) -> f64 { self.tau_reio_base.to_f64() }
+    #[getter]
+    fn tau_reio_total(&self) -> f64 { self.tau_reio_total.to_f64() }
+}
+
+
 

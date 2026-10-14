@@ -563,7 +563,8 @@ async def record_video_session(p) -> Path | None:
     await page.evaluate("() => window.__SHBT_ENGINE__.setViewportMode(0)")
     await page.evaluate("() => window.__SHBT_ENGINE__.setLensingScale(0.025)")
 
-    # Reset deterministic stepper
+    # Reset deterministic stepper and enforce pristine primordial buffer state
+    await page.evaluate("() => window.reset_to_primordial()")
     await page.evaluate("() => window.__SHBT_ENGINE__.reset_deterministic()")
 
     # Launch ffmpeg subprocess pipe
@@ -579,7 +580,7 @@ async def record_video_session(p) -> Path | None:
         "-r", str(TARGET_FPS // max(1, FRAME_STRIDE) if FRAME_STRIDE > 1 else TARGET_FPS),
         "-i", "-",
         "-c:v", "libvpx-vp9",
-        "-b:v", "8M",
+        "-b:v", "10M",
         "-crf", "18",
         "-deadline", "realtime",
         "-cpu-used", "4",
@@ -603,7 +604,19 @@ async def record_video_session(p) -> Path | None:
     t_start = time.time()
 
     try:
-        for step in range(total_commits):
+        # Frame 0: Pristine primordial bit loading at z = 1e14 captured before timeline advances
+        z_0, cam_pos_0, cam_look_0 = evaluate_trajectory(0.0)
+        await page.evaluate(
+            "([pos, look, z]) => window.__SHBT_ENGINE__.update_cosmic_state(z, pos, look)",
+            [cam_pos_0, cam_look_0, z_0],
+        )
+        if await page.evaluate("() => captureCtx !== null"):
+            # Offscreen capture mode: blit frame 0
+            await page.evaluate("() => window.__SHBT_ENGINE__.stepOffline(0.0, 1e14)")
+        screenshot_0 = await cdp.send("Page.captureScreenshot", {"format": "png"})
+        ffmpeg_proc.stdin.write(base64.b64decode(screenshot_0["data"]))
+
+        for step in range(1, total_commits):
             progress = (step * FRAME_STRIDE) / float(TOTAL_FRAMES - 1)
             z_now, cam_pos, cam_look = evaluate_trajectory(progress)
 
@@ -643,15 +656,15 @@ async def record_cosmic_evolution(milestones_only: bool = False) -> Tuple[List[D
     MILESTONES_DIR.mkdir(parents=True, exist_ok=True)
     RAW_VIDEO_DIR.mkdir(parents=True, exist_ok=True)
 
-    async with async_playwright() as p:
-        # Session 1: Stills capture
-        milestone_results = await capture_milestone_stills_session(p)
-
     raw_video = None
     if not milestones_only:
-        # Session 2: Hard reset fresh isolated browser session for video recording
+        # Session 1: Hard reset fresh isolated browser session for video recording
         async with async_playwright() as p:
             raw_video = await record_video_session(p)
+
+    # Session 2: Independent fresh browser context for milestone stills capture
+    async with async_playwright() as p:
+        milestone_results = await capture_milestone_stills_session(p)
 
     return milestone_results, raw_video
 

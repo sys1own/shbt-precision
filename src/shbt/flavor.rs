@@ -412,56 +412,97 @@ impl FlavorMixingEngine {
         m.scale(v_e)
     }
 
-    /// Solves the Type-I Seesaw mechanism to produce the light neutrino Majorana matrix (eV).
+    /// Constructs the light‑neutrino Majorana matrix from the first‑principles Type‑I holographic seesaw.
     pub fn build_neutrino_mass_matrix(&self) -> Matrix3x3 {
-        let m0 = self.m_nu1_floor;
-        let delta_m21_sqr = 7.542e-5;
-        let delta_m31_sqr = 2.453e-3;
+        // ----- Fundamental constants -------------------------------------------------
+        const KAPPA_D5_STAR: f64 = 0.988725345719_f64; // renormalized D5 screen factor
+        const M_PL_EV: f64 = 1.2208901282098665e28_f64; // unreduced Planck mass (eV)
+        const N_SAT: f64 = 3.311997720142366e122_f64;   // canonical horizon capacity
+        // Lightest neutrino mass floor (eV) from holographic screen
+        let m_nu1_floor = KAPPA_D5_STAR * M_PL_EV * N_SAT.powf(-0.25);
 
-        let m2 = (m0 * m0 + delta_m21_sqr).sqrt();
-        let m3 = (m0 * m0 + delta_m31_sqr).sqrt();
-        let diag = [m0, m2, m3];
+        // ----- Modular data ---------------------------------------------------------
+        let q = self.q_nome; // \tilde{q} = e^{-\pi}
+        let q_factor = 20.0_f64 / 19.0_f64; // Q/\sqrt{19}
 
-        let theta12 = 33.64_f64.to_radians();
-        let theta23 = 47.63_f64.to_radians();
-        let theta13 = 8.53_f64.to_radians();
-        let delta_cp = 1.236 * PI;
+        // Verlinde dimensions for the relevant representations
+        let d_half = 2.0 * (std::f64::consts::PI / 28.0).cos();
+        let d_one = 1.0 + 2.0 * (std::f64::consts::PI / 14.0).cos();
+        let d_three = 1.0 + 2.0 * (2.0 * std::f64::consts::PI / 11.0).cos();
 
-        let s12 = theta12.sin();
-        let c12 = theta12.cos();
-        let s23 = theta23.sin();
-        let c23 = theta23.cos();
-        let s13 = theta13.sin();
-        let c13 = theta13.cos();
+        // Boundary Clebsch–Gordan weights c_{ij}
+        let c11 = d_half * q_factor;
+        let c22 = d_one * q_factor;
+        let c33 = d_three * q_factor;
+        let c12 = d_half;
+        let c13 = d_one;
+        let c21 = d_half;
+        let c23 = d_three;
+        let c31 = d_one;
+        let c32 = d_three;
 
-        let mut u = Matrix3x3::zero();
-        u.data[0][0] = Complex64::new(c12 * c13, 0.0);
-        u.data[0][1] = Complex64::new(s12 * c13, 0.0);
-        u.data[0][2] = Complex64::from_polar(s13, -delta_cp);
+        // Yukawa texture (dimensionless, normalisation y0 set to 1)
+        let y0 = 1.0_f64;
+        let mut y_nu = Matrix3x3::zero();
+        y_nu.data[0][0] = Complex64::new(y0 * c11 * q, 0.0);
+        y_nu.data[0][1] = Complex64::new(y0 * c12 * q.sqrt(), 0.0);
+        y_nu.data[0][2] = Complex64::new(y0 * c13 * q, 0.0);
+        y_nu.data[1][0] = Complex64::new(y0 * c21 * q.sqrt(), 0.0);
+        y_nu.data[1][1] = Complex64::new(y0 * c22, 0.0);
+        y_nu.data[1][2] = Complex64::new(y0 * c23 * q.sqrt(), 0.0);
+        y_nu.data[2][0] = Complex64::new(y0 * c31 * q, 0.0);
+        y_nu.data[2][1] = Complex64::new(y0 * c32 * q.sqrt(), 0.0);
+        y_nu.data[2][2] = Complex64::new(y0 * c33, 0.0);
 
-        u.data[1][0] = Complex64::new(-s12 * c23, 0.0)
-            .sub(Complex64::from_polar(c12 * s23 * s13, delta_cp));
-        u.data[1][1] = Complex64::new(c12 * c23, 0.0)
-            .sub(Complex64::from_polar(s12 * s23 * s13, delta_cp));
-        u.data[1][2] = Complex64::new(s23 * c13, 0.0);
-
-        u.data[2][0] = Complex64::new(s12 * s23, 0.0)
-            .sub(Complex64::from_polar(c12 * c23 * s13, delta_cp));
-        u.data[2][1] = Complex64::new(-c12 * s23, 0.0)
-            .sub(Complex64::from_polar(s12 * c23 * s13, delta_cp));
-        u.data[2][2] = Complex64::new(c23 * c13, 0.0);
-
-        let mut m_nu = Matrix3x3::zero();
+        // ----- Build the dimensionless seesaw kernel \hat{M}_ν -----------------------
+        // \hat{M}_ν = Y_ν \cdot diag(q^{-2}, q^{-1}, 1) \cdot Y_ν^T
+        let mut hat_m = Matrix3x3::zero();
         for i in 0..3 {
             for j in 0..3 {
                 let mut sum = Complex64::zero();
                 for k in 0..3 {
-                    sum = sum.add(u.data[i][k].mul(Complex64::new(diag[k], 0.0)).mul(u.data[j][k]));
+                    // diagonal entry of the inverse right‑hand matrix
+                    let d_factor = match k {
+                        0 => Complex64::new(q.powi(-2), 0.0),
+                        1 => Complex64::new(q.powi(-1), 0.0),
+                        _ => Complex64::one(),
+                    };
+                    sum = sum.add(y_nu.data[i][k].mul(d_factor).mul(y_nu.data[j][k]));
                 }
-                m_nu.data[i][j] = sum;
+                hat_m.data[i][j] = sum;
             }
         }
-        m_nu
+
+        // ----- Hermitian eigen‑decomposition (bi‑unitary SVD) -----------------------
+        let (u, evals) = hat_m.eigen_hermitian();
+        // evals are the singular values squared; take positive square‑roots
+        let mut s_vals = [
+            evals[0].max(0.0).sqrt(),
+            evals[1].max(0.0).sqrt(),
+            evals[2].max(0.0).sqrt(),
+        ];
+        // Ensure ordering y1 <= y2 <= y3
+        s_vals.sort_by(|a, b| a.partial_cmp(b).unwrap());
+        let y1 = s_vals[0];
+        let y2 = s_vals[1];
+        let y3 = s_vals[2];
+
+        // ----- Anchor absolute scale using the holographic mass floor ----------------
+        // Heavy Majorana scale (kept for reference, not used further here)
+        // let _m_r0 = (self.v_electroweak().powi(2) as f64) * y1 / (2.0 * m_nu1_floor);
+
+        // Light‑neutrino masses (eV)
+        let m_nu1 = m_nu1_floor;
+        let m_nu2 = m_nu1_floor * (y2 / y1);
+        let m_nu3 = m_nu1_floor * (y3 / y1);
+
+        // Assemble diagonal mass matrix and rotate back to flavour basis
+        let mut diag_m = Matrix3x3::zero();
+        diag_m.data[0][0] = Complex64::new(m_nu1, 0.0);
+        diag_m.data[1][1] = Complex64::new(m_nu2, 0.0);
+        diag_m.data[2][2] = Complex64::new(m_nu3, 0.0);
+        let u_adj = u.adjoint();
+        u.matmul(diag_m).matmul(u_adj)
     }
 
     /// Computes the CKM mixing matrix V_CKM = U_u^dag * U_d and extracts mixing parameters.
@@ -683,13 +724,17 @@ pub fn run_flavor_audit() -> FlavorAuditReport {
     let (u_pmns, s_e, s_nu, s12_sq, s23_sq, s13_sq, delta_cp) = engine.compute_pmns();
     let closure_ok = engine.validate_closure();
 
-    let m_nu1_mev = s_nu[0] * 1000.0;
-    let m_nu2_mev = s_nu[1] * 1000.0;
-    let m_nu3_mev = s_nu[2] * 1000.0;
-
-    let delta_m21_sqr = s_nu[1] * s_nu[1] - s_nu[0] * s_nu[0];
-    let delta_m31_sqr = s_nu[2] * s_nu[2] - s_nu[0] * s_nu[0];
-    let sum_m_nu_ev = s_nu[0] + s_nu[1] + s_nu[2];
+// Compute neutrino masses from first‑principles seesaw
+    let m_nu_mat = engine.build_neutrino_mass_matrix();
+    let m_nu1 = m_nu_mat.data[0][0].re;
+    let m_nu2 = m_nu_mat.data[1][1].re;
+    let m_nu3 = m_nu_mat.data[2][2].re;
+    let m_nu1_mev = m_nu1 * 1000.0;
+    let m_nu2_mev = m_nu2 * 1000.0;
+    let m_nu3_mev = m_nu3 * 1000.0;
+    let delta_m21_sqr = m_nu2 * m_nu2 - m_nu1 * m_nu1;
+    let delta_m31_sqr = m_nu3 * m_nu3 - m_nu1 * m_nu1;
+    let sum_m_nu_ev = m_nu1 + m_nu2 + m_nu3;
 
     let all_passed = framing_defect < 1e-12
         && closure_ok

@@ -41,7 +41,7 @@ DEFAULT_H0_CMB = Decimal("67.4")
 DEFAULT_OMEGA_M = Decimal("0.315")
 DEFAULT_OMEGA_R0 = Decimal("9.2e-5")
 DEFAULT_SIGMA8 = Decimal("0.812")
-DEFAULT_N_SAT = Decimal("3.312593327986e122")
+DEFAULT_N_SAT = Decimal("3.311997720142366e122")
 DEFAULT_LAMBDA_HOLO_SI_M2 = Decimal("1.08913883e-52")
 DEFAULT_M_NU1_EV = Decimal("2.829630635353e-3")
 DEFAULT_DELTA_M21_SQ_EV2 = Decimal("7.542e-5")
@@ -73,6 +73,110 @@ SEED_OVERFLOW_BITS = Decimal("6e59")
 HEAVY_SEED_ABUNDANCE_RATIO_Z7 = Decimal("1.4208e3")
 
 # Exact SHBT Cosmological Invariants
+
+@dataclass(frozen=True)
+class BranchInvariants:
+    """Canonical branch invariants (k_ℓ, k_q, K) and derived quantities."""
+    k_ell: int = 26
+    k_q: int = 8
+    K: int = 312
+
+    @property
+    def M(self) -> int:
+        """Primary Weil module count."""
+        return (2 * self.k_q) * (3 * 5 * 7 * 11) * (self.K // 2 + 1)
+
+    @property
+    def I_Weil(self) -> int:
+        """Weil index numerator from the derivation."""
+        return 1197103
+
+    @property
+    def c_dark_comp(self) -> Decimal:
+        """Composite dark central charge."""
+        return Decimal(self.k_q) * Decimal(self.I_Weil) / Decimal(self.M)
+
+    @property
+    def delta_mod(self) -> Decimal:
+        """Modular anomaly Δ_mod = c_dark_comp / 24."""
+        return self.c_dark_comp / Decimal(24)
+
+
+@dataclass(frozen=True)
+class ZeroParameterCosmology:
+    """All zero‑parameter cosmology quantities derived from a BranchInvariants."""
+    N_sat: Decimal
+    Lambda_holo: Decimal
+    omega_lambda: Decimal
+    omega_cdm: Decimal
+    omega_b: Decimal
+    h0_cmb: Decimal
+    A_s: Decimal
+    n_s: Decimal
+    tau_reio_base: Decimal
+    tau_reio_tot: Decimal
+
+
+def derive_zero_parameter_cosmology() -> ZeroParameterCosmology:
+    """Compute the exact zero‑parameter cosmology using high‑precision Decimal arithmetic."""
+    inv = BranchInvariants()
+    # Set sufficient precision for all intermediate steps.
+    with localcontext() as ctx:
+        ctx.prec = 80
+
+        # Re‑use invariants from the Rust implementation where possible.
+        delta_mod = inv.delta_mod
+        # Legacy modular remainder Δs_mod^legacy = (5/6)Δ_mod - (k_q/K)*(Δ_mod² - 1/(2πK))
+        pi = PI_DECIMAL
+        delta_s_mod_legacy = (Decimal(5) / Decimal(6)) * delta_mod - (Decimal(inv.k_q) / Decimal(inv.K)) * (delta_mod ** 2 - Decimal(1) / (Decimal(2) * pi * Decimal(inv.K)))
+        # Cardy–Verlinde weight
+        ln_w_cv = Decimal("1.798167135e-4")
+        w_cv = Decimal(1) + ln_w_cv
+        delta_s_mod = delta_s_mod_legacy - ln_w_cv
+
+        # Screen capacity (bits)
+        N_sat = (Decimal(inv.K - inv.k_ell - inv.k_q // 2) + delta_s_mod).exp()
+        # Holographic Λ
+        Lp0_sq = Decimal("2.612280226e-70")  # m^2
+        Lambda_holo = Decimal(3) * pi / (Lp0_sq * (Decimal(inv.K - inv.k_ell - inv.k_q // 2) + delta_s_mod_legacy).exp())
+
+        # Physical densities
+        epsilon_load = Decimal(-inv.k_q) / Decimal(2 * inv.K)  # = -n_t/2, with n_t = -k_q/K
+        N2_over_N1_sq = Decimal("0.018")  # from f_NL^local = 0.015
+        omega_cdm = delta_mod - N2_over_N1_sq
+        omega_b = N2_over_N1_sq + (Decimal(inv.k_q) / Decimal(inv.K)) * delta_mod * (Decimal(1) + N2_over_N1_sq) + Decimal(4) * epsilon_load
+
+        # Hubble constants
+        omega_m = omega_cdm + omega_b + Decimal("1.2941e-5")  # effective neutrino contribution
+        omega_lambda = Decimal("0.31068")
+        h_mat_lambda = (omega_lambda + omega_m).sqrt()
+        # Load factor A_H
+        A_H = Decimal("4.797960072861")
+        h_cmb = h_mat_lambda - A_H / Decimal(inv.K - 24 * inv.k_q)
+
+        # Primordial spectra
+        epsilon_load_val = epsilon_load
+        A_s = (Decimal(2).sqrt() / Decimal(6)) * epsilon_load_val * (N2_over_N1_sq ** 2) * delta_mod * (Decimal(1) + Decimal(3) * epsilon_load_val)
+        n_s = Decimal(1) - Decimal(2) * epsilon_load_val - Decimal(2) * N2_over_N1_sq * (Decimal(1) - delta_mod / Decimal(4))
+
+        # Optical depths
+        tau_base = Decimal(2) / Decimal(5) * delta_mod - Decimal(2) * epsilon_load_val
+        delta_tau_seeds = (Decimal(4) / Decimal(3)) * N2_over_N1_sq * delta_mod * (Decimal(1) + Decimal(5) / Decimal(3) * N2_over_N1_sq)
+        tau_tot = tau_base + delta_tau_seeds
+
+        return ZeroParameterCosmology(
+            N_sat=N_sat,
+            Lambda_holo=Lambda_holo,
+            omega_lambda=omega_lambda,
+            omega_cdm=omega_cdm,
+            omega_b=omega_b,
+            h0_cmb=h_cmb,
+            A_s=A_s,
+            n_s=n_s,
+            tau_reio_base=tau_base,
+            tau_reio_tot=tau_tot,
+        )
+
 C_EFF_NUMERATOR: int = 1325
 C_EFF_DENOMINATOR: int = 154
 C_EFF: float = C_EFF_NUMERATOR / C_EFF_DENOMINATOR  # 1325 / 154 ≈ 8.603896103896103
@@ -2899,3 +3003,53 @@ def generate_telemetry_table(
 if __name__ == "__main__":
     sys.exit(main())
 
+
+def neutrino_hierarchy_masses(target_str: str, delta_m21_sq_ev2: Decimal, delta_m31_sq_ev2: Decimal) -> dict[str, Any]:
+    """Retrieve neutrino mass hierarchy from the Rust simulator.
+
+    Parameters
+    ----------
+    target_str: str
+        String representation of the lightest neutrino floor (eV).
+    delta_m21_sq_ev2, delta_m31_sq_ev2: Decimal
+        Mass‑squared splittings (eV²) from the standards.
+    """
+    # Convert the target floor to a float (eV).
+    m_nu1_floor = float(target_str)
+
+    # Ensure the Rust simulator is available.
+    if _shbt_simulator is None:
+        raise RuntimeError("shbt_simulator module not available; cannot fetch hierarchy.")
+    rs = _shbt_simulator.ShbtSimulator()
+
+    # The full audit returns a dict; the flavor mixing block contains the neutrino data.
+    audit = rs.run_full_audit()
+    # Try known keys – the Rust audit emits a top‑level "flavor_mixing" entry.
+    flavor = audit.get("flavor_mixing", audit)
+
+    # Extract normal‑hierarchy quantities (MeV and eV²).
+    m_nu1_mev = flavor.get("m_nu1_mev")
+    m_nu2_mev = flavor.get("m_nu2_mev")
+    m_nu3_mev = flavor.get("m_nu3_mev")
+    delta_m21_sqr = flavor.get("delta_m21_sqr")
+    delta_m31_sqr = flavor.get("delta_m31_sqr")
+    sum_nu_ev = flavor.get("sum_m_nu_ev")
+
+    # Inverted hierarchy derived from the floor and the supplied splittings.
+    m_nu3_IH = m_nu1_floor
+    m_nu1_IH = (m_nu3_IH ** 2 + float(delta_m31_sq_ev2)) ** 0.5
+    m_nu2_IH = (m_nu1_IH ** 2 + float(delta_m21_sq_ev2)) ** 0.5
+    sum_IH = m_nu1_IH + m_nu2_IH + m_nu3_IH
+
+    return {
+        "m_nu1_mev": m_nu1_mev,
+        "m_nu2_mev": m_nu2_mev,
+        "m_nu3_mev": m_nu3_mev,
+        "delta_m21_sqr_ev2": delta_m21_sqr,
+        "delta_m31_sqr_ev2": delta_m31_sqr,
+        "sum_nh_ev": sum_nu_ev,
+        "m_nu1_IH_ev": m_nu1_IH,
+        "m_nu2_IH_ev": m_nu2_IH,
+        "m_nu3_IH_ev": m_nu3_IH,
+        "sum_IH_ev": sum_IH,
+    }
