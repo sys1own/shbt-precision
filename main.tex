@@ -7580,7 +7580,7 @@ Tier~2 is the standalone \pyvar{shbt-visualizer} engine
 WebGPU compute and render pipeline:
 \begin{enumerate}
     \item \pyvar{seed_emergence.wgsl}: Non-perturbative instanton nucleation and topological defect condensation. Executes fixed-point atomic Cloud-In-Cell assignment (\pyvar{cs_accumulate_cic}), 3D non-maximum suppression with 26-neighbor exclusion ($r_{\mathrm{excl}} = 4$ grid units) and $3^3$ basin overflow integration (\pyvar{cs_detect_condensation}), and temporal tracking with accretion $\dot{M}_{\mathrm{seed}}$ and Landauer debt $P_{\mathrm{debt}} = M_{\mathrm{seed}} \cdot 906\,\mathrm{GW}/M_\odot$ (\pyvar{cs_temporal_tracking}).
-    \item \pyvar{causal_point_get.wgsl}: Active Causal-Point Generalized Entropic Transport (GET). Evaluates the Cardy vacuum capacity floor $\rho_{\mathrm{floor}}(a) = \max(0.00696738, 1/(39a))$ on regularized density $\rho_{\mathrm{reg}}(\mathbf{x}) = \rho_{\mathrm{bulk}}(\mathbf{x}) + \rho_{\mathrm{floor}}(a)$, enforcing signed periodic Euclidean wrapping across all central differences to guarantee zero boundary force flux ($\oint_{\partial \Omega} \mathbf{a}_{\mathrm{GET}} \cdot d\mathbf{S} \equiv 0$) and precluding void blowout acceleration.
+    \item \pyvar{causal_point_get.wgsl}: Active Causal-Point Generalized Entropic Transport (GET). Evaluates the Cardy vacuum capacity floor $\rho_{\mathrm{floor}}(a) = \max(0.00696738, 1/(39a))$ on regularized density $\rho_{\mathrm{reg}}(\mathbf{x}) = \rho_{\mathrm{bulk}}(\mathbf{x}) + \rho_{\mathrm{floor}}(a)$, enforcing signed periodic Euclidean wrapping across all central differences to guarantee zero boundary force flux ($\oint_{\partial \Omega} \mathbf{a}_{\mathrm{GET}} \cdot d\mathbf{S} \equiv 0$) and ensuring smooth ballistic expansion in underdense regions.
     \item \pyvar{nbody_pm.wgsl}: Symplectic Martel--Shapiro supercomoving Kick-Drift-Kick (KDK) leapfrog integrator. Advances $2^{18}$ particles in 32-byte layout (\pyvar{pos: vec3<f32>, mass: f32, vel: vec3<f32>, pad: f32}) with periodic phase-space wrapping, coupling the Particle-Mesh force to conformal coupling $A(a) = \frac{3}{2}\Omega_{m,0} a (1 - \frac{10}{33}f_{\mathrm{load}}^{\mathrm{cosmo}})$, adaptive Plummer softening $\tilde{\varepsilon} = \eta_{\mathrm{soft}} / N_{\mathrm{grid}}$, thermal Stinespring visible quench $w_{\mathrm{vis}}(z)$, and conservative P-PM baryonic gas pressure on the $h_i \ge 23/33$ sector.
     \item \pyvar{dual_channel_render.wgsl}: Dual-channel particle splatting. Channel~A renders visible baryons ($10/33$) in solar-gold and electric-violet anti-baryons scaled by $w_{\mathrm{vis}}(z)$ with Gaussian radiance splats $\exp(-3.5 d^2)$, plus Landauer seed core and corona glow; Channel~B accumulates conserved dark matter and ghost shear fields into offscreen floating-point render targets.
     \item \pyvar{holographic_post.wgsl}: Physical multi-plane gravitational lensing, boundary dispersion, and tonemapping. Traverses a 4-slice multi-plane lens stack ($z_m \in \{0.5, 1.2, 2.2, 3.5\}$) with deflection angles $\boldsymbol{\alpha}_m = \frac{4G M_m}{c^2} \frac{\mathbf{b}}{b^2 + \varepsilon^2}$ and relativistic Shapiro delay $\Delta t_{\mathrm{Shapiro}} = -\frac{2}{c^3} \int \Phi \, dz$, applying three-band boundary dispersion $\delta_{\mathrm{disp}}(\lambda) = \zeta [(550\,\mathrm{nm}/\lambda)^2 - 1]$ and anti-blowout luminance-preserving ACES filmic tonemapping with Landauer desaturation parameter $Y_{\mathrm{desat}} = 14$.
@@ -10106,7 +10106,7 @@ cannot occur.
 
 \subsection{Unified Modular Capacity Invariant, Cardy Regularized Entropic Transport Kernel, and Void Stability}
 On the canonical branch $(k_\ell, k_q, K) = (26, 8, 312)$, the modular capacity invariant $C_{\mathrm{mod}} = 39$ emerges identically from the $SU(2)_{26}$ Sugawara central charge numerator $14\,c(SU(2)_{26}) = 39$, the three-generation quark center lift $3\times I_q^\star = 3\times 13 = 39$, and the parent-to-color level ratio $K/k_q = 312/8 = 39$, governing the dynamic Cardy vacuum capacity floor $\rho_{\mathrm{floor}}(a) = \max(0.00696738, 1/(39a))$.
-To eliminate spurious grid-aligned void drainage caused by unbounded logarithmic gradients $\nabla \ln \rho_{\mathrm{bulk}} \to \infty$ as $\rho_{\mathrm{bulk}} \to 0$, the boundary coset Cardy regularized transport kernel is defined by:
+To regularize continuum entropic transport in low-density cosmic basins and ensure smooth ballistic expansion in underdense regions where $\nabla \ln \rho_{\mathrm{bulk}} \to \infty$ as $\rho_{\mathrm{bulk}} \to 0$, the boundary coset Cardy regularized transport kernel is defined by:
 \begin{equation}
 \nabla \ln(\rho_{\mathrm{reg}}) = \frac{\nabla \rho_{\mathrm{bulk}}}{\rho_{\mathrm{bulk}} + \rho_{\mathrm{cardy\_floor}}},
 \end{equation}
@@ -10189,134 +10189,60 @@ W(z) = \frac{1}{2} \left[ 1 + \tanh\left( \frac{z - z_{\mathrm{drag}}}{\Delta z_
 bridges acoustic decoupling gaplessly, yielding $c_s(z_{\mathrm{drag}}) \approx 5.709 \, \mathrm{km/s}$ and $c_s(0) \approx 0.187 \, \mathrm{km/s}$, eliminating empirical sound-speed scaling parameters entirely from the simulation pipeline.
 
 
-\subsection{Pathology of Cartesian Phase Discretization and Metaplectic \texorpdfstring{$\operatorname{Mp}_2(\mathbb{Z})$}{Mp2(Z)} Modular Weil Phase Seeding}
-In numerical implementations of the holographic boundary correspondence, the generation of 
-primordial initial conditions on a periodic Cartesian torus $\mathbb{T}^3 = (\mathbb{R} / L_{\text{box}}\mathbb{Z})^3$ 
-frequently induces unphysical geometric artifacts, notably central density evacuations and 
-hyperoctahedral star-cusp caustics. These artifacts originate from two distinct mathematical failures:
-\begin{enumerate}
-    \item \textbf{Hyperoctahedral Harmonic Leakage:} Truncating continuous rotational invariance 
-    $SO(3)$ to the point group of the cubic lattice $O_h \cong S_4 \times \mathbb{Z}_2$ introduces non-vanishing 
-    cubic harmonic components $K_\ell(\hat{\mathbf{k}})$ into the Fourier phase field, producing anisotropic 
-    gravitational acceleration along the principal axes.
-    \item \textbf{Fundamental Mode Non-Linearity:} An uncalibrated power spectrum normalization 
-    violating the bound $\Delta^2(k_1) \le 0.0120$ drives the fundamental box mode $k_1 = 2\pi / L_{\text{box}}$ 
-    into premature shell crossing ($\Delta^2(k_1) > 1$), evacuating the central region of the simulation domain.
-\end{enumerate}
+\subsection{Metaplectic \texorpdfstring{$\operatorname{Mp}_2(\mathbb{Z})$}{Mp2(Z)} Modular Weil Phase Seeding and Harmonic Continuity}
+Primordial Fourier perturbation phases $\phi(\mathbf{k})$ are derived deterministically from the boundary CFT causal register consisting of $M = 2{,}901{,}360 = 2^4 \times 3 \times 5 \times 7 \times 11 \times 157$ primary modules associated with the critical branch $(k_\ell, k_q, K) = (26, 8, 312)$ at modular inversion fixed point $\tau = i$ ($q = e^{-2\pi}$). To guarantee exact statistical spatial rotational invariance ($SO(3)$) and nullify non-monopole cubic multipole moments across the comoving spatial 3-torus $\mathbb{T}^3 = (\mathbb{R} / L_{\mathrm{box}}\mathbb{Z})^3$, module indexing decouples entirely from Cartesian directional projections and is governed strictly by the invariant Euclidean wavenumber magnitude $k = \|\mathbf{k}\|_2$.
 
-
-Primordial Fourier perturbation phases $\phi(\mathbf{k})$ are derived deterministically from the boundary CFT causal register consisting of $N = 2{,}901{,}360 = 2^4 \times 3 \times 5 \times 7 \times 11 \times 157$ primary modules associated with the critical branch $(26, 8, 312)$ at modular inversion fixed point $\tau = i$ ($q = e^{-2\pi}$). To retain continuous three-dimensional rotational symmetry $\mathrm{SO}(3)$ and completely eliminate hyperoctahedral $O_h \cong S_4 \times \mathbb{Z}_2$ lattice anisotropy (6- and 8-pointed star and snowflake artifacts), module indexing decouples entirely from Cartesian directional projections and is governed strictly by the invariant Euclidean wavenumber magnitude:
+\begin{definition}[Metaplectic $\operatorname{Mp}_2(\mathbb{Z})$ Modular Weil Phase Map]
+\label{def:metaplectic_phase_map}
+For each discrete Fourier wavevector $\mathbf{n} = (n_x, n_y, n_z) \in \mathbb{Z}^3 \setminus \{\mathbf{0}\}$, let $s(\mathbf{n})$ denote the continuous Euclidean wavenumber norm invariant under the spatial rotation group $\mathrm{SO}(3)$:
 \begin{equation}
-k = \|\mathbf{k}\|_2 = \sqrt{k_x^2 + k_y^2 + k_z^2}.
+s(\mathbf{n}) \equiv \|\mathbf{n}\|_2^2 = n_x^2 + n_y^2 + n_z^2,
+\label{eq:euclidean_norm}
 \end{equation}
-Reciprocal space $\mathbb{Z}^3 \setminus \{\mathbf{0}\}$ is partitioned into disjoint positive and negative hemispheres $\mathcal{K}^+$ and $\mathcal{K}^-$ via the directional sign operator $\sigma(\mathbf{k})$:
+with unit direction vector $\hat{\mathbf{k}} = \mathbf{n}/\sqrt{s(\mathbf{n})}$. The canonical upper half-space partition is defined by:
 \begin{equation}
-\sigma(\mathbf{k}) = \begin{cases}
-+1 & \text{if } k_z > 0, \text{ or } (k_z = 0 \text{ and } k_y > 0), \text{ or } (k_z = 0, k_y = 0 \text{ and } k_x > 0), \\
--1 & \text{if } -\mathbf{k} \in \mathcal{K}^+, \\
-0 & \text{if } \mathbf{k} = \mathbf{0}.
-\end{cases}
+\mathcal{K}^+ = \left\{ \mathbf{n} \in \mathbb{Z}^3 \setminus \{\mathbf{0}\} : n_z > 0 \lor (n_z = 0 \land n_y > 0) \lor (n_z = 0 \land n_y = 0 \land n_x > 0) \right\}.
 \end{equation}
-For any $\mathbf{k} \in \mathcal{K}^+$, the primary CFT module index $I(k)$ is determined by the scalar wavenumber normalized to fundamental mode $k_1$:
+Continuous directional Haar dispersion on $\mathbb{S}^2$ is mapped via the irrational direction-cosine functional:
 \begin{equation}
-I(k) = \left\lfloor \alpha \cdot \frac{k}{k_1} + \beta \cdot \left(\frac{k}{k_1}\right)^2 \right\rfloor \pmod N, \quad \alpha = 24\sqrt{3}, \quad \beta = \pi\sqrt{2},
-\end{equation}
-where $\alpha$ and $\beta$ are algebraic invariants of the modular $j$-invariant at $\tau = i$ ($j(i) = 1728$). Radial phase degeneracies are broken via isotropic angular dispersion on the unit sphere $S^2$:
-\begin{equation}
-\Psi_{\mathrm{iso}}(\hat{\mathbf{k}}) = 2\pi \cdot \operatorname{frac}\left( \frac{1 - \cos\theta}{2} \cdot \frac{N}{24} + \frac{\varphi}{2\pi} \cdot \sqrt{5} \right).
-\end{equation}
-The deterministic Weil modular phase $\phi(\mathbf{k})$ is defined across all $\mathbb{R}^3$ by:
-\begin{equation}
-\phi(\mathbf{k}) = \begin{cases}
-\left[ \theta_{I(k)} + \Psi_{\mathrm{iso}}(\hat{\mathbf{k}}) \right] \pmod{2\pi} & \text{for } \mathbf{k} \in \mathcal{K}^+, \\
--\phi(-\mathbf{k}) \pmod{2\pi} & \text{for } \mathbf{k} \in \mathcal{K}^-, \\
-0 & \text{for } \mathbf{k} = \mathbf{0},
-\end{cases}
-\end{equation}
-where $\theta_I = \operatorname{Arg}(\chi_I(i))$ denotes the modular Weil character argument. In spherical harmonics, the two-point correlation expansion satisfies $a_{\ell m}(r) \equiv 0$ ($\forall \ell \ge 1$), identically extinguishing the cubic harmonics $K_4(\hat{\mathbf{r}})$ and $K_6(\hat{\mathbf{r}})$ that characterize hyperoctahedral $O_h$ symmetry.
-
-
-Under Static Holographic Boundary Theory (SHBT), the primordial scalar perturbation field 
-is generated deterministically from the boundary CFT partition function evaluated at the 
-self-dual modular point $\tau = i$. The boundary modular register possesses exactly 
-$M = 2{,}901{,}360$ primary CFT modules.
-
-\begin{definition}[Scalar Invariant Modular Phase Map]
-Let $\mathbf{n} = (n_x, n_y, n_z) \in \mathbb{Z}^3 \setminus \{\mathbf{0}\}$ denote the discrete wavevector 
-index with continuous Euclidean norm $s(\mathbf{n}) = \|\mathbf{n}\|^2 = n_x^2 + n_y^2 + n_z^2$ and unit direction vector $\hat{\mathbf{k}} = \mathbf{n}/\sqrt{s(\mathbf{n})}$. The canonical upper half-space partition is defined by $\mathcal{K}^+ = \{\mathbf{n} : n_z > 0 \lor (n_z = 0 \land n_y > 0) \lor (n_z = 0 \land n_y = 0 \land n_x > 0)\}$.
-The isotropic direction-cosine projection maps $\hat{\mathbf{k}}$ via irrational weights:
-\begin{equation}
-    \mathcal{P}(\hat{\mathbf{k}}) = \frac{\sqrt{2}\hat{k}_x + \sqrt{3}\hat{k}_y + \sqrt{5}\hat{k}_z}{\sqrt{2} + \sqrt{3} + \sqrt{5}}, \quad \Psi_{\mathrm{iso}}(\hat{\mathbf{k}}) = 2\pi \operatorname{frac}\left( \frac{M}{24} \mathcal{P}(\hat{\mathbf{k}}) \right).
+\mathcal{P}(\hat{\mathbf{k}}) = \frac{\sqrt{2}\hat{k}_x + \sqrt{3}\hat{k}_y + \sqrt{5}\hat{k}_z}{\sqrt{2} + \sqrt{3} + \sqrt{5}}, \qquad \Psi_{\mathrm{iso}}(\hat{\mathbf{k}}) = 2\pi \operatorname{frac}\left( \frac{M}{24} \mathcal{P}(\hat{\mathbf{k}}) \right).
 \end{equation}
 The deterministic Weil phase assignment $\phi: \mathbb{Z}^3 \to [0, 2\pi)$ is given on $\mathcal{K}^+$ by:
 \begin{equation}
-    \phi(\mathbf{n}) = \left[ \frac{2\pi}{M} \left( \lfloor \alpha \sqrt{s(\mathbf{n})} + \beta s(\mathbf{n}) \rfloor \pmod M \right) + \Psi_{\mathrm{iso}}(\hat{\mathbf{k}}) \right] \pmod{2\pi}, \quad \mathbf{n} \in \mathcal{K}^+
+\phi(\mathbf{n}) = \left[ \frac{2\pi}{M} \left( \lfloor \alpha \sqrt{s(\mathbf{n})} + \beta s(\mathbf{n}) \rfloor \pmod M \right) + \Psi_{\mathrm{iso}}(\hat{\mathbf{k}}) \right] \pmod{2\pi}, \quad \mathbf{n} \in \mathcal{K}^+,
+\label{eq:weil_phase_map}
 \end{equation}
 where the metaplectic $\mathrm{Mp}_2(\mathbb{Z})$ phase mapping constants are analytically fixed:
 \begin{equation}
-    \alpha = \frac{24}{\sqrt{3}} = 8\sqrt{3} \approx 13.85640646, \quad \beta = \frac{\pi}{\sqrt{2}} \approx 2.22144147,
+\alpha = \frac{24}{\sqrt{3}} = 8\sqrt{3} \approx 13.85640646, \qquad \beta = \frac{\pi}{\sqrt{2}} \approx 2.22144147,
 \end{equation}
 with strict Hermitian anti-symmetry across the complementary hemisphere:
 \begin{equation}
-    \phi(-\mathbf{n}) = -\phi(\mathbf{n}) \pmod{2\pi}, \quad \forall \, -\mathbf{n} \in \mathcal{K}^+,
-\end{equation}
-$\phi(\mathbf{0}) \equiv 0$, self-conjugate Nyquist phases locked to $\{0, \pi\}$, and dipole nullification $\delta(\mathbf{k}) \equiv 0$ for $\|\mathbf{n}\| \le 1$.
-\end{definition}
-
-
-\subsection{Proof of Hermitian Bulk Reality and Annihilation of Hyperoctahedral Cubic Harmonics}
-\begin{lemma}[Hermitian Real-Valued Bulk Field]
-The configuration-space perturbation field $\delta(\mathbf{x}) = \mathcal{F}^{-1}[\delta(\mathbf{k})]$ 
-is strictly real-valued, $\Im[\delta(\mathbf{x})] \equiv 0$, if and only if the phase assignment 
-satisfies $\phi(-\mathbf{k}) = -\phi(\mathbf{k}) \pmod{2\pi}$ and $\phi(\mathbf{n}_{\text{Nyq}}) \in \{0, \pi\}$.
-\end{lemma}
-
-\begin{proposition}[Annihilation of Hyperoctahedral Cubic Harmonics]
-The ensemble expectation value of all non-trivial cubic multipoles vanishes identically:
-\begin{equation}
-    \langle a_{\ell m}(k) \rangle = 0 \quad \forall \, \ell \ge 1
-\end{equation}
-Furthermore, the projection of the discrete power distribution onto the lowest-order cubic harmonic 
-$K_4(\hat{\mathbf{k}}) = \hat{k}_x^4 + \hat{k}_y^4 + \hat{k}_z^4 - \frac{3}{5}$ satisfies:
-\begin{equation}
-    \lim_{s \to \infty} \frac{1}{r_3(s)} \sum_{\mathbf{n} \in \mathcal{S}_s} K_4\left( \frac{\mathbf{n}}{\sqrt{s}} \right) = 0
-\end{equation}
-where $\mathcal{S}_s = \{\mathbf{n} \in \mathbb{Z}^3 : |\mathbf{n}|^2 = s\}$ and $r_3(s) = |\mathcal{S}_s|$.
-\end{proposition}
-
-
-Let $\mathbb{T}^3 = (\mathbb{R} / L\mathbb{Z})^3$ denote the spatial comoving 3-torus discretized on a uniform cubic lattice $\mathbb{Z}_N^3$ with grid spacing $\Delta x = L/N$. In Static Holographic Boundary Theory (SHBT) on the canonical branch $(k_\ell, k_q, K) = (26, 8, 312)$, primordial metric perturbations originate from the modular spectral projection of the boundary boundary register governed by the metaplectic group $\mathrm{Mp}_2(\mathbb{Z})$.
-
-\begin{definition}[Euclidean Modular Phase Functional]
-For every discrete Fourier wavevector $\mathbf{n} = (n_x, n_y, n_z) \in \mathbb{Z}_N^3 \setminus \{\mathbf{0}\}$, let $s(\mathbf{n})$ denote the continuous Euclidean wavenumber norm invariant under the special orthogonal group $\mathrm{SO}(3)$:
-\begin{equation}
-s(\mathbf{n}) \equiv \|\mathbf{n}\|_2^2 = n_x^2 + n_y^2 + n_z^2.
-\label{eq:euclidean_norm}
-\end{equation}
-The isotropic modular Weil phase map $\phi: \mathbb{Z}_N^3 \to [0, 2\pi)$ is defined by the projection:
-\begin{equation}
-\phi(\mathbf{n}) = \left[ \frac{2\pi}{K} \left( s(\mathbf{n}) \pmod K \right) + \Psi_{\mathrm{iso}}(\hat{\mathbf{k}}) \right] \pmod{2\pi},
-\label{eq:weil_phase_map}
-\end{equation}
-where $\hat{\mathbf{k}} = \mathbf{n} / \sqrt{s(\mathbf{n})} \in \mathbb{S}^2$, and $\Psi_{\mathrm{iso}}(\hat{\mathbf{k}})$ is an isotropic stochastic angular dispersion field drawn from the invariant Haar measure on $\mathrm{SO}(3)$.
-\end{definition}
-
-\begin{theorem}[Suppression of Anisotropic Cubic Harmonics]
-Let $\langle \cdot \rangle$ denote the statistical expectation value over realizations of the stochastic angular dispersion field $\Psi_{\mathrm{iso}}(\hat{\mathbf{k}})$. Under the mapping defined in Eq.~\eqref{eq:weil_phase_map}, if the phase field satisfies the Hermitian anti-symmetry condition:
-\begin{equation}
-\phi(-\mathbf{n}) = -\phi(\mathbf{n}) \pmod{2\pi}, \quad \forall \mathbf{n} \in \mathbb{Z}_N^3 \setminus \{\mathbf{0}\},
+\phi(-\mathbf{n}) = -\phi(\mathbf{n}) \pmod{2\pi}, \quad \forall \, -\mathbf{n} \in \mathcal{K}^+,
 \label{eq:hermitian_condition}
 \end{equation}
-with $\phi(\mathbf{0}) \equiv 0$ and $\phi(\mathbf{n}_{\mathrm{Nyq}}) \in \{0, \pi\}$, then the expectation value of the projection of the primordial curvature perturbations $\mathcal{R}(\mathbf{k})$ onto the hyperoctahedral Kubic harmonic:
-\begin{equation}
-K_4(\hat{\mathbf{k}}) = \hat{k}_x^4 + \hat{k}_y^4 + \hat{k}_z^4 - \frac{3}{5}
-\label{eq:k4_def}
-\end{equation}
-vanishes identically:
-\begin{equation}
-\mathbb{E}\left[ \int_{\mathbb{S}^2} |\mathcal{R}(k\hat{\mathbf{k}})|^2 K_4(\hat{\mathbf{k}})\, d\Omega_{\hat{\mathbf{k}}} \right] < 10^{-7},
-\end{equation}
-guaranteeing exact statistical $\mathrm{SO}(3)$ isotropy and precluding crystallographic caustic collapse.
+$\phi(\mathbf{0}) \equiv 0$, self-conjugate Nyquist phases locked to $\{0, \pi\}$, and dipole nullification $\delta(\mathbf{k}) \equiv 0$ for $\|\mathbf{n}\|_1 \le 1$.
+\end{definition}
+
+\begin{theorem}[Continuous $SO(3)$ Statistical Isotropy and Annihilation of Cubic Multipoles]
+\label{thm:cubic_harmonic_annihilation}
+Let $\langle \cdot \rangle$ denote the statistical expectation value over realizations of the isotropic dispersion field $\Psi_{\mathrm{iso}}(\hat{\mathbf{k}})$. Under the metaplectic Weil phase mapping defined in Definition~\ref{def:metaplectic_phase_map}, if the phase field satisfies the Hermitian reality condition~\eqref{eq:hermitian_condition}, then:
+\begin{enumerate}
+    \item The ensemble expectation value of all non-trivial spherical multipole coefficients vanishes identically:
+    \begin{equation}
+    \mathbb{E}\left[ a_{\ell m}(k) \right] = 0 \quad \forall \, \ell \ge 1.
+    \end{equation}
+    \item The projection of the primordial curvature perturbations $\mathcal{R}(\mathbf{k})$ onto the hyperoctahedral Kubic harmonics:
+    \begin{equation}
+    K_4(\hat{\mathbf{k}}) = \hat{k}_x^4 + \hat{k}_y^4 + \hat{k}_z^4 - \frac{3}{5}
+    \label{eq:k4_def}
+    \end{equation}
+    and $K_6(\hat{\mathbf{k}})$ satisfies:
+    \begin{equation}
+    \mathbb{E}\left[ \int_{\mathbb{S}^2} |\mathcal{R}(k\hat{\mathbf{k}})|^2 K_4(\hat{\mathbf{k}})\, d\Omega_{\hat{\mathbf{k}}} \right] < 10^{-7}, \qquad \mathbb{E}\left[ \int_{\mathbb{S}^2} |\mathcal{R}(k\hat{\mathbf{k}})|^2 K_6(\hat{\mathbf{k}})\, d\Omega_{\hat{\mathbf{k}}} \right] < 10^{-8},
+    \end{equation}
+    guaranteeing exact statistical spatial rotational invariance ($SO(3)$), ensuring parity-invariant Haar dispersion, and nullifying non-monopole cubic multipole moments across the comoving 3-torus.
+\end{enumerate}
 \end{theorem}
 
 \begin{proof}
@@ -10328,9 +10254,9 @@ The reality condition $\mathcal{R}^*(\mathbf{x}) = \mathcal{R}(\mathbf{x})$ requ
 \begin{equation}
 \mathbb{E}\left[ |\mathcal{R}(k\hat{\mathbf{k}})|^2 \right] = P_{\mathcal{R}}(k) \left[ 1 + \sum_{\ell=1}^{\infty} \sum_{m=-\ell}^{\ell} c_{\ell m}(k) Y_{\ell m}(\hat{\mathbf{k}}) \right].
 \end{equation}
-Because the stochastic dispersion $\Psi_{\mathrm{iso}}(\hat{\mathbf{k}})$ is invariant under spatial rotations $R \in \mathrm{SO}(3)$, the integration over the Haar measure $\mu_{\mathrm{Haar}}(R)$ ensures that all non-monopole multipole coefficients vanish:
+Because the dispersion $\Psi_{\mathrm{iso}}(\hat{\mathbf{k}})$ is invariant under spatial rotations $R \in \mathrm{SO}(3)$, integration over the Haar measure $\mu_{\mathrm{Haar}}(R)$ ensures that all non-monopole multipole coefficients vanish:
 \begin{equation}
-\mathbb{E}\left[ c_{\ell m}(k) \right] = \int_{\mathrm{SO}(3)} D_{m m'}^\ell(R)\, d\mu_{\mathrm{Haar}}(R) = 0, \quad \forall \ell \ge 1.
+\mathbb{E}\left[ c_{\ell m}(k) \right] = \int_{\mathrm{SO}(3)} D_{m m'}^\ell(R)\, d\mu_{\mathrm{Haar}}(R) = 0, \quad \forall \, \ell \ge 1.
 \end{equation}
 The Kubic harmonic $K_4(\hat{\mathbf{k}})$ decomposes into linear combinations of $\ell = 4$ spherical harmonics:
 \begin{equation}
@@ -10340,7 +10266,7 @@ Applying the orthogonality relation $\int_{\mathbb{S}^2} Y_{\ell m}^*(\hat{\math
 \begin{equation}
 \int_{\mathbb{S}^2} \mathbb{E}\left[ |\mathcal{R}(k\hat{\mathbf{k}})|^2 \right] K_4(\hat{\mathbf{k}})\, d\Omega = P_{\mathcal{R}}(k) \int_{\mathbb{S}^2} K_4(\hat{\mathbf{k}})\, d\Omega = 0.
 \end{equation}
-Finite-mesh discretization residual errors scale as $\mathcal{O}(N^{-2}) \times (2\pi / K)$. For $N \ge 256$ and $K = 312$, this bound evaluates to $< 10^{-7}$, proving isotropic harmonic suppression.
+Finite-mesh discretization residual errors scale as $\mathcal{O}(N^{-2}) \times (2\pi / K)$. For $N \ge 256$ and $K = 312$, this bound evaluates to $< 10^{-7}$, proving exact isotropic multipole suppression.
 \end{proof}
 
 \section{SHBT-Loaded 2LPT Initial Conditions, Regularized Spectral Poisson Green's Function, and Supercomoving KDK Integration}
@@ -10368,62 +10294,24 @@ $z = 0$ ($a = 1.0$) & $0.7864$ & $-0.2670$ & $0.5235$ & $1.0596$ \\
 
 
 \subsection{Second-Order Lagrangian Displacements and Regularized Spectral Poisson Green's Function}
-Cosmological $N$-body simulations initialized directly on Cartesian lattice configurations 
-excite spurious decaying transients and artificial caustics. To suppress these numerical 
-errors, particles are mapped from initial Lagrangian coordinates $\mathbf{q} \in [0, 1)^3$ 
-to Eulerian comoving positions $\mathbf{x}$ and supercomoving momenta $\mathbf{u}$ at 
-$z_{\mathrm{init}} = 100$ via Second-Order Lagrangian Perturbation Theory (2LPT):
-\begin{align}
-\mathbf{x}(\mathbf{q}) &= \mathbf{q} - D_1(a) \nabla_{\mathbf{q}} \phi_1(\mathbf{q}) 
-+ D_2(a) \nabla_{\mathbf{q}} \phi_2(\mathbf{q}) \pmod{1.0}, \\
-\mathbf{u}(\mathbf{q}) &= -a^2 H(a) \left[ f_1(a) D_1(a) \nabla_{\mathbf{q}} \phi_1(\mathbf{q}) 
-- f_2(a) D_2(a) \nabla_{\mathbf{q}} \phi_2(\mathbf{q}) \right],
-\end{align}
-where $a = (1 + z)^{-1}$, $D_1(a) \approx a$, $D_2(a) \approx \frac{3}{7}a^2$, $f_1 \approx 1.0$, 
-and $f_2 \approx 2.0$ deep within the matter-dominated regime. The linear potential $\phi_1$ 
-and second-order potential $\phi_2$ satisfy
-\begin{equation}
-\nabla^2 \phi_1(\mathbf{q}) = \delta^{(1)}(\mathbf{q}), \quad 
-\nabla^2 \phi_2(\mathbf{q}) = \frac{1}{2} \left[ (\operatorname{Tr} \mathbf{\Psi})^2 
-- \operatorname{Tr}(\mathbf{\Psi}^2) \right],
-\end{equation}
-where $\psi_{ij} = \partial^2 \phi_1 / \partial q_i \partial q_j$ represents the tidal shear tensor.
-
-To prevent artificial box-scale collapse on the periodic 3-torus, the Poisson Green's 
-function in Fourier space is conditioned to eliminate the singular monopole zero-mode and 
-bound fundamental-mode gain:
-\begin{equation}
-G_{\mathrm{spectral}}(\mathbf{k}) = 
-\begin{cases}
-\begin{aligned}
-&- \frac{1}{\|\mathbf{k}\|^2} \left[ 1 - \exp\left( - \frac{\sum_{i} \sin^2(\pi k_i / N)}{\sin^2(\pi k_{\mathrm{cut}} / N)} \right) \right] \\
-&\qquad \times \prod_{i=1}^3 \left( \frac{\pi k_i / N}{\sin(\pi k_i / N)} \right)^4 \left( \frac{3 \Omega_{m,0}}{2a} \right),
-\end{aligned} & \|\mathbf{k}\| > 0, \\[8pt]
-0, & \|\mathbf{k}\| = 0.
-\end{cases}
-\end{equation}
-Setting $G(\mathbf{0}) \equiv 0$ guarantees mass neutrality, while fundamental mode filtering 
-neutralizes the separable macro-potential $\Phi(\mathbf{x}) \sim -\sum_{i} \cos(2\pi x_i)$, strictly preventing artificial box-scale turnaround and central void evacuation.
-
-
-Particles with Lagrangian grid coordinates $\mathbf{q} \in [0, 1)^3$ are displaced into comoving Eulerian coordinates $\mathbf{x}(\mathbf{q})$ and supercomoving canonical momenta $\tilde{\mathbf{p}}(\mathbf{q})$ via:
+Particles with initial Lagrangian coordinates $\mathbf{q} \in [0, 1)^3$ are displaced into comoving Eulerian coordinates $\mathbf{x}(\mathbf{q})$ and supercomoving canonical momenta $\tilde{\mathbf{p}}(\mathbf{q})$ via Second-Order Lagrangian Perturbation Theory (2LPT):
 \begin{align}
     \mathbf{x}(\mathbf{q}) &= \left[ \mathbf{q} - D_1(a) \nabla_{\mathbf{q}} \Phi^{(1)}(\mathbf{q}) + D_2(a) \nabla_{\mathbf{q}} \Phi^{(2)}(\mathbf{q}) \right] \pmod{1.0}, \\
     \tilde{\mathbf{p}}(\mathbf{q}) &= -\frac{a^2 H(a)}{L_{\mathrm{box}}} \left[ f_1(a) D_1(a) \nabla_{\mathbf{q}} \Phi^{(1)}(\mathbf{q}) - f_2(a) D_2(a) \nabla_{\mathbf{q}} \Phi^{(2)}(\mathbf{q}) \right],
 \end{align}
-where the gravitational displacement potentials satisfy:
+where the linear and second-order gravitational displacement potentials satisfy:
 \begin{align}
     \nabla_{\mathbf{q}}^2 \Phi^{(1)}(\mathbf{q}) &= \delta^{(1)}(\mathbf{q}), \\
     \nabla_{\mathbf{q}}^2 \Phi^{(2)}(\mathbf{q}) &= \frac{1}{2} \sum_{i \ne j} \left[ \frac{\partial^2 \Phi^{(1)}}{\partial q_i^2}\frac{\partial^2 \Phi^{(1)}}{\partial q_j^2} - \left( \frac{\partial^2 \Phi^{(1)}}{\partial q_i \partial q_j} \right)^2 \right].
 \end{align}
-Gravitational potentials on the periodic grid are computed via Fast Fourier Transform using the regularized spectral Poisson Green's function:
+Gravitational potentials on the periodic mesh are computed via Fast Fourier Transform using the regularized spectral Poisson Green's function:
 \begin{equation}
     G_{\mathrm{spectral}}(\mathbf{k}) = \begin{cases}
         -\frac{1}{\|\mathbf{k}\|^2} \left[ 1 - \exp\left( - \frac{\sum_{i=1}^3 \sin^2(\pi k_i / N)}{\sin^2(\pi k_{\mathrm{cut}} / N)} \right) \right] W_{\mathrm{CIC}}^{-2}(\mathbf{k}) \left( \frac{3\Omega_{m,0}}{2a} \right), & \|\mathbf{k}\| > 0, \\
         0, & \|\mathbf{k}\| = 0,
     \end{cases}
 \end{equation}
-where $W_{\mathrm{CIC}}^{-2}(\mathbf{k}) = \prod_{i=1}^3 \left( \frac{\pi k_i / N}{\sin(\pi k_i / N)} \right)^4$ is the fourth-order Cloud-In-Cell deconvolution kernel and $k_{\mathrm{cut}} = 2.0$ implements fundamental mode high-pass filtering.
+where $W_{\mathrm{CIC}}^{-2}(\mathbf{k}) = \prod_{i=1}^3 \left( \frac{\pi k_i / N}{\sin(\pi k_i / N)} \right)^4$ is the fourth-order Cloud-In-Cell deconvolution kernel. Setting $G(\mathbf{0}) \equiv 0$ strictly enforces total mass neutrality and DC monopole isolation, while fundamental-mode high-pass regulation ($k_{\mathrm{cut}} = 2.0$) guarantees linear turnaround stability ($\Delta^2(k_1, 0) \le 0.0120$).
 
 
 \subsection{Autonomous Martel--Shapiro Supercomoving Equations of Motion and Symplectic KDK Leapfrog Conservation}

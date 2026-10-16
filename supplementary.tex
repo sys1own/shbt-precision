@@ -614,7 +614,7 @@ Furthermore, the projection of the discrete perturbation spectrum onto hyperocta
 \begin{equation}
 \mathbb{E}\left[ \int_{\mathbb{S}^2} |\delta(k\hat{\mathbf{k}})|^2 K_4(\hat{\mathbf{k}})\, d\Omega \right] < 10^{-7}, \quad \mathbb{E}\left[ \int_{\mathbb{S}^2} |\delta(k\hat{\mathbf{k}})|^2 K_6(\hat{\mathbf{k}})\, d\Omega \right] < 10^{-8},
 \end{equation}
-strictly eliminating 6- and 8-pointed star-cusp crystallographic caustics.
+guaranteeing exact statistical spatial rotational invariance ($SO(3)$) and ensuring parity-invariant Haar dispersion across the comoving 3-torus.
 \end{theorem}
 
 \subsection{Exact Horizon-to-Box Curvature Mapping and Turnaround Bound}
@@ -631,152 +631,96 @@ This fixes the box curvature scale and comoving box length to $\Lambda_{\mathrm{
 \label{eq:fundamental-mode-variance-bound}
 \Delta^2(k_1, 0) = \frac{k_1^3}{2\pi^2} P_{\mathrm{NL}}(k_1, 0) \approx 0.01174 \le 0.0120 \approx \left(\frac{\delta_{\mathrm{ta}}}{10}\right)^2,
 \end{equation}
-ensuring $\sigma_{\mathrm{box}} \approx 0.1084 \ll \delta_{\mathrm{ta}} \approx 1.06$, which strictly prevents domain-spanning monolithic collapse and central mass evacuation.
+ensuring $\sigma_{\mathrm{box}} \approx 0.1084 \ll \delta_{\mathrm{ta}} \approx 1.06$, guaranteeing linear turnaround stability across the comoving domain.
 
 
 \subsection{Modular Capacity Invariant, Unified Cardy Floor, Ballistic Regularization, and Holographic Jeans Core Virialization}
 \label{app:cardy-floor-jeans-virialization}
-In numerical implementations of Static Holographic Boundary Theory, unregularized logarithmic gradients $\nabla \ln \rho_{\mathrm{bulk}}$ diverge in deep void basins ($\rho_{\mathrm{bulk}} \to 0$) and produce unphysical cusp singularities in overdense halos ($\rho_{\mathrm{bulk}} \to \rho_{\mathrm{sat}}$). The boundary coset Cardy regularized transport kernel replaces the unregularized gradient with:
-\begin{equation}
-\nabla \ln(\rho_{\mathrm{reg}}) = \frac{\nabla \rho_{\mathrm{bulk}}}{\rho_{\mathrm{bulk}} + \rho_{\mathrm{cardy\_floor}}},
-\end{equation}
-where $\rho_{\mathrm{cardy\_floor}} = \rho_{\mathrm{sat},0} / N_{\mathrm{sat}}^{1/4} \approx 0.006967$. In void regions, $\nabla \ln(\rho_{\mathrm{reg}})$ smoothly vanishes as density profiles flatten, ensuring isotropic, non-directional void evacuation.
-
-In collapsed halo cores, boundary information capacity saturates according to the local packing ratio:
-\begin{equation}
-\eta_{\mathrm{sat}}(\mathbf{x}, z) = \operatorname{clamp}\left( \frac{\rho_{\mathrm{bulk}}(\mathbf{x})}{\rho_{\mathrm{sat}}(z)}, \, 0.0, \, 1.0 \right), \quad \rho_{\mathrm{sat}}(z) = \frac{\rho_{\mathrm{sat}, 0}}{a^3}.
-\end{equation}
-Saturation triggers an isotropic velocity dispersion floor:
-\begin{equation}
-\sigma_v^2(\mathbf{x}, z) = \frac{k_B T_{\mathrm{vir}}}{m_p} \, \eta_{\mathrm{sat}}(\mathbf{x}, z),
-\end{equation}
-generating the outward thermodynamic dispersion acceleration:
-\begin{equation}
-\mathbf{a}_{\mathrm{disp}}(\mathbf{x}) = - 2 \sigma_v^2(\mathbf{x}, z) \, \nabla \ln(\rho_{\mathrm{reg}}).
-\end{equation}
-In virialized halo cores ($\eta_{\mathrm{sat}} \to 1$), the outward dispersion acceleration exactly balances the inward gravitational and entropic pull:
-\begin{equation}
-\mathbf{a}_{\mathrm{collapse}} + \mathbf{a}_{\mathrm{disp}} \equiv \mathbf{0},
-\end{equation}
-halting artificial caustic shell-crossing and establishing a stable Jeans core equilibrium with finite central core density.
-
-
 \label{app:cardy-jeans-core-virialization}
-In canonical SHBT, the collisionless collapse of dark matter into singular caustics is arrested at halo centers by an outward holographic entropic dispersion force arising from boundary entropy saturation.
-
-\begin{definition}[Cardy Velocity Dispersion Tensor]
-Let $\rho_{\mathrm{sat},0}$ denote the central saturation density of the boundary theory and $N_{\mathrm{sat}} = 45{,}553{,}447.38$ the microstate capacity of the boundary register. The Cardy velocity dispersion $\sigma_v^2(\mathbf{x}, a)$ is defined by:
-\begin{equation}
-\sigma_v^2(\mathbf{x}, a) = \frac{k_B T_{\mathrm{vir}}}{m_p} \, \eta_{\mathrm{sat}}(\rho),
-\label{eq:sigma_v_def}
-\end{equation}
-where $T_{\mathrm{vir}}$ is the virial temperature and the saturation efficiency parameter $\eta_{\mathrm{sat}}(\rho)$ is given by:
-\begin{equation}
-\eta_{\mathrm{sat}}(\rho) \equiv \left( 1 + \frac{\rho}{\rho_{\mathrm{sat},0}} \right)^{-1/3} \left[ 1 + \left( \frac{\rho_{\mathrm{cardy\_floor}}}{\rho + \rho_{\mathrm{cardy\_floor}}} \right) \right],
-\end{equation}
-with the absolute Cardy capacity floor defined by:
-\begin{equation}
-\rho_{\mathrm{cardy\_floor}} \equiv \frac{\rho_{\mathrm{sat},0}}{N_{\mathrm{sat}}^{1/4}} \approx 0.00696738.
-\label{eq:cardy_floor_def}
-\end{equation}
-In comoving coordinates, the regularized physical density is defined by:
-\begin{equation}
-\rho_{\mathrm{reg}}(\mathbf{x}, a) = \rho(\mathbf{x}) + \max\left( \rho_{\mathrm{cardy\_floor}},\, \frac{1}{39a} \right).
-\label{eq:rho_reg_def}
-\end{equation}
-\end{definition}
-
-\begin{theorem}[Jeans Core Equilibrium Condition]
-Under non-linear gravitational collapse, dark matter halos establish a stable, non-singular isothermal core of radius $r_c > 0$ when the inward gravitational acceleration $\mathbf{a}_{\mathrm{collapse}} = -\nabla \Phi$ balances the regularized entropic and dispersion accelerations:
-\begin{equation}
-\mathbf{a}_{\mathrm{collapse}} + \mathbf{a}_{\mathrm{disp}} + \mathbf{a}_{\mathrm{GET}} \equiv \mathbf{0},
-\label{eq:virial_equilibrium}
-\end{equation}
-where the dispersion acceleration is defined by:
-\begin{equation}
-\mathbf{a}_{\mathrm{disp}} \equiv -\frac{1}{\rho_{\mathrm{reg}}} \nabla \left( \rho_{\mathrm{reg}} \sigma_v^2 \right) = -\nabla \sigma_v^2 - \sigma_v^2 \nabla \ln \rho_{\mathrm{reg}}.
-\label{eq:a_disp_formal}
-\end{equation}
-\end{theorem}
-
-\begin{proof}
-Applying the divergence operator to Eq.~\eqref{eq:virial_equilibrium} and utilizing the comoving Poisson equation $\nabla^2 \Phi = 4\pi G a^2 (\rho - \bar{\rho})$:
-\begin{equation}
--\nabla^2 \Phi + \nabla \cdot \left( \mathbf{a}_{\mathrm{disp}} + \mathbf{a}_{\mathrm{GET}} \right) = 0.
-\end{equation}
-Substituting $\mathbf{a}_{\mathrm{GET}} = -\kappa_{\mathrm{GET}} \nabla \ln \rho_{\mathrm{reg}}$ and assuming an isothermal core where $\nabla \sigma_v^2 = \mathbf{0}$:
-\begin{equation}
-4\pi G a^2 (\rho - \bar{\rho}) + (\sigma_v^2 + \kappa_{\mathrm{GET}}) \nabla^2 \ln \rho_{\mathrm{reg}} = 0.
-\end{equation}
-Expanding $\nabla^2 \ln \rho_{\mathrm{reg}} = \rho_{\mathrm{reg}}^{-1} \nabla^2 \rho_{\mathrm{reg}} - \rho_{\mathrm{reg}}^{-2} \|\nabla \rho_{\mathrm{reg}}\|^2$ near the halo center $r \to 0$ where $\nabla \rho_{\mathrm{reg}} \to \mathbf{0}$:
-\begin{equation}
-4\pi G a^2 \rho_0 + \frac{\sigma_v^2 + \kappa_{\mathrm{GET}}}{\rho_0 + \rho_{\mathrm{cardy\_floor}}} \left( \left. \frac{d^2 \rho}{dr^2} \right|_{r=0} + \frac{2}{r} \left. \frac{d\rho}{dr} \right|_{r=0} \right) = 0.
-\end{equation}
-For a flat core profile $\rho(r) = \rho_0 (1 - r^2 / (2 r_c^2))$, the Laplacian evaluates to $\nabla^2 \rho(0) = -3\rho_0 / r_c^2$. Substituting this form yields:
-\begin{equation}
-4\pi G a^2 \rho_0 - \frac{3\rho_0 (\sigma_v^2 + \kappa_{\mathrm{GET}})}{r_c^2 (\rho_0 + \rho_{\mathrm{cardy\_floor}})} = 0 \implies r_c = \sqrt{ \frac{3(\sigma_v^2 + \kappa_{\mathrm{GET}})}{4\pi G a^2 (\rho_0 + \rho_{\mathrm{cardy\_floor}})} }.
-\end{equation}
-Because $\rho_{\mathrm{cardy\_floor}} > 0$ identically, $r_c$ is strictly bounded away from zero for all finite physical density values $\rho_0$, precluding singular caustic formation.
-\end{proof}
-
-
 \label{app:jeans_virialization_cardy}
-Non-linear structure formation in SHBT incorporates Causal-Point Generalized Entropic Transport (GET) balancing gravitational collapse against boundary holographic entropy production. The unregularized entropic acceleration $\mathbf{a}_{\mathrm{GET}} \sim -\nabla \ln \rho_{\mathrm{bulk}}$ exhibits a formal coordinate singularity in cosmic voids ($\rho_{\mathrm{bulk}} \to 0$). We resolve this by coupling the bulk transport kernel to the dynamic Cardy vacuum capacity floor:
+
+Non-linear structure formation in Static Holographic Boundary Theory (SHBT) couples gravitational collapse to boundary holographic entropy production through Causal-Point Generalized Entropic Transport (GET). Unregularized logarithmic density gradients $\nabla \ln \rho_{\mathrm{bulk}}$ formally diverge in cosmic void basins ($\rho_{\mathrm{bulk}} \to 0$) and produce unphysical cusp singularities in collapsed halo cores ($\rho_{\mathrm{bulk}} \to \rho_{\mathrm{sat}}$). In canonical SHBT, both regimes are analytically regularized by boundary information capacity invariants.
+
+\subsubsection{Dynamic Cardy Vacuum Floor and Low-Density Regularization}
+The bulk entropic transport kernel is coupled to the dynamic Cardy vacuum capacity floor:
 \begin{equation}
-    \rho_{\mathrm{floor}}(a) = \max\left( 0.00696738, \, \frac{1}{39a} \right), \quad \rho_{\mathrm{reg}}(\mathbf{x}, a) = \rho_{\mathrm{bulk}}(\mathbf{x}) + \rho_{\mathrm{floor}}(a).
+\label{eq:cardy_floor_def}
+\rho_{\mathrm{floor}}(a) = \max\left( \rho_{\mathrm{cardy\_floor}}, \, \frac{1}{39a} \right), \quad \rho_{\mathrm{cardy\_floor}} \equiv \frac{\rho_{\mathrm{sat},0}}{N_{\mathrm{sat}}^{1/4}} \approx 0.00696738,
+\end{equation}
+where $\rho_{\mathrm{sat},0}$ denotes the central saturation density and $N_{\mathrm{sat}} = 45{,}553{,}447.38$ is the microstate capacity of the boundary register. In comoving coordinates, the regularized physical density field is defined by:
+\begin{equation}
+\label{eq:rho_reg_def}
+\rho_{\mathrm{reg}}(\mathbf{x}, a) = \rho_{\mathrm{bulk}}(\mathbf{x}) + \rho_{\mathrm{floor}}(a).
 \end{equation}
 The regularized entropic transport acceleration is:
 \begin{equation}
-    \mathbf{a}_{\mathrm{GET}}(\mathbf{x}) = -\kappa_{\mathrm{GET}}(f_{\mathrm{load}}) \nabla \ln \rho_{\mathrm{reg}}(\mathbf{x}) = -\kappa_{\mathrm{GET}}(f_{\mathrm{load}}) \frac{\nabla \rho_{\mathrm{bulk}}(\mathbf{x})}{\rho_{\mathrm{bulk}}(\mathbf{x}) + \rho_{\mathrm{floor}}(a)}.
+\mathbf{a}_{\mathrm{GET}}(\mathbf{x}) = -\kappa_{\mathrm{GET}}(f_{\mathrm{load}}) \nabla \ln \rho_{\mathrm{reg}}(\mathbf{x}) = -\kappa_{\mathrm{GET}}(f_{\mathrm{load}}) \frac{\nabla \rho_{\mathrm{bulk}}(\mathbf{x})}{\rho_{\mathrm{bulk}}(\mathbf{x}) + \rho_{\mathrm{floor}}(a)}.
 \end{equation}
 
-\begin{lemma}[Extinction of Low-Density Acceleration Blowup]
+\begin{lemma}[Regularized Entropic Gradient Boundedness]
 In the low-density asymptotic limit $\rho_{\mathrm{bulk}} \to 0$, the spatial gradient of the log-regularized density vanishes identically:
 \begin{equation}
-    \lim_{\rho_{\mathrm{bulk}} \to 0} \nabla \ln \rho_{\mathrm{reg}}(\mathbf{x}, a) = \mathbf{0},
+\lim_{\rho_{\mathrm{bulk}} \to 0} \nabla \ln \rho_{\mathrm{reg}}(\mathbf{x}, a) = \mathbf{0},
 \end{equation}
-strictly precluding unphysical explosive central void evacuations.
+guaranteeing smooth ballistic expansion in low-density cosmic basins.
 \end{lemma}
 
 \begin{proof}
 Because physical density fields $\rho_{\mathrm{bulk}}(\mathbf{x})$ generated by Cloud-in-Cell interpolation from discrete particle ensembles satisfy $\lim_{\rho_{\mathrm{bulk}} \to 0} \|\nabla \rho_{\mathrm{bulk}}(\mathbf{x})\| = 0$ at local density minima, and the denominator satisfies $\rho_{\mathrm{bulk}}(\mathbf{x}) + \rho_{\mathrm{floor}}(a) \ge \rho_{\mathrm{floor}}(a) \ge 0.00696738 > 0$ for all $a > 0$, the quotient satisfies:
 \begin{equation}
-    \|\nabla \ln \rho_{\mathrm{reg}}(\mathbf{x}, a)\| = \frac{\|\nabla \rho_{\mathrm{bulk}}(\mathbf{x})\|}{\rho_{\mathrm{bulk}}(\mathbf{x}) + \rho_{\mathrm{floor}}(a)} \le \frac{\|\nabla \rho_{\mathrm{bulk}}(\mathbf{x})\|}{0.00696738} \xrightarrow{\rho_{\mathrm{bulk}} \to 0} 0.
+\|\nabla \ln \rho_{\mathrm{reg}}(\mathbf{x}, a)\| = \frac{\|\nabla \rho_{\mathrm{bulk}}(\mathbf{x})\|}{\rho_{\mathrm{bulk}}(\mathbf{x}) + \rho_{\mathrm{floor}}(a)} \le \frac{\|\nabla \rho_{\mathrm{bulk}}(\mathbf{x})\|}{0.00696738} \xrightarrow{\rho_{\mathrm{bulk}} \to 0} 0.
 \end{equation}
-Hence $\lim_{\rho_{\mathrm{bulk}} \to 0} \mathbf{a}_{\mathrm{GET}}(\mathbf{x}) \equiv \mathbf{0}$, guaranteeing regular, non-singular evolution in cosmic voids.
+Hence $\lim_{\rho_{\mathrm{bulk}} \to 0} \mathbf{a}_{\mathrm{GET}}(\mathbf{x}) \equiv \mathbf{0}$, ensuring regular, non-singular evolution in cosmic voids.
 \end{proof}
 
-In collapsed virialized halos, boundary bit saturation $\eta_{\mathrm{sat}}(\mathbf{x}) = \operatorname{clamp}(\rho_{\mathrm{bulk}} / \rho_{\mathrm{sat}}(z), 0, 1) \to 1$ activates the holographic virial velocity dispersion acceleration:
+\subsubsection{Boundary Bit Saturation and Holographic Velocity Dispersion}
+In collapsed overdense halos, boundary information capacity saturates according to the local packing ratio:
 \begin{equation}
-    \mathbf{a}_{\mathrm{disp}}(\mathbf{x}) = -2\sigma_v^2(\mathbf{x}, z) \nabla \ln \rho_{\mathrm{reg}}(\mathbf{x}), \quad \sigma_v^2(\mathbf{x}, z) = \frac{k_B T_{\mathrm{vir}}}{m_p} \eta_{\mathrm{sat}}(\mathbf{x}).
+\eta_{\mathrm{sat}}(\mathbf{x}, z) = \operatorname{clamp}\left( \frac{\rho_{\mathrm{bulk}}(\mathbf{x})}{\rho_{\mathrm{sat}}(z)}, \, 0.0, \, 1.0 \right), \quad \rho_{\mathrm{sat}}(z) = \frac{\rho_{\mathrm{sat}, 0}}{a^3}.
+\end{equation}
+Boundary entropy saturation activates an isotropic velocity dispersion floor:
+\begin{equation}
+\label{eq:sigma_v_def}
+\sigma_v^2(\mathbf{x}, z) = \frac{k_B T_{\mathrm{vir}}}{m_p} \, \eta_{\mathrm{sat}}(\mathbf{x}, z),
+\end{equation}
+generating the outward thermodynamic dispersion acceleration:
+\begin{equation}
+\label{eq:a_disp_formal}
+\mathbf{a}_{\mathrm{disp}}(\mathbf{x}) = - 2 \sigma_v^2(\mathbf{x}, z) \, \nabla \ln \rho_{\mathrm{reg}}(\mathbf{x}) = -\frac{1}{\rho_{\mathrm{reg}}} \nabla\left( \rho_{\mathrm{reg}} \sigma_v^2 \right).
 \end{equation}
 
+\subsubsection{Halo Core Virial Equilibrium and Finite Jeans Core Radius}
 \begin{theorem}[Halo Core Virial Equilibrium and Finite Jeans Core Radius]
-At the centers of collapsed dark matter halos, hydrostatic virial equilibrium between gravitational collapse acceleration $\mathbf{a}_{\mathrm{collapse}} = -\nabla \Phi$ and entropic velocity dispersion $\mathbf{a}_{\mathrm{disp}}$:
+Under non-linear gravitational collapse, dark matter halos establish a stable, non-singular isothermal core of radius $r_c > 0$ when the inward gravitational acceleration $\mathbf{a}_{\mathrm{collapse}} = -\nabla \Phi$ balances the regularized entropic and dispersion accelerations:
 \begin{equation}
-    \mathbf{a}_{\mathrm{collapse}} + \mathbf{a}_{\mathrm{disp}} \equiv \mathbf{0} \iff \nabla \Phi + 2\sigma_v^2 \nabla \ln \rho_{\mathrm{reg}} = \mathbf{0},
+\label{eq:virial_equilibrium}
+\mathbf{a}_{\mathrm{collapse}} + \mathbf{a}_{\mathrm{disp}} + \mathbf{a}_{\mathrm{GET}} \equiv \mathbf{0} \iff \nabla \Phi + (\sigma_v^2 + \kappa_{\mathrm{GET}}) \nabla \ln \rho_{\mathrm{reg}} = \mathbf{0},
 \end{equation}
-enforces an isothermal core with strictly positive Jeans core radius:
+enforcing an isothermal core with strictly positive Jeans core radius:
 \begin{equation}
-    r_c = \sqrt{\frac{\sigma_v^2}{2\pi G (\rho_0 + \rho_{\mathrm{floor}})}} > 0,
+r_c = \sqrt{ \frac{3(\sigma_v^2 + \kappa_{\mathrm{GET}})}{4\pi G a^2 (\rho_0 + \rho_{\mathrm{floor}})} } > 0,
 \end{equation}
-halting artificial caustic singularity formation and precluding hyperoctahedral star-cusp collapses.
+halting singular caustic collapse and establishing an isotropic isothermal halo core.
 \end{theorem}
 
 \begin{proof}
-Taking the spatial divergence of the equilibrium condition yields:
+Applying the divergence operator to Eq.~\eqref{eq:virial_equilibrium} and utilizing the comoving Poisson equation $\nabla^2 \Phi = 4\pi G a^2 (\rho_{\mathrm{bulk}} - \bar{\rho})$:
 \begin{equation}
-    \nabla^2 \Phi + 2\sigma_v^2 \nabla^2 \ln \rho_{\mathrm{reg}} = 0.
+-\nabla^2 \Phi + \nabla \cdot \left( \mathbf{a}_{\mathrm{disp}} + \mathbf{a}_{\mathrm{GET}} \right) = 0.
 \end{equation}
-Substituting Poisson's equation $\nabla^2 \Phi = 4\pi G a^2 \rho_{\mathrm{bulk}}$ with central core expansion $\rho_{\mathrm{bulk}}(r) \approx \rho_0 (1 - r^2 / (2 r_c^2))$ as $r \to 0$ where $\nabla \rho_{\mathrm{bulk}}(0) = \mathbf{0}$ and $\nabla^2 \rho_{\mathrm{bulk}}(0) = -3\rho_0 / r_c^2$, the regularized Laplacian evaluates to:
+Substituting $\mathbf{a}_{\mathrm{GET}} = -\kappa_{\mathrm{GET}} \nabla \ln \rho_{\mathrm{reg}}$ and assuming an isothermal core where $\nabla \sigma_v^2 = \mathbf{0}$:
 \begin{equation}
-    \left. \nabla^2 \ln \rho_{\mathrm{reg}} \right|_{r=0} = \left. \frac{\nabla^2 \rho_{\mathrm{bulk}}}{\rho_0 + \rho_{\mathrm{floor}}} \right|_{r=0} = -\frac{3\rho_0}{r_c^2 (\rho_0 + \rho_{\mathrm{floor}})}.
+4\pi G a^2 (\rho_{\mathrm{bulk}} - \bar{\rho}) + (\sigma_v^2 + \kappa_{\mathrm{GET}}) \nabla^2 \ln \rho_{\mathrm{reg}} = 0.
 \end{equation}
-Equating gravitational and dispersive terms gives:
+Expanding $\nabla^2 \ln \rho_{\mathrm{reg}} = \rho_{\mathrm{reg}}^{-1} \nabla^2 \rho_{\mathrm{reg}} - \rho_{\mathrm{reg}}^{-2} \|\nabla \rho_{\mathrm{reg}}\|^2$ near the halo center $r \to 0$ where $\nabla \rho_{\mathrm{reg}} \to \mathbf{0}$:
 \begin{equation}
-    4\pi G a^2 \rho_0 - 2\sigma_v^2 \frac{3\rho_0}{r_c^2 (\rho_0 + \rho_{\mathrm{floor}})} = 0 \implies r_c = \sqrt{ \frac{3\sigma_v^2}{2\pi G a^2 (\rho_0 + \rho_{\mathrm{floor}})} } > 0.
+4\pi G a^2 \rho_0 + \frac{\sigma_v^2 + \kappa_{\mathrm{GET}}}{\rho_0 + \rho_{\mathrm{floor}}} \left( \left. \frac{d^2 \rho_{\mathrm{bulk}}}{dr^2} \right|_{r=0} + \frac{2}{r} \left. \frac{d\rho_{\mathrm{bulk}}}{dr} \right|_{r=0} \right) = 0.
 \end{equation}
-Because $\rho_{\mathrm{floor}} \ge 0.00696738 > 0$ strictly bounds the denominator from below and prevents divergence, the core radius $r_c$ remains finite and non-zero for all physical halo masses, precluding singular caustics.
+For a flat core profile $\rho_{\mathrm{bulk}}(r) \approx \rho_0 (1 - r^2 / (2 r_c^2))$, the Laplacian evaluates to $\nabla^2 \rho_{\mathrm{bulk}}(0) = -3\rho_0 / r_c^2$. Substituting this form yields:
+\begin{equation}
+4\pi G a^2 \rho_0 - \frac{3\rho_0 (\sigma_v^2 + \kappa_{\mathrm{GET}})}{r_c^2 (\rho_0 + \rho_{\mathrm{floor}})} = 0 \implies r_c = \sqrt{ \frac{3(\sigma_v^2 + \kappa_{\mathrm{GET}})}{4\pi G a^2 (\rho_0 + \rho_{\mathrm{floor}})} }.
+\end{equation}
+Because $\rho_{\mathrm{floor}} \ge \rho_{\mathrm{cardy\_floor}} > 0$ identically, $r_c$ is strictly bounded away from zero for all finite physical density values $\rho_0$, precluding singular caustic formation.
 \end{proof}
 
 
@@ -922,11 +866,11 @@ where $W_{\mathrm{CIC}}^{-2}(\mathbf{k}) = \prod_{i=1}^3 \left( \frac{\pi k_i / 
 To ensure long-term symplectic stability and eliminate secular energy dissipation across cosmological epochs, dynamical equations are formulated using Martel--Shapiro supercomoving variables.
 
 \begin{definition}[Supercomoving Transformations]
-Let $\mathbf{x}$ denote comoving coordinates, $t$ cosmic time, and $\tau$ conformal time ($dt = a\, d\tau$). For a simulation domain of comoving length $L_{\mathrm{box}}$, the supercomoving coordinates $(\tilde{\mathbf{x}}, \tilde{\mathbf{v}}, \tilde{t}, \tilde{\Phi})$ are defined by:
+Let $\mathbf{x}$ denote comoving coordinates, $t$ cosmic time, and $\tau$ conformal time ($dt = a\, d\tau$). For a simulation domain of comoving length $L_{\mathrm{box}}$, the supercomoving coordinates $(\tilde{\mathbf{x}}, \tilde{\mathbf{p}}, \tilde{\tau}, \tilde{\Phi})$ are defined by:
 \begin{align}
 \tilde{\mathbf{x}} &\equiv \frac{\mathbf{x}}{L_{\mathrm{box}}}, \label{eq:super_x} \\
-d\tilde{t} &\equiv \frac{\mathcal{H}_0\, dt}{a^2(t)} = \frac{\mathcal{H}_0\, d\tau}{a(t)}, \label{eq:super_t} \\
-\tilde{\mathbf{v}} &\equiv \frac{d\tilde{\mathbf{x}}}{d\tilde{t}} = \frac{a^2}{\mathcal{H}_0 L_{\mathrm{box}}} \frac{d\mathbf{x}}{dt} = \frac{a}{\mathcal{H}_0 L_{\mathrm{box}}} \mathbf{v}_{\mathrm{pec}}, \label{eq:super_v} \\
+d\tilde{\tau} &\equiv \frac{\mathcal{H}_0\, dt}{a^2(t)} = \frac{\mathcal{H}_0\, d\tau}{a(t)}, \label{eq:super_t} \\
+\tilde{\mathbf{p}} &\equiv \frac{d\tilde{\mathbf{x}}}{d\tilde{\tau}} = \frac{a^2}{\mathcal{H}_0 L_{\mathrm{box}}} \frac{d\mathbf{x}}{dt} = \frac{a}{\mathcal{H}_0 L_{\mathrm{box}}} \mathbf{v}_{\mathrm{pec}}, \label{eq:super_v} \\
 \tilde{\Phi} &\equiv \frac{a^2}{\mathcal{H}_0^2 L_{\mathrm{box}}^2} \Phi, \label{eq:super_phi}
 \end{align}
 where $\mathcal{H}_0$ is the Hubble constant and $\mathbf{v}_{\mathrm{pec}} = a \dot{\mathbf{x}}$ is the physical peculiar velocity.
@@ -935,21 +879,14 @@ where $\mathcal{H}_0$ is the Hubble constant and $\mathbf{v}_{\mathrm{pec}} = a 
 \begin{theorem}[Autonomous Supercomoving Equations of Motion]
 Under the coordinate mapping defined in Eqs.~\eqref{eq:super_x}--\eqref{eq:super_phi}, the collisionless Vlasov--Poisson system transforms into an autonomous Hamiltonian system where the explicit Hubble drag term $-2\mathcal{H}\mathbf{v}_{\mathrm{pec}}$ is eliminated:
 \begin{align}
-\frac{d\tilde{\mathbf{x}}}{d\tilde{t}} &= \tilde{\mathbf{v}}, \label{eq:eom_x} \\
-\frac{d\tilde{\mathbf{v}}}{d\tilde{t}} &= -\tilde{\nabla}\tilde{\Phi} + \tilde{\mathbf{a}}_{\mathrm{ext}}, \label{eq:eom_v} \\
-\tilde{\nabla}^2 \tilde{\Phi} &= \frac{3}{2} \Omega_{m,0} a(\tilde{t})\, \tilde{\delta}, \label{eq:super_poisson}
+\frac{d\tilde{\mathbf{x}}}{d\tilde{\tau}} &= \tilde{\mathbf{p}}, \label{eq:eom_x} \\
+\frac{d\tilde{\mathbf{p}}}{d\tilde{\tau}} &= -\tilde{\nabla}\tilde{\Phi} + \tilde{\mathbf{a}}_{\mathrm{ext}}, \label{eq:eom_v} \\
+\tilde{\nabla}^2 \tilde{\Phi} &= \frac{3}{2} \Omega_{m,0} a(\tilde{\tau})\, \tilde{\delta}, \label{eq:super_poisson}
 \end{align}
 where $\tilde{\delta} = \tilde{\rho} - 1$ and $\tilde{\mathbf{a}}_{\mathrm{ext}} = \frac{a^3}{\mathcal{H}_0^2 L_{\mathrm{box}}} (\mathbf{a}_{\mathrm{disp}} + \mathbf{a}_{\mathrm{GET}})$.
 \end{theorem}
 
-The system is integrated using a time-symmetric Kick-Drift-Kick (KDK) symplectic leapfrog scheme:
-\begin{align}
-\tilde{\mathbf{v}}^{n+1/2} &= \tilde{\mathbf{v}}^n + \frac{1}{2} \Delta \tilde{t}\, \left[ -\tilde{\nabla}\tilde{\Phi}(\tilde{\mathbf{x}}^n, a^n) + \tilde{\mathbf{a}}_{\mathrm{ext}}(\tilde{\mathbf{x}}^n, a^n) \right], \\
-\tilde{\mathbf{x}}^{n+1} &= \tilde{\mathbf{x}}^n + \Delta \tilde{t}\, \tilde{\mathbf{v}}^{n+1/2}, \\
-\tilde{\mathbf{v}}^{n+1} &= \tilde{\mathbf{v}}^{n+1/2} + \frac{1}{2} \Delta \tilde{t}\, \left[ -\tilde{\nabla}\tilde{\Phi}(\tilde{\mathbf{x}}^{n+1}, a^{n+1}) + \tilde{\mathbf{a}}_{\mathrm{ext}}(\tilde{\mathbf{x}}^{n+1}, a^{n+1}) \right].
-\end{align}
-
-Dynamical evolution is integrated in Martel--Shapiro supercomoving coordinates $\tilde{\mathbf{x}} = \mathbf{x} / L_{\mathrm{box}}$, $d\tilde{\tau} = \frac{H_0}{a^2} dt$, and canonical momentum $\tilde{\mathbf{p}} = d\tilde{\mathbf{x}} / d\tilde{\tau}$ (where the reference scale $H_0 = H_0^{\mathrm{rad-alg}} = 67.40058\,\mathrm{km\,s^{-1}\,Mpc^{-1}}$ exactly normalizes $L_{\mathrm{box}} = 150.0\,h^{-1}\mathrm{Mpc} = 222.5502\,\mathrm{Mpc}$) under a time-symmetric Kick-Drift-Kick (KDK) symplectic leapfrog scheme:
+Dynamical evolution is integrated in Martel--Shapiro supercomoving coordinates $\tilde{\mathbf{x}} = \mathbf{x} / L_{\mathrm{box}}$, $d\tilde{\tau} = \frac{H_0}{a^2} dt$, and canonical momentum $\tilde{\mathbf{p}} = d\tilde{\mathbf{x}} / d\tilde{\tau}$ (where the reference scale $H_0 = H_0^{\mathrm{rad-alg}} = 67.40058\,\mathrm{km\,s^{-1}\,Mpc^{-1}}$ exactly normalizes $L_{\mathrm{box}} = 150.0\,h^{-1}\mathrm{Mpc} = 222.5502\,\mathrm{Mpc}$) under a time-symmetric Kick--Drift--Kick (KDK) symplectic leapfrog scheme:
 \begin{align}
     \tilde{\mathbf{p}}_{n+1/2} &= \tilde{\mathbf{p}}_n + \frac{\Delta \tilde{\tau}}{2} \mathbf{a}_{\mathrm{tot}}(\tilde{\mathbf{x}}_n, a_n), \\
     \tilde{\mathbf{x}}_{n+1} &= \left[ \tilde{\mathbf{x}}_n + \Delta \tilde{\tau} \tilde{\mathbf{p}}_{n+1/2} \right] \pmod{1.0}, \\
