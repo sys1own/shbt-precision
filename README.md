@@ -1,6 +1,6 @@
 # Static Holographic Boundary Theory (SHBT) — Precision Boundary Simulator & Cosmology Engine
 
-[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.22844471.svg)](https://doi.org/10.5281/zenodo.22844471)
+[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.23426227.svg)](https://doi.org/10.5281/zenodo.23426227)
 [![Release](https://img.shields.io/badge/release-v2.0.0-blue.svg)](https://github.com/sys1own/shbt-precision/releases)
 [![Rust](https://img.shields.io/badge/rust-1.80+-blue.svg)](https://www.rust-lang.org/)
 [![Python](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/)
