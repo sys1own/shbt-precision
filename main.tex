@@ -869,13 +869,14 @@ $c_{\mathrm{dark}}^{\mathrm{res}}$.  Demanding (i)~$S_{\mathrm{dark}}$ unitarity
 orthogonality of the Weil representation fixes uniquely
 \begin{equation}
 \label{eq:dark-sector-ledger-uniqueness}
- N_{\mathrm{dark}}^{\mathrm{prim}}=8D=2{,}901{,}360,
- \quad
- D=362670=2\cdot3\cdot5\cdot7\cdot11\cdot157,
- \quad
- c_{\mathrm{dark}}^{\mathrm{comp}}=\frac{1197103}{362670},
- \quad
+\begin{aligned}
+ N_{\mathrm{dark}}^{\mathrm{prim}}&=8D=2{,}901{,}360,
+ \qquad
+ D=362670=2\cdot3\cdot5\cdot7\cdot11\cdot157,\\
+ c_{\mathrm{dark}}^{\mathrm{comp}}&=\frac{1197103}{362670},
+ \qquad
  c_{\mathrm{dark}}^{\mathrm{res}}=\frac{834433}{362670},
+\end{aligned}
 \end{equation}
 with $c_{\mathrm{dark}}^{\mathrm{comp}}-c_{\mathrm{dark}}^{\mathrm{res}}=1$
 exactly.  The Weil character orthogonality relations are
@@ -3057,7 +3058,10 @@ The dimensional hierarchy factor $\Delta_{\mathrm{EWSB}}$ between the reduced Pl
 \end{equation}
 The electroweak vacuum expectation value $v$ is generated directly via the non-perturbative exponentiation:
 \begin{equation}
-v = M_P \exp\left( -\Delta_{\mathrm{EWSB}} \right) = 2.435363 \times 10^{18}\text{ GeV} \times \exp\left( -\frac{612565}{16632} \right) = 246.194382\text{ GeV}\ (\simeq 246.194\text{ GeV}),
+\begin{aligned}
+v &= M_P \exp\left( -\Delta_{\mathrm{EWSB}} \right) = 2.435363 \times 10^{18}\text{ GeV} \times \exp\left( -\frac{612565}{16632} \right) \\
+&= 246.194382\text{ GeV}\ (\simeq 246.194\text{ GeV}),
+\end{aligned}
 \end{equation}
 matching the experimental value $v = (\sqrt{2} G_F)^{-1/2} = 246.220\text{ GeV}$ to within $0.01\%$.
 
@@ -4202,9 +4206,9 @@ saturated bit capacity is
  \Nsat
  =
  \frac{3\pi}{\Lp^2\Lholo},
- \qquad
+ \quad
  \Lholo=1.08913883\times10^{-52}\ \mathrm{m}^{-2},
- \qquad
+ \quad
  \Nsat\simeq3.311997720142366\times10^{122}.
 \end{equation}
 This finite number is not a density parameter.  It is the total horizon
@@ -4586,16 +4590,18 @@ magnitude in Eq.~\eqref{eq:neutrino-oscillation-splittings}:
 so that
 \begin{equation}
 \label{eq:inverted-hierarchy-sum}
+\begin{aligned}
  \Sigma_{\nu}^{\text{IH}}
- =
+ &=
  m_{\nu,3}^{\text{IH}}
  +
  \sqrt{(m_{\nu,3}^{\text{IH}})^2+|\Delta m_{31}^2|}
  +
- \sqrt{(m_{\nu,3}^{\text{IH}})^2+|\Delta m_{31}^2|+\Delta m_{21}^2}
- \simeq
+ \sqrt{(m_{\nu,3}^{\text{IH}})^2+|\Delta m_{31}^2|+\Delta m_{21}^2} \\
+ &\simeq
  103.723086\ \mathrm{meV}
  \simeq103.72\ \mathrm{meV}.
+\end{aligned}
 \end{equation}
 A hierarchy statistic would compare each derived sum with a specified
 cosmological mass-sum likelihood:
@@ -4670,8 +4676,10 @@ M = (2 k_q) \cdot (3 \times 5 \times 7 \times 11) \cdot \left(\frac{K}{2} + 1\ri
 With the irreducible Weil index numerator $\mathcal{I}_{\text{Weil}} = 1{,}197{,}103$, the composite dark central charge and modular anomaly evaluate to:
 \begin{equation}
 \label{eq:dark-charge-anomaly-exact}
-\cdarkcomp = \frac{k_q \, \mathcal{I}_{\text{Weil}}}{M} = \frac{1{,}197{,}103}{362{,}670} \simeq 3.300805139659, \qquad
-\DeltaMod = \frac{\cdarkcomp}{24} = \frac{\mathcal{I}_{\text{Weil}}}{3 M} = \frac{1{,}197{,}103}{8{,}704{,}080} \simeq 0.137533547486.
+\begin{aligned}
+\cdarkcomp &= \frac{k_q \, \mathcal{I}_{\text{Weil}}}{M} = \frac{1{,}197{,}103}{362{,}670} \simeq 3.300805139659, \\
+\DeltaMod &= \frac{\cdarkcomp}{24} = \frac{\mathcal{I}_{\text{Weil}}}{3 M} = \frac{1{,}197{,}103}{8{,}704{,}080} \simeq 0.137533547486.
+\end{aligned}
 \end{equation}
 The topological integer entropy bulk $S_{\text{top}} = K - k_\ell - k_q/2 = 312 - 26 - 4 = 282$ and uncorrected modular remainder $\Delta s_{\text{mod}}^{\text{legacy}} = \frac{5}{6}\DeltaMod - \frac{k_q}{K}(\DeltaMod^2 - \frac{1}{2\pi K}) \simeq 0.113112741390$ yield the bare screen capacity:
 \begin{equation}
@@ -4714,7 +4722,10 @@ The Hubble constant is analytically resolved across four sequentially linked phy
     \end{equation}
     \item \textbf{Canonical 3-Digit Bare Horizon Anchor:}
     \begin{equation}
-    H_0^{\text{bare}} = 67.4\ \kmsmpc, \quad \AH = H_0^{\text{bare}}\left[\exp\left(\frac{\DeltaMod}{2}\right) - 1\right] = 4.797960\ \kmsmpc, \quad H_0^{\text{late}}(0) = 72.197960\ \kmsmpc.
+    \begin{aligned}
+    H_0^{\text{bare}} &= 67.4\ \kmsmpc, \qquad H_0^{\text{late}}(0) = 72.197960\ \kmsmpc, \\
+    \AH &= H_0^{\text{bare}}\left[\exp\left(\frac{\DeltaMod}{2}\right) - 1\right] = 4.797960\ \kmsmpc.
+    \end{aligned}
     \end{equation}
     \item \textbf{Acoustic Boundary-Loaded CMB Anchor:} With acoustic kernel $\mathcal{K}_{\text{load}} = \frac{1}{K - 24 k_q} = \frac{1}{120}$,
     \begin{equation}
@@ -4739,6 +4750,7 @@ Table~\ref{tab:zero-param-vs-mcmc-map} benchmarks the first-principles zero-para
 \begin{table}[htbp]
 \centering
 \small
+\resizebox{\textwidth}{!}{%
 \begin{tabular}{@{}lccccc@{}}
 \toprule
 Parameter & First-Principles ($k_{\text{SHBT}}=0$) & 7-Param MCMC MAP & Residual & Planck $1\sigma$ ($\sigma_{\text{Pl}}$) & Pull ($|z|$) \\
@@ -4753,7 +4765,8 @@ $\tau_{\text{reio}}^{\text{tot}}$ & $0.05801$ & $0.0580$ & $+0.00001$ & $0.0075$
 \midrule
 \multicolumn{6}{@{}l@{}}{$\Delta\chi^2(\theta_{k=0} \parallel \theta_{\text{MAP}}) = 0.038, \quad \Delta\text{AIC} = \Delta\chi^2 + 2(0 - 7) = -13.96\ (< 0.2\sigma\ \text{across all channels})$} \\
 \bottomrule
-\end{tabular}
+\end{tabular}%
+}
 \caption{Comparison of the strict zero-parameter ($k_{\text{SHBT}} = 0$) first-principles cosmological vector with the 7-parameter MCMC posterior MAP vector. The zero-parameter closure achieves an information-criterion advantage of $\Delta\text{AIC} = -13.96$ while matching every observation within $< 0.2\sigma$.}
 \label{tab:zero-param-vs-mcmc-map}
 \end{table}
@@ -6340,13 +6353,15 @@ where $k_\ell = 26, k_q = 8, K = 312$ are the affine Kac--Moody levels of the ca
 An overflow of $\Delta N\approx 6.0\times10^{59}$ bits therefore corresponds to an unprojected bare mass $M_{\text{seed}}^{(0)} = \alpha_{\text{seed}}^{(0)}\Delta N \approx 10^9\,\msun$ and the physical bulk seed mass
 \begin{equation}
 \label{eq:mass-congestion-billion-solar-mass}
+\begin{aligned}
  M_{\text{seed}}
- =
+ &=
  \alpha_{\text{seed}}\,\Delta N
  =
  \left(1.3258316\times10^{-51}\ \msun\,\mathrm{bit}^{-1}\right)
- \left(6.0\times10^{59}\ \mathrm{bits}\right)
- = 7.9549896\times 10^8\ \msun \simeq 7.95\times10^{8}\ \msun.
+ \left(6.0\times10^{59}\ \mathrm{bits}\right) \\
+ &= 7.9549896\times 10^8\ \msun \simeq 7.95\times10^{8}\ \msun.
+\end{aligned}
 \end{equation}
 The corresponding Schwarzschild scale and steady-state Landauer congestion dissipation are
 \begin{align}
@@ -6496,16 +6511,18 @@ completed boundary register.  With
 the canonical definitions above, the closure statement is
 \begin{equation}
 \label{eq:precision-cosmology-closure-summary}
- \left(
+\begin{aligned}
+ &\left(
  \branchstar,\Deltafr=0,\cdarkcomp,\kappad,\Nsat
- \right)
- \Longrightarrow
+ \right) \\
+ &\qquad\Longrightarrow
  \left(
  \hloc,\fload(z),S_{\text{debt}}(z),
  f\sigma_8(z),\frac{\Omega_{\text{DM}}}{\Omega_b},w_{\text{DM}},
  \chi^2_{\nu},\mathrm{ISW},
  \Pi_{A,\iota}
  \right),
+\end{aligned}
 \end{equation}
 with each arrow evaluated by the closure tables above.
 
@@ -6515,7 +6532,10 @@ with each arrow evaluated by the closure tables above.
 
 Non-linear gravitational collapse in SHBT is bounded by the Cardy capacity ceiling of the boundary holographic register. The halo mass function is governed by instanton transitions with boundary-index exponent $p = 1/23$:
 \begin{equation}
-f_{\mathrm{SHBT}}(\sigma, z) = \sqrt{\frac{2}{\pi}} A_{\mathrm{SHBT}} \nu_{\mathrm{inst}} \left( 1 + \nu_{\mathrm{inst}}^{-2p} \right) \exp\left( -\frac{\nu_{\mathrm{inst}}^2}{2} \right), \qquad \nu_{\mathrm{inst}} = \frac{\delta_{\mathrm{crit}}}{\sigma(M, z)} \sqrt{\frac{2\pi c_{\mathrm{eff}}}{k_q}} f_{\mathrm{load}}(z).
+\begin{aligned}
+f_{\mathrm{SHBT}}(\sigma, z) &= \sqrt{\frac{2}{\pi}} A_{\mathrm{SHBT}} \nu_{\mathrm{inst}} \left( 1 + \nu_{\mathrm{inst}}^{-2p} \right) \exp\left( -\frac{\nu_{\mathrm{inst}}^2}{2} \right), \\
+\nu_{\mathrm{inst}} &= \frac{\delta_{\mathrm{crit}}}{\sigma(M, z)} \sqrt{\frac{2\pi c_{\mathrm{eff}}}{k_q}} f_{\mathrm{load}}(z).
+\end{aligned}
 \end{equation}
 The non-linear matter power spectrum $P_{\mathrm{NL}}(k, z)$ incorporates scale-dependent entropic transport via $\kappa_{\mathrm{GET}}(z) = \frac{1}{23} + \frac{1325}{4004} f_{\mathrm{load}}(z)$, suppressing small-scale power ($k \gtrsim 0.5\,h\text{ Mpc}^{-1}$).
 
@@ -6632,10 +6652,12 @@ Register congestion $\Delta N$ seeds a supermassive condensate
 with ultraviolet (UV) bare boundary register coupling $\alpha_{\mathrm{seed}}^{(0)} = 1.670000\times10^{-51}\ M_\odot\,\mathrm{bit}^{-1}$ and physical bulk infrared (IR) seed mass coupling
 \begin{equation}
 \label{eq:physical-seed-mass-coupling-thm}
+\begin{aligned}
 \alpha_{\mathrm{seed}}
-= \mathcal{P}_{\text{proj}}\,\alpha_{\mathrm{seed}}^{(0)}
-= 1.3258316\times10^{-51}\ M_\odot\,\mathrm{bit}^{-1}
-\qquad \left(\mathcal{P}_{\text{proj}} = \frac{I_\ell^\star c_{\text{eff}}}{5 I_q^\star(1 + \epsilon_{\text{cusp}})} = 0.79391114\right),
+&= \mathcal{P}_{\text{proj}}\,\alpha_{\mathrm{seed}}^{(0)}
+= 1.3258316\times10^{-51}\ M_\odot\,\mathrm{bit}^{-1} \\
+&\qquad \left(\mathcal{P}_{\text{proj}} = \frac{I_\ell^\star c_{\text{eff}}}{5 I_q^\star(1 + \epsilon_{\text{cusp}})} = 0.79391114\right),
+\end{aligned}
 \end{equation}
 so $\Delta N\simeq6.0\times10^{59}$ bits yields $M_{\mathrm{seed}}\simeq7.95\times10^{8}\,M_\odot$ with steady-state Landauer congestion power $P_0 = 906.00\,\mathrm{GW}\,\msun^{-1}$, dissipation rate $P_{\mathrm{debt}}=(M_{\mathrm{seed}}/M_\odot)\times906.00\,\mathrm{GW}$, and intensive local observer patch debt threshold $P_{\mathrm{debt}} = 10^{-6} P_0 = 906.00\,\mathrm{kW}$ at reference observer mass $M_{\mathrm{obs}} = 10^{-6}\,M_\odot$.
 \end{theorem}
@@ -7215,9 +7237,9 @@ is the unscaled Cardy ceiling. Define the virial floor, debt
 activation, and effective temperature
 \begin{equation}
 T_{\mathrm{vir}} = 2500 + 6500\,\tanh\!\tfrac{\max(0,\rho_b-1)}{4},
-\qquad
+\quad
 d_{\mathrm{act}} = \frac{\sigma^{3}}{1 + e^{-12(\sigma-1)}},
-\qquad
+\quad
 T_{\mathrm{eff}} = T_{\mathrm{vir}} + 16000\,d_{\mathrm{act}},
 \end{equation}
 and the visible spectral radiance
@@ -8338,11 +8360,11 @@ as
 \label{eq:section-nine-prediction-summary}
  \boxed{
  \Lholo\simeq1.09\times10^{-52}\,\mathrm{m}^{-2},
- \qquad
+ \quad
  \Nbits\simeq3.31\times10^{122},
- \qquad
+ \quad
  \eta_B=\mathcal O(10^{-10}),
- \qquad
+ \quad
  g_{\mu\nu}=g_{\mu\nu}\!\left(\nabla_{\mathcal C}S_{\partial}\right).
  }
 \end{equation}
@@ -9696,8 +9718,9 @@ The language-neutral representation of the canonical boundary state is the
 $48$-byte C-compatible record
 \begin{equation}
 \label{eq:appendix-c-static-boundary-abi-ledger}
+\begin{aligned}
  \mathfrak S_{\text{ABI}}
- =
+ &=
  \left(
  v_{\text{ABI}},
  k_\ell,
@@ -9708,11 +9731,12 @@ $48$-byte C-compatible record
  d_c,
  b^{-2},
  N_\tau
- \right)
- =
+ \right) \\
+ &=
  \left(
  1,26,8,312,2901360,1197103,362670,19,9
  \right).
+\end{aligned}
 \end{equation}
 With C alignment for $32$- and $64$-bit integer fields,
 \begin{equation}
@@ -9802,11 +9826,17 @@ Because the root-mean-square amplitude $\sigma_{\mathrm{box}} = \sqrt{\Delta^2(k
 \begin{theorem}[Fundamental Mode Stability and Curvature Mapping]
 On the canonical branch $(k_\ell, k_q, K) = (26, 8, 312)$ with visible central charge $c_{\mathrm{eff}} = 1325/154$, the microcanonical boundary entropy of the $M = 2{,}901{,}360$ primary Weil modules is $S_{\mathrm{CFT}} = \ln M \approx 14.88069015$. The cosmological horizon radius associated with $\Lambda_{\mathrm{holo}} = 1.08913883 \times 10^{-52}\,\mathrm{m}^{-2} = 1.0370136 \times 10^{-7}\,\mathrm{Mpc}^{-2}$ is $R_H = \sqrt{3/\Lambda_{\mathrm{holo}}} = 5378.592\,\mathrm{Mpc}$. The simulation volume curvature scale is projected via the boundary central charge and holographic partition:
 \begin{equation}
-    \frac{\Lambda_{\mathrm{holo}}^{\mathrm{box}}}{\Lambda_{\mathrm{holo}}} = \left(\frac{R_H}{L_{\mathrm{box}}}\right)^2 = \frac{4\pi}{c_{\mathrm{eff}}} \cdot (S_{\mathrm{CFT}})^2 \cdot \left(1 - \frac{10}{33}\right) = \frac{4\pi \times 154}{1325} \times (14.88069015)^2 \times \frac{23}{33} = 584.0931606.
+\begin{aligned}
+    \frac{\Lambda_{\mathrm{holo}}^{\mathrm{box}}}{\Lambda_{\mathrm{holo}}} &= \left(\frac{R_H}{L_{\mathrm{box}}}\right)^2 = \frac{4\pi}{c_{\mathrm{eff}}} \cdot (S_{\mathrm{CFT}})^2 \cdot \left(1 - \frac{10}{33}\right) \\
+    &= \frac{4\pi \times 154}{1325} \times (14.88069015)^2 \times \frac{23}{33} = 584.0931606.
+\end{aligned}
 \end{equation}
 This algebraically determines the box curvature and comoving box length:
 \begin{equation}
-    \Lambda_{\mathrm{holo}}^{\mathrm{box}} = 584.0931606 \times \Lambda_{\mathrm{holo}} = 6.057116 \times 10^{-5}\,\mathrm{Mpc}^{-2}, \quad L_{\mathrm{box}} = \sqrt{\frac{3}{\Lambda_{\mathrm{holo}}^{\mathrm{box}}}} = 222.5502\,\mathrm{Mpc} = 150.0\,h^{-1}\mathrm{Mpc},
+\begin{aligned}
+    \Lambda_{\mathrm{holo}}^{\mathrm{box}} &= 584.0931606 \times \Lambda_{\mathrm{holo}} = 6.057116 \times 10^{-5}\,\mathrm{Mpc}^{-2}, \\
+    L_{\mathrm{box}} &= \sqrt{\frac{3}{\Lambda_{\mathrm{holo}}^{\mathrm{box}}}} = 222.5502\,\mathrm{Mpc} = 150.0\,h^{-1}\mathrm{Mpc},
+\end{aligned}
 \end{equation}
 where $h = h_{\mathrm{rad-alg}} = 0.6740052$ ($H_0 = 67.40052\,\mathrm{km\,s^{-1}\,Mpc^{-1}}$).
 If the primordial power spectrum satisfies the turnaround variance gate at the fundamental mode $k_1 = 2\pi / L_{\mathrm{box}} = 0.028232\,\mathrm{Mpc}^{-1} = 0.0190289\,h\,\mathrm{Mpc}^{-1}$:
@@ -10117,8 +10147,10 @@ bound fundamental-mode gain:
 \begin{equation}
 G_{\mathrm{spectral}}(\mathbf{k}) = 
 \begin{cases}
-- \frac{1}{\|\mathbf{k}\|^2} \left[ 1 - \exp\left( - \frac{\sum_{i} \sin^2(\pi k_i / N)}{\sin^2(\pi k_{\mathrm{cut}} / N)} \right) \right] 
-\prod_{i=1}^3 \left( \frac{\pi k_i / N}{\sin(\pi k_i / N)} \right)^4 \left( \frac{3 \Omega_{m,0}}{2a} \right), & \|\mathbf{k}\| > 0, \\
+\begin{aligned}
+&- \frac{1}{\|\mathbf{k}\|^2} \left[ 1 - \exp\left( - \frac{\sum_{i} \sin^2(\pi k_i / N)}{\sin^2(\pi k_{\mathrm{cut}} / N)} \right) \right] \\
+&\qquad \times \prod_{i=1}^3 \left( \frac{\pi k_i / N}{\sin(\pi k_i / N)} \right)^4 \left( \frac{3 \Omega_{m,0}}{2a} \right),
+\end{aligned} & \|\mathbf{k}\| > 0, \\[8pt]
 0, & \|\mathbf{k}\| = 0.
 \end{cases}
 \end{equation}

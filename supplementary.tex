@@ -576,7 +576,10 @@ The holographic softening length regularizing the Particle-Mesh solver scales wi
 \subsection{Holographic Box Metrology and Fundamental Mode Turnaround Bound}
 Holographic screen packing and microcanonical entropy $S_{\mathrm{CFT}} = \ln M = \ln(2{,}901{,}360) \approx 14.88069015$ project the cosmic horizon radius $R_H = \sqrt{3/\Lambda_{\mathrm{holo}}} = 5378.592\,\mathrm{Mpc}$ (from $\Lambda_{\mathrm{holo}} = 1.08913883 \times 10^{-52}\,\mathrm{m}^{-2} = 1.0370136 \times 10^{-7}\,\mathrm{Mpc}^{-2}$) onto the simulation box domain via:
 \begin{equation}
-\frac{\Lambda_{\mathrm{holo}}^{\mathrm{box}}}{\Lambda_{\mathrm{holo}}} = \left(\frac{R_H}{L_{\mathrm{box}}}\right)^2 = \frac{4\pi}{c_{\mathrm{eff}}} \cdot (S_{\mathrm{CFT}})^2 \cdot \left(1 - \frac{10}{33}\right) = \frac{4\pi \times 154}{1325} \times (14.88069015)^2 \times \frac{23}{33} = 584.0931606.
+\begin{aligned}
+\frac{\Lambda_{\mathrm{holo}}^{\mathrm{box}}}{\Lambda_{\mathrm{holo}}} &= \left(\frac{R_H}{L_{\mathrm{box}}}\right)^2 = \frac{4\pi}{c_{\mathrm{eff}}} \cdot (S_{\mathrm{CFT}})^2 \cdot \left(1 - \frac{10}{33}\right) \\
+&= \frac{4\pi \times 154}{1325} \times (14.88069015)^2 \times \frac{23}{33} = 584.0931606.
+\end{aligned}
 \end{equation}
 This fixes the box curvature scale and comoving box length to $\Lambda_{\mathrm{holo}}^{\mathrm{box}} = 584.0931606 \times \Lambda_{\mathrm{holo}} = 6.057116 \times 10^{-5}\,\mathrm{Mpc}^{-2}$ and $L_{\mathrm{box}} = \sqrt{3/\Lambda_{\mathrm{holo}}^{\mathrm{box}}} = 222.5502\,\mathrm{Mpc} = 150.0\,h^{-1}\mathrm{Mpc}$ under the radiation-included $z=0$ algebraic Hubble stage $h = h_{\mathrm{rad-alg}} = \sqrt{\omega_\Lambda + \omega_m + \Delta\omega_{\mathrm{rel}}} = 0.67400580$ ($H_0^{\mathrm{rad-alg}} = 67.40058\,\mathrm{km\,s^{-1}\,Mpc^{-1}}$), analytically harmonized with the asymptotic matter--$\Lambda$ closure $h_{\mathrm{mat-}\Lambda} = \sqrt{\omega_\Lambda + \omega_m} = 0.67399620$ ($H_0^{\mathrm{mat-}\Lambda} = 67.39962\,\mathrm{km\,s^{-1}\,Mpc^{-1}}$), the bare horizon anchor $H_0^{\mathrm{bare}} = 67.4\,\mathrm{km\,s^{-1}\,Mpc^{-1}}$, and the acoustic boundary-loaded CMB anchor $H_0^{\mathrm{CMB}} = H_0^{\mathrm{mat-}\Lambda} - A_H / 120 = 67.35964 \simeq 67.36\,\mathrm{km\,s^{-1}\,Mpc^{-1}}$. The fundamental Fourier mode $k_1 = 2\pi/L_{\mathrm{box}} = 0.028232\,\mathrm{Mpc}^{-1} \approx 0.0190289\,h\,\mathrm{Mpc}^{-1}$ satisfies the linear turnaround variance bound:
 \begin{equation}
@@ -785,7 +788,10 @@ bridges acoustic decoupling gaplessly, yielding $c_s(z_{\mathrm{drag}}) \approx 
 \subsection{Metaplectic \texorpdfstring{$\operatorname{Mp}_2(\mathbb{Z})$}{Mp2(Z)} Modular Weil Phase Seeding and Annihilation of Cubic Harmonics}
 To eliminate hyperoctahedral $O_h$ point-group artifacts (6- and 8-pointed stars/snowflakes) without breaking statistical rotational invariance, primordial Fourier phases are generated from the $M = 2{,}901{,}360$ primary modules of the canonical branch $(k_\ell, k_q, K) = (26, 8, 312)$ on $\widehat{\mathfrak{su}}(2)_{26} \times \widehat{\mathfrak{su}}(3)_8 \subset \widehat{\mathfrak{so}}(10)_{312}$ at $\tau = i$ ($q = e^{-2\pi}$). The module index $I(k)$ is governed strictly by the rotationally invariant Euclidean wavenumber magnitude $k = \|\mathbf{k}\|_2$:
 \begin{equation}
-I(k) = \left\lfloor \alpha \cdot \frac{k}{k_1} + \beta \cdot \left(\frac{k}{k_1}\right)^2 \right\rfloor \pmod M, \quad \alpha = \frac{24}{\sqrt{3}} = 8\sqrt{3} \approx 13.85640646, \quad \beta = \frac{\pi}{\sqrt{2}} \approx 2.22144147,
+\begin{aligned}
+I(k) &= \left\lfloor \alpha \cdot \frac{k}{k_1} + \beta \cdot \left(\frac{k}{k_1}\right)^2 \right\rfloor \pmod M, \\
+\alpha &= \frac{24}{\sqrt{3}} = 8\sqrt{3} \approx 13.85640646, \qquad \beta = \frac{\pi}{\sqrt{2}} \approx 2.22144147,
+\end{aligned}
 \end{equation}
 with continuous isotropic angular dispersion $\Psi_{\mathrm{iso}}(\hat{\mathbf{k}}) = 2\pi \operatorname{frac}\left( \frac{M}{24} \mathcal{P}(\hat{\mathbf{k}}) \right)$ where $\mathcal{P}(\hat{\mathbf{k}}) = \frac{\sqrt{2}\hat{k}_x + \sqrt{3}\hat{k}_y + \sqrt{5}\hat{k}_z}{\sqrt{2} + \sqrt{3} + \sqrt{5}}$. On the positive hemisphere partition $\mathcal{K}^+$, phases are assigned as $\phi(\mathbf{k}) = [\theta_{I(k)} + \Psi_{\mathrm{iso}}(\hat{\mathbf{k}})] \pmod{2\pi}$, with strict Hermitian anti-symmetry $\phi(-\mathbf{k}) = -\phi(\mathbf{k}) \pmod{2\pi}$, $\phi(\mathbf{0}) = 0$, and dipole mode nullification $\delta(\mathbf{k}) \equiv 0$ for $\|\mathbf{n}\| \le 1$. In spherical harmonics, the two-point correlation expansion satisfies $a_{\ell m}(r) \equiv 0$ ($\forall \ell \ge 1$), identically eliminating cubic harmonics $K_4$ and $K_6$.
 
