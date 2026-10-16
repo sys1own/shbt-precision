@@ -83,8 +83,9 @@ const ALPHA_SEED_SCALED: f64 = 1.3258316e-21;
 #[allow(dead_code)]
 const DELTA_N_THRESH_SCALED: f64 = 1.0e27;
 /// Normalized condensation threshold (fraction of the N_limit ceiling the
-/// 3x3x3 basin must exceed before a candidate seed is registered).
-const DELTA_N_THRESH_NORM: f32 = 0.02;
+/// 3x3x3 basin must exceed before a candidate seed is registered):
+/// eta_V * delta_c0 = (10/33) * 0.065610 = 0.019881818.
+const DELTA_N_THRESH_NORM: f32 = 0.019881818;
 /// Seed mass per unit of normalized overflow sum_{Omega} (N_local/N_limit - 1),
 /// chosen so a condensation basin integrates to ~1e8-1e9 M_sun per the
 /// canonical alpha_seed coupling in scaled-bit units.
@@ -2672,7 +2673,7 @@ impl ShbtWebGpuEngine {
                 matched_count += 1;
                 prev_claimed[matched_j] = true;
             }
-            let accreted = (prev_mass * 0.98 + cand_mass * 0.02).clamp(1.0e7, 5.0e10);
+            let accreted = (prev_mass * (1.0 - 0.019881818) + cand_mass * 0.019881818).clamp(1.0e7, 5.0e10);
             let m_dot = (accreted - prev_mass) / dt;
             records.push(EmergentSeed {
                 pos: *pos,

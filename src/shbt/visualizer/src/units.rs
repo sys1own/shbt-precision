@@ -52,6 +52,17 @@ pub const DELTA_C0: f64 = 0.065602; // 1-sigma capacity variance
 pub const HUBBLE_H: f64 = 0.6739962;
 pub const L_BOX_H_MPC: f64 = 150.0; // h^-1 Mpc
 
+// Prompt 6 Hydrodynamic, Entropic, and Optical Invariants
+pub const MODULAR_CAPACITY_C_MOD: f64 = 39.0;
+pub const CARDY_FLOOR_ASYMPTOTIC: f64 = 0.00696738;
+pub const LAMBDA_TOPO: f64 = 3513.0 / 140.0; // 25.092857142857142
+pub const CAMERA_R0_DERIVED: f64 = 1.380121;
+pub const Z_DRAG_CANONICAL: f64 = 1059.940;
+pub const DELTA_Z_DRAG_CANONICAL: f64 = 25.000;
+pub const Z_DEC_CANONICAL: f64 = 137.036;
+pub const C_S_DRAG_CANONICAL: f64 = 5.709;
+pub const C_S_0_CANONICAL: f64 = 0.187;
+
 #[derive(Debug, Clone, Copy)]
 pub struct HolographicMetrology {
     pub l_box_mpc: f64,
@@ -564,7 +575,7 @@ impl MetrologyPipeline {
 // ----------------------------------------------------------------------------
 
 /// Hubble parameter h for SHBT branch (26, 8, 312)
-pub const H_LITTLE: f64 = 0.6740058;
+pub const H_LITTLE: f64 = 0.6740052;
 
 /// Comoving box size in h^-1 Mpc
 pub const L_BOX_MPC_H: f64 = 150.0;
@@ -572,7 +583,7 @@ pub const L_BOX_MPC_H: f64 = 150.0;
 /// Physical comoving box scale in Mpc: L_box = 150.0 / h ≈ 222.5502 Mpc
 pub const L_BOX_MPC: f64 = L_BOX_MPC_H / H_LITTLE;
 
-/// Holographic screen curvature scale: Lambda_holo = 3 / L_box^2 ≈ 6.05712e-5 Mpc^-2
+/// Holographic screen curvature scale: Lambda_holo = 3 / L_box^2 ≈ 6.057116e-5 Mpc^-2
 pub const LAMBDA_HOLO: f64 = 3.0 / (L_BOX_MPC * L_BOX_MPC);
 
 /// Fundamental wavevector magnitude k_1 = 2*pi / L_box ≈ 0.028232 Mpc^-1

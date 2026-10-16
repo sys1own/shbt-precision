@@ -442,15 +442,27 @@ Because the boundary initial condition at $z = 0$ is $\mathcal{G}^a(x, 0) = \par
 \section{512-Bit Stinespring Callan--Symanzik Beta Flow and Gauge Unification}
 \label{app:stinespring-beta-flow}
 
+The hierarchical descent from the Planck boundary $M_P = 1.220900 \times 10^{19}\text{ GeV}$ to the unification scale is locked by the intersection indices $(I_\ell^\star, I_q^\star) = (6, 13)$ via $M_{\text{GUT}} = M_P \exp[-(\frac{I_\ell^\star}{2}\ln 2 + I_q^\star \frac{3}{13}\ln 5)] = M_P / 1000 = 1.220900 \times 10^{16}\text{ GeV}$. At the unification boundary, the inverse unified coupling is fixed by the active Kac--Moody levels and the discrete metric slice lattice cardinality $|\mathcal{C}| = 9$:
+\begin{equation}
+\alpha_{\text{GUT}}^{-1} = k_\ell + k_q + I_\ell^\star + \frac{|\mathcal{C}|}{K} = 26 + 8 + 6 + \frac{9}{312} = \frac{4163}{104} \implies \alpha_{\text{GUT}} = \frac{104}{4163} \approx 0.024982.
+\label{eq:app_alpha_gut_exact_rational}
+\end{equation}
+Under the Stinespring dilation $\mathcal{H}_{\text{total}} = \mathcal{H}_B \otimes \mathcal{H}_E$ governed by the complementary modular projection fractions $\eta_D = 23/33$ and $\eta_V = 10/33$, the spectator anti-baryon decoupling threshold shifts $(\Delta_1, \Delta_2, \Delta_3) = (24.071227, 19.973448, 36.712129)$ decompose into bare Kraus overlap projections $\Delta_i^{(0)}$ plus spectator OPE residues $\delta_i^{\text{spec}}$:
+\begin{align}
+\Delta_1 &= \eta_D\!\left(k_1 + I_q^\star - \frac{|\mathcal{C}|}{k_1}\right) + \eta_V(k_\ell + I_\ell^\star) + \delta_1^{\text{spec}} = 27.766324 + \delta_1^{\text{spec}} = 24.071227, \label{eq:app_delta_1_closed} \\
+\Delta_2 &= \eta_D(k_\ell - I_\ell^\star) + \eta_V\!\left(k_q + I_\ell^\star + \frac{h^\vee_{SU(2)}}{\eta_D}\right) + \delta_2^{\text{spec}} = \frac{14{,}458}{759} + \delta_2^{\text{spec}} = 19.973448, \label{eq:app_delta_2_closed} \\
+\Delta_3 &= \eta_D\!\left(\frac{K}{k_q} - I_\ell^\star\right) + \eta_V\!\left(k_\ell + k_q + \frac{h^\vee_{SU(3)}}{\eta_V}\right) + \delta_3^{\text{spec}} = \frac{363}{10} + \delta_3^{\text{spec}} = 36.712129. \label{eq:app_delta_3_closed}
+\end{align}
+
 The 1-loop Callan--Symanzik equations for the Standard Model gauge couplings with Stinespring dark partition modifications read:
 \begin{equation}
 \mu \frac{d g_i}{d\mu} = \frac{g_i^3}{16\pi^2} \left( b_i + \delta b_i^{\mathrm{dark}} \right), \qquad i \in \{1, 2, 3\},
 \end{equation}
-where $\alpha_i = \frac{g_i^2}{4\pi}$. Integrating analytically from ultraviolet scale $\Lambda_{\mathrm{GUT}} = 10^{16}\,\mathrm{GeV}$ to infrared scale $\mu$:
+where $\alpha_i = \frac{g_i^2}{4\pi}$. Integrating analytically from ultraviolet scale $\Lambda_{\mathrm{GUT}} = M_N = M_P / 1000 = 1.220900 \times 10^{16}\,\mathrm{GeV}$ to infrared scale $\mu$, with initial conditions $\alpha_i^{-1}(M_N) = k_i + \Delta_i$ on tree-level levels $(k_1, k_2, k_3) = (260/19, 26, 8)$:
 \begin{equation}
-\alpha_i^{-1}(\mu) = \alpha_i^{-1}(\Lambda_{\mathrm{GUT}}) + \frac{b_i^{\mathrm{eff}}}{2\pi} \ln\left( \frac{\Lambda_{\mathrm{GUT}}}{\mu} \right).
+\alpha_i^{-1}(\mu) = (k_i + \Delta_i) + \frac{b_i}{2\pi} \ln\left( \frac{M_N}{\mu} \right), \qquad (b_1, b_2, b_3) = \left(\frac{41}{10}, -\frac{19}{6}, -7\right).
 \end{equation}
-With 512-bit precision arithmetic in \pyvar{rug::Float}, the threshold unification condition $\alpha_1(\Lambda_{\mathrm{GUT}}) = \alpha_2(\Lambda_{\mathrm{GUT}}) = \alpha_3(\Lambda_{\mathrm{GUT}}) = 0.024982$ evolves across 9 radial scales to precisely yield $\alpha_s(M_Z) = 0.1179000, \alpha_{\mathrm{EM}}^{-1}(M_Z) = 127.9400, \sin^2\theta_W(M_Z) = 0.2312200$.
+With 512-bit precision arithmetic in \pyvar{rug::Float}, this exact RG flow evolves across 9 radial slices to yield $\alpha_s(M_Z) = 0.118014$ ($\simeq 0.1179$), $\alpha_{\mathrm{EM}}^{-1}(M_Z) = 127.8813$ ($\simeq 127.94$), and $\sin^2\theta_W(M_Z) = 0.23130$ ($\simeq 0.23122$).
 
 \section{DOZZ 3-Point Correlators at Fixed Point \texorpdfstring{$\tau = i$}{tau=i} and Jacobi Bi-Unitary SVD}
 \label{app:dozz-flavor-svd}
@@ -513,20 +525,21 @@ The Neyman--Pearson log-likelihood ratio for hypothesis discrimination ($H_0: \a
 \label{app:incubation-instanton-d5}
 
 \subsection{Boundary Coset Incubation Boundaries and KSS Diffusion}
-The incubation onset redshift $z_{\mathrm{start}}$ satisfies the coset capacity condition:
+The incubation onset redshift $z_{\mathrm{start}} = z_{\mathrm{max}}$ satisfies the coset capacity condition:
 \begin{equation}
 1 + z_{\mathrm{start}} = \frac{c_{\mathrm{eff}}(k_\ell + k_q)}{18 K} \ln(N_{\mathrm{sat}}) = \frac{17}{156} \ln(N_{\mathrm{sat}}) = 31.000000 \implies z_{\mathrm{start}} = 30.000000,
 \end{equation}
-evaluated at $\ln(N_{\mathrm{sat}}) \approx 284.47$. The termination redshift is dictated by 2D site percolation on the visible torus grid:
+evaluated at $\ln(N_{\mathrm{sat}}) \approx 284.47$. The peak incubation redshift and window width derive directly from the canonical intersection indices $(I_\ell^\star, I_q^\star) = (6, 13)$ and bulk capacity $K = 312$:
 \begin{equation}
-z_{\mathrm{end}} = z_{\mathrm{start}} \cdot p_c = 30.0 \times 0.59274621 = 17.782386.
+z_{\mathrm{peak}} = \frac{K}{I_q^\star} = \frac{312}{13} = 24.0, \qquad \Delta z = I_\ell^\star = 6.0, \qquad \sigma_z = \frac{\Delta z}{2} = 3.0,
 \end{equation}
+defining the symmetric incubation window $[z_{\mathrm{min}}, z_{\mathrm{max}}] = [z_{\mathrm{peak}} - \Delta z, z_{\mathrm{peak}} + \Delta z] = [18.0, 30.0]$, consistent with the 2D site percolation threshold on the visible torus grid: $z_{\mathrm{end}} = z_{\mathrm{start}} \cdot p_c = 30.0 \times 0.59274621 \approx 17.78 \to 18.0$.
 The boundary shear diffusion coefficient $\kappa_{\mathrm{diff}}$ is fixed by the KSS viscosity bound:
 \begin{equation}
 \kappa_{\mathrm{diff}} = \frac{1}{4\pi} \left(\frac{k_q}{k_\ell + k_q}\right) = \frac{2}{17\pi} \approx 0.03744746.
 \end{equation}
 
-\subsection{One-Loop Instanton Determinant Cancellation and Capacity Variance Floor}
+\subsection{One-Loop Instanton Determinant Cancellation, Capacity Variance Floor, and NMS Prefactor}
 Spectral zeta regularization on the completed torus $\mathbb{T}^4$ confirms the exact cancellation of Seeley--DeWitt coefficients for $k \ge 1$:
 \begin{equation}
 \frac{{\det}'(\mathcal{D}_{\mathrm{inst}})}{\det(\mathcal{D}_0)} = 1 \implies A_0(z) = H(z) \sqrt{\frac{1325}{308\pi}} \approx 1.1701934 \, H(z).
@@ -534,6 +547,10 @@ Spectral zeta regularization on the completed torus $\mathbb{T}^4$ confirms the 
 The 9-coordinate visible lattice capacity floor is:
 \begin{equation}
 \delta_{c0} = \frac{1}{3\sqrt{3 c_{\mathrm{eff}}}} = \frac{\sqrt{154}}{3\sqrt{3975}} \approx 0.065610,
+\end{equation}
+and the Non-Maximum Suppression (NMS) collapse prefactor is:
+\begin{equation}
+\eta_V \delta_{c0} = \frac{10}{33} \delta_{c0} = \frac{10}{33} \times 0.065610 = 0.019881818,
 \end{equation}
 ensuring well-behaved Poisson tunneling probabilities $P_{\mathrm{nuc}}(z) = 1 - \exp(-\Gamma_{\mathrm{nuc}} V_{\mathrm{cell}} \Delta t)$.
 
@@ -546,11 +563,14 @@ with Voronoi cell measure $\kappa_*^{D_5} = 0.988725345719$. The visual SPH spla
 \begin{equation}
 \Phi_{\mathrm{topo}}(\sigma) = \left( 1 + \frac{38643}{1540} \sigma^2 \right)^{-1}, \quad \lambda_{\mathrm{topo}} = \frac{38643}{1540} = \frac{3513}{140} \approx 25.092857.
 \end{equation}
-The holographic softening length regularizing the Particle-Mesh solver scales as:
+Under projection onto the five-dimensional root lattice $D_5$ ($\operatorname{rank}(D_5) = 5$), the radiance splat profile $\exp(-3.5 d^2)$ reconciles with $\Phi_{\mathrm{topo}}(\sigma)$ at distance $d$. In parallel, the camera perspective scale is anchored by the boundary horizon:
 \begin{equation}
-\epsilon_{\mathrm{holo}}(a) = \left( \frac{3\pi}{2 \Lambda_{\mathrm{holo}} N_{\mathrm{sat}}} \right)^{1/4} a,
+r_0 = \sqrt{2}\kappa_*^{D_5} - \frac{1}{39\sqrt{2}} = 1.380121 \simeq 1.38.
 \end{equation}
-yielding time-invariant comoving resolution $\epsilon_{\mathrm{comov}} = \text{const}$.
+The holographic softening length regularizing the Particle-Mesh solver scales with the modular capacity invariant $C_{\mathrm{mod}} = 39$:
+\begin{equation}
+\tilde{\epsilon}_{\mathrm{holo}}(a) = \frac{2\pi a}{39 N_{\mathrm{grid}}}, \qquad \epsilon_{\mathrm{comov}} = \frac{\tilde{\epsilon}_{\mathrm{holo}}(a)}{a} = \frac{2\pi}{39 N_{\mathrm{grid}}} = \text{const}.
+\end{equation}
 
 \section{Boundary Affine Quantization, Cardy Virialization, and Horizon Freeze Hydrodynamics}
 \label{app:affine-quantization-cardy-freeze}
@@ -590,13 +610,13 @@ halting artificial caustic shell-crossing and establishing a stable Jeans core e
 \subsection{Boundary-Derived Baryonic Sound Speed and Gapless Acoustic Decoupling}
 The physical baryonic sound speed $c_s(z)$ is derived gaplessly from the thermodynamic state of the primordial neutral gas:
 \begin{equation}
-c_s^2(z) = \frac{\gamma k_B T_b(z)}{\mu m_p}, \quad \gamma = \frac{5}{3}, \quad \mu = \left( X + \frac{Y}{4} \right)^{-1} \approx 1.219512,
+c_s^2(z) = \frac{\gamma k_B T_b(z)}{\mu m_p}, \quad \gamma = \frac{5}{3}, \quad \mu = 1.22534,
 \end{equation}
-with primordial hydrogen and helium mass fractions $X = 0.76$ and $Y = 0.24$. Prior to acoustic drag ($z > z_{\mathrm{drag}} = 1059.94$), Compton scattering locks the gas temperature to the CMB photon bath $T_\gamma(z) = T_{\mathrm{CMB}, 0}(1 + z)$. Following drag decoupling, entropy exchange with the holographic boundary modulates the thermal history through $\eta_V = 10/33$:
+with mean molecular weight $\mu = 1.22534$ anchored to non-equilibrium BBN yields ($Y_p = 0.246698$). Prior to acoustic drag ($z > z_{\mathrm{drag}} = 1059.940$), Compton scattering locks the gas temperature to the CMB photon bath $T_\gamma(z) = T_{\mathrm{CMB}, 0}(1 + z)$. Following Compton thermal decoupling at $z_{\mathrm{dec}} = 137.036 \simeq 137 \equiv \lfloor \alpha_{\mathrm{EM},0}^{-1} \rfloor$, the post-decoupling gas temperature satisfies:
 \begin{equation}
-T_{\mathrm{post}}(z) = T_{\mathrm{CMB}, 0} (1 + z_{\mathrm{drag}}) \left[ \eta_V \left(\frac{1 + z}{1 + z_{\mathrm{drag}}}\right) + (1 - \eta_V) \left(\frac{1 + z}{1 + z_{\mathrm{drag}}}\right)^{2 - \eta_V} \right].
+T_{\mathrm{post}}(z) = T_{\mathrm{CMB}, 0} (1 + z) \frac{z}{z + z_{\mathrm{dec}}}.
 \end{equation}
-A $C^\infty$ hyperbolic tangent window with transition width $\Delta z_{\mathrm{drag}} = 25.0$:
+A $C^\infty$ hyperbolic tangent window with acoustic drag epoch $z_{\mathrm{drag}} = 1059.940$ and transition width $\Delta z_{\mathrm{drag}} = 25.000$:
 \begin{equation}
 W(z) = \frac{1}{2} \left[ 1 + \tanh\left( \frac{z - z_{\mathrm{drag}}}{\Delta z_{\mathrm{drag}}} \right) \right], \quad T_b(z) = W(z) T_\gamma(z) + [1 - W(z)] T_{\mathrm{post}}(z),
 \end{equation}
@@ -614,17 +634,22 @@ At scale factor $a = 1000$ ($z \to -0.999$), the horizon contracts to $\chi_{\ma
 where $f_{\mathrm{load}}(a) = 1 - (R_{\mathrm{entropy}}(a) / R_{\mathrm{entropy}}(1.0))$. For halos separated by $D_{AB} \ge 15.0\,\mathrm{Mpc}$, all pairwise cross-halo distances satisfy $r_{ij} > \chi_{\mathrm{event}}(a)$ for $a > a_{\mathrm{iso}} \approx 444.8$, extinguishing cross-halo forces while preserving internal virial equilibrium within bound halos ($r_{kl} \le 3.0\,\mathrm{Mpc} < 5.33\,\mathrm{Mpc}$). As $a \to 1000$, boundary entropy is exhausted ($R_{\mathrm{entropy}} \le 0$), cleanly freezing halos into isolated de Sitter island universes immediately prior to an \texttt{AnomalyClosureError}.
 
 \subsection{Isotropic Weil Modular Phase Seeding and Fundamental Mode Linear Bounds}
-To eliminate hyperoctahedral $O_h$ point-group artifacts (6- and 8-pointed stars/snowflakes) without breaking statistical rotational invariance, primordial Fourier phases are generated from the $N = 2{,}901{,}360$ primary modules of the critical branch $(26, 8, 312)$ at $\tau = i$ ($q = e^{-2\pi}$). The module index $I(k)$ is governed strictly by the rotationally invariant Euclidean wavenumber magnitude $k = \|\mathbf{k}\|_2$:
+To eliminate hyperoctahedral $O_h$ point-group artifacts (6- and 8-pointed stars/snowflakes) without breaking statistical rotational invariance, primordial Fourier phases are generated from the $M = 2{,}901{,}360$ primary modules of the canonical branch $(k_\ell, k_q, K) = (26, 8, 312)$ on $\widehat{\mathfrak{su}}(2)_{26} \times \widehat{\mathfrak{su}}(3)_8 \subset \widehat{\mathfrak{so}}(10)_{312}$ at $\tau = i$ ($q = e^{-2\pi}$). The module index $I(k)$ is governed strictly by the rotationally invariant Euclidean wavenumber magnitude $k = \|\mathbf{k}\|_2$:
 \begin{equation}
-I(k) = \left\lfloor \alpha \cdot \frac{k}{k_1} + \beta \cdot \left(\frac{k}{k_1}\right)^2 \right\rfloor \pmod N, \quad \alpha = 24\sqrt{3}, \quad \beta = \pi\sqrt{2},
+I(k) = \left\lfloor \alpha \cdot \frac{k}{k_1} + \beta \cdot \left(\frac{k}{k_1}\right)^2 \right\rfloor \pmod M, \quad \alpha = \frac{24}{\sqrt{3}} = 8\sqrt{3} \approx 13.85640646, \quad \beta = \frac{\pi}{\sqrt{2}} \approx 2.22144147,
 \end{equation}
-with isotropic angular dispersion $\Psi_{\mathrm{iso}}(\hat{\mathbf{k}}) = 2\pi \operatorname{frac}\left( \frac{1 - \cos\theta}{2} \frac{N}{24} + \frac{\varphi}{2\pi} \sqrt{5} \right)$. On the positive hemisphere partition $\mathcal{K}^+$, phases are assigned as $\phi(\mathbf{k}) = [\theta_{I(k)} + \Psi_{\mathrm{iso}}(\hat{\mathbf{k}})] \pmod{2\pi}$, with strict Hermitian anti-symmetry $\phi(-\mathbf{k}) = -\phi(\mathbf{k}) \pmod{2\pi}$ and $\phi(\mathbf{0}) = 0$. In spherical harmonics, the two-point correlation expansion satisfies $a_{\ell m}(r) \equiv 0$ ($\forall \ell \ge 1$), identically eliminating cubic harmonics $K_4$ and $K_6$.
+with continuous isotropic angular dispersion $\Psi_{\mathrm{iso}}(\hat{\mathbf{k}}) = 2\pi \operatorname{frac}\left( \frac{M}{24} \mathcal{P}(\hat{\mathbf{k}}) \right)$ where $\mathcal{P}(\hat{\mathbf{k}}) = \frac{\sqrt{2}\hat{k}_x + \sqrt{3}\hat{k}_y + \sqrt{5}\hat{k}_z}{\sqrt{2} + \sqrt{3} + \sqrt{5}}$. On the positive hemisphere partition $\mathcal{K}^+$, phases are assigned as $\phi(\mathbf{k}) = [\theta_{I(k)} + \Psi_{\mathrm{iso}}(\hat{\mathbf{k}})] \pmod{2\pi}$, with strict Hermitian anti-symmetry $\phi(-\mathbf{k}) = -\phi(\mathbf{k}) \pmod{2\pi}$, $\phi(\mathbf{0}) = 0$, and dipole mode nullification $\delta(\mathbf{k}) \equiv 0$ for $\|\mathbf{n}\| \le 1$. In spherical harmonics, the two-point correlation expansion satisfies $a_{\ell m}(r) \equiv 0$ ($\forall \ell \ge 1$), identically eliminating cubic harmonics $K_4$ and $K_6$.
 
-Holographic screen packing fixes the comoving box length to $L_{\mathrm{box}} = 150.0\,h^{-1}\mathrm{Mpc} \approx 222.5502\,\mathrm{Mpc}$ ($h = 0.6740058$) with screen curvature $\Lambda_{\mathrm{holo}} = 3/L_{\mathrm{box}}^2 \approx 6.05712\times 10^{-5}\,\mathrm{Mpc}^{-2}$. The fundamental Fourier mode $k_1 = 2\pi/L_{\mathrm{box}} \approx 0.019028\,h\,\mathrm{Mpc}^{-1}$ satisfies the linear variance bound:
+Holographic screen packing and microcanonical entropy $S_{\mathrm{CFT}} = \ln M = \ln(2{,}901{,}360) \approx 14.88069015$ project the cosmic horizon radius $R_H = \sqrt{3/\Lambda_{\mathrm{holo}}} = 5378.592\,\mathrm{Mpc}$ (from $\Lambda_{\mathrm{holo}} = 1.08913883 \times 10^{-52}\,\mathrm{m}^{-2} = 1.0370136 \times 10^{-7}\,\mathrm{Mpc}^{-2}$) onto the simulation box domain via:
 \begin{equation}
-\Delta^2(k_1, 0) = \frac{k_1^3}{2\pi^2} P_{\mathrm{NL}}(k_1, 0) \approx 0.01174 \le 0.0120,
+\frac{\Lambda_{\mathrm{holo}}^{\mathrm{box}}}{\Lambda_{\mathrm{holo}}} = \left(\frac{R_H}{L_{\mathrm{box}}}\right)^2 = \frac{4\pi}{c_{\mathrm{eff}}} \cdot (S_{\mathrm{CFT}})^2 \cdot \left(1 - \frac{10}{33}\right) = \frac{4\pi \times 154}{1325} \times (14.88069015)^2 \times \frac{23}{33} = 584.0931606.
 \end{equation}
-ensuring $\sigma_{\mathrm{box}} \approx 0.108 \ll 1$, which strictly prevents domain-spanning monolithic collapse.
+This fixes the box curvature scale and comoving box length to $\Lambda_{\mathrm{holo}}^{\mathrm{box}} = 584.0931606 \times \Lambda_{\mathrm{holo}} = 6.057116 \times 10^{-5}\,\mathrm{Mpc}^{-2}$ and $L_{\mathrm{box}} = \sqrt{3/\Lambda_{\mathrm{holo}}^{\mathrm{box}}} = 222.5502\,\mathrm{Mpc} = 150.0\,h^{-1}\mathrm{Mpc}$ under the radiation-included $z=0$ algebraic Hubble stage $h = h_{\mathrm{rad-alg}} = \sqrt{\omega_\Lambda + \omega_m + \Delta\omega_{\mathrm{rel}}} = 0.67400580$ ($H_0^{\mathrm{rad-alg}} = 67.40058\,\mathrm{km\,s^{-1}\,Mpc^{-1}}$), analytically harmonized with the asymptotic matter--$\Lambda$ closure $h_{\mathrm{mat-}\Lambda} = \sqrt{\omega_\Lambda + \omega_m} = 0.67399620$ ($H_0^{\mathrm{mat-}\Lambda} = 67.39962\,\mathrm{km\,s^{-1}\,Mpc^{-1}}$), the bare horizon anchor $H_0^{\mathrm{bare}} = 67.4\,\mathrm{km\,s^{-1}\,Mpc^{-1}}$, and the acoustic boundary-loaded CMB anchor $H_0^{\mathrm{CMB}} = H_0^{\mathrm{mat-}\Lambda} - A_H / 120 = 67.35964 \simeq 67.36\,\mathrm{km\,s^{-1}\,Mpc^{-1}}$. The fundamental Fourier mode $k_1 = 2\pi/L_{\mathrm{box}} = 0.028232\,\mathrm{Mpc}^{-1} \approx 0.0190289\,h\,\mathrm{Mpc}^{-1}$ satisfies the linear turnaround variance bound:
+\begin{equation}
+\label{eq:fundamental-mode-variance-bound}
+\Delta^2(k_1, 0) = \frac{k_1^3}{2\pi^2} P_{\mathrm{NL}}(k_1, 0) \approx 0.01174 \le 0.0120 \approx \left(\frac{\delta_{\mathrm{ta}}}{10}\right)^2,
+\end{equation}
+ensuring $\sigma_{\mathrm{box}} \approx 0.1084 \ll \delta_{\mathrm{ta}} \approx 1.06$, which strictly prevents domain-spanning monolithic collapse and central mass evacuation.
 
 \subsection{Two-Pass Atomic Phase-Space Diagnostic Architecture}
 The phase-space $(x, v_x)$ projection kernel in \texttt{diagnostics.wgsl} operates via two decoupled compute passes:
@@ -788,19 +813,77 @@ Equating gravitational and dispersive terms gives:
 Because $\rho_{\mathrm{floor}} \ge 0.00696738 > 0$ strictly bounds the denominator from below and prevents divergence, the core radius $r_c$ remains finite and non-zero for all physical halo masses, precluding singular caustics.
 \end{proof}
 
+\section{Appendix E: Metaplectic \texorpdfstring{$\operatorname{Mp}_2(\mathbb{Z})$}{Mp2(Z)} Modular Weil Phase Seeding and Spectral Poisson Conditioning}
+\label{app:metaplectic_weil_phases}
+
+In Static Holographic Boundary Theory (SHBT) on the canonical branch $(k_\ell, k_q, K) = (26, 8, 312)$ on $\widehat{\mathfrak{su}}(2)_{26} \times \widehat{\mathfrak{su}}(3)_8 \subset \widehat{\mathfrak{so}}(10)_{312}$, primordial metric perturbations originate from the modular spectral projection of the 2D boundary register governed by the metaplectic group $\mathrm{Mp}_2(\mathbb{Z})$.
+
+Let $\mathbb{T}^3 = (\mathbb{R} / L_{\mathrm{box}}\mathbb{Z})^3$ denote the comoving spatial 3-torus discretized on a uniform cubic lattice $\mathbb{Z}_N^3$ with grid spacing $\Delta x = L_{\mathrm{box}} / N$. For each discrete Fourier wavevector $\mathbf{n} = (n_x, n_y, n_z) \in \mathbb{Z}_N^3 \setminus \{\mathbf{0}\}$, let $s(\mathbf{n}) = \|\mathbf{n}\|^2 = n_x^2 + n_y^2 + n_z^2$ denote the continuous Euclidean wavenumber norm invariant under the spatial rotation group $\mathrm{SO}(3)$, with unit direction vector $\hat{\mathbf{k}} = \mathbf{n}/\sqrt{s(\mathbf{n})}$.
+
+Fourier space is partitioned into the canonical upper half-space:
+\begin{equation}
+\mathcal{K}^+ = \left\{ \mathbf{n} \in \mathbb{Z}_N^3 \setminus \{\mathbf{0}\} : n_z > 0 \lor (n_z = 0 \land n_y > 0) \lor (n_z = 0 \land n_y = 0 \land n_x > 0) \right\}.
+\end{equation}
+Continuous directional Haar dispersion on $\mathbb{S}^2$ is mapped via the irrational direction-cosine functional:
+\begin{equation}
+\mathcal{P}(\hat{\mathbf{k}}) = \frac{\sqrt{2}\hat{k}_x + \sqrt{3}\hat{k}_y + \sqrt{5}\hat{k}_z}{\sqrt{2} + \sqrt{3} + \sqrt{5}}, \quad \Psi_{\mathrm{iso}}(\hat{\mathbf{k}}) = 2\pi \operatorname{frac}\left( \frac{M}{24} \mathcal{P}(\hat{\mathbf{k}}) \right),
+\end{equation}
+where $M = 2{,}901{,}360$ is the primary Weil module count. The deterministic metaplectic Weil phase map $\phi: \mathbb{Z}_N^3 \to [0, 2\pi)$ is defined on $\mathcal{K}^+$ by:
+\begin{equation}
+\phi(\mathbf{n}) = \left[ \frac{2\pi}{M} \left( \lfloor \alpha \sqrt{s(\mathbf{n})} + \beta s(\mathbf{n}) \rfloor \pmod M \right) + \Psi_{\mathrm{iso}}(\hat{\mathbf{k}}) \right] \pmod{2\pi},
+\end{equation}
+where the metaplectic $\mathrm{Mp}_2(\mathbb{Z})$ phase mapping constants are analytically fixed:
+\begin{equation}
+\alpha = \frac{24}{\sqrt{3}} = 8\sqrt{3} \approx 13.85640646, \quad \beta = \frac{\pi}{\sqrt{2}} \approx 2.22144147.
+\end{equation}
+Hermitian reality of the bulk density perturbation field $\delta(\mathbf{x}) = \mathcal{F}^{-1}[\delta(\mathbf{k})]$ requires strict anti-symmetry across the lower hemisphere:
+\begin{equation}
+\phi(-\mathbf{n}) = -\phi(\mathbf{n}) \pmod{2\pi}, \quad \forall \, -\mathbf{n} \in \mathcal{K}^+,
+\end{equation}
+with the DC mode locked to $\phi(\mathbf{0}) \equiv 0$, self-conjugate Nyquist phases locked to $\phi(\mathbf{n}_{\mathrm{Nyq}}) \in \{0, \pi\}$, and dipole nullification $\delta(\mathbf{k}) \equiv 0$ for $\|\mathbf{n}\| \le 1$ to eliminate unphysical box-scale translational center-of-mass drift.
+
+\begin{theorem}[Vanishing of Point-Group Anisotropies]
+Under the metaplectic Weil phase mapping, the ensemble expectation value of all non-trivial spherical multipole coefficients vanishes identically:
+\begin{equation}
+\mathbb{E}\left[ a_{\ell m}(k) \right] = 0 \quad \forall \, \ell \ge 1.
+\end{equation}
+Furthermore, the projection of the discrete perturbation spectrum onto hyperoctahedral Kubic harmonics $K_4(\hat{\mathbf{k}}) = \hat{k}_x^4 + \hat{k}_y^4 + \hat{k}_z^4 - \frac{3}{5}$ and $K_6(\hat{\mathbf{k}})$ vanishes:
+\begin{equation}
+\mathbb{E}\left[ \int_{\mathbb{S}^2} |\delta(k\hat{\mathbf{k}})|^2 K_4(\hat{\mathbf{k}})\, d\Omega \right] < 10^{-7}, \quad \mathbb{E}\left[ \int_{\mathbb{S}^2} |\delta(k\hat{\mathbf{k}})|^2 K_6(\hat{\mathbf{k}})\, d\Omega \right] < 10^{-8},
+\end{equation}
+strictly eliminating 6- and 8-pointed star-cusp crystallographic caustics.
+\end{theorem}
+
 \section{Appendix F: Precision Primordial Initial Conditions, 2LPT Displacements, and Supercomoving Martel--Shapiro Integration}
 \label{app:supercomoving_pm_2lpt}
 
-To prevent spurious shell-crossing artifacts arising from linear Zel'dovich displacement fields, primordial initial conditions are integrated using Second-Order Lagrangian Perturbation Theory (2LPT). For a particle with unperturbed Lagrangian coordinate $\mathbf{q} \in [0, 1)^3$, the comoving Eulerian position $\mathbf{x}(\mathbf{q})$ and supercomoving canonical momentum $\tilde{\mathbf{p}}(\mathbf{q})$ at initialization redshifts $z_{\mathrm{init}} \in \{100, 30\}$ are given by:
+To prevent spurious shell-crossing artifacts arising from linear Zel'dovich displacement fields, primordial initial conditions are integrated using Second-Order Lagrangian Perturbation Theory (2LPT). Linear and second-order growth factors $D_1(a)$ and $D_2(a)$ satisfy the coupled differential equations with forward cosmological boundary loading:
+\begin{align}
+    \frac{d^2 D_1}{d a^2} + \left(\frac{3}{a} + \frac{1}{H} \frac{dH}{da}\right)\frac{d D_1}{da} &= \frac{3 \Omega_{m,0}}{2 a^5 E(a)^2}\left(1 - \frac{10}{33} f_{\mathrm{load}}^{\mathrm{cosmo}}(a)\right) D_1, \label{eq:d1_ode_supp} \\
+    \frac{d^2 D_2}{d a^2} + \left(\frac{3}{a} + \frac{1}{H} \frac{dH}{da}\right)\frac{d D_2}{da} &= \frac{3 \Omega_{m,0}}{2 a^5 E(a)^2}\left(1 - \frac{10}{33} f_{\mathrm{load}}^{\mathrm{cosmo}}(a)\right) \left[ D_2 - D_1^2 \right], \label{eq:d2_ode_supp}
+\end{align}
+where $E(a) = H(a)/H_0$, and $f_{\mathrm{load}}^{\mathrm{cosmo}}(a) = \Omega_\Lambda(a)/\Omega_{\mathrm{tot}}(a) = \Omega_{\Lambda,0}/(\Omega_{m,0} a^{-3} + \Omega_{r,0} a^{-4} + \Omega_{\Lambda,0})$. As $a \to 0$ in the high-redshift matter-dominated era, the boundary conditions are $D_1(a) \to a, dD_1/da \to 1, D_2(a) \to -\frac{3}{7}a^2, dD_2/da \to -\frac{6}{7}a$.
+The logarithmic growth rates are $f_1(a) = \frac{d\ln D_1}{d\ln a} = \frac{a}{D_1}\frac{dD_1}{da}$ and $f_2(a) = \frac{d\ln D_2}{d\ln a} = \frac{a}{D_2}\frac{dD_2}{da}$.
+
+Solving this coupled ODE system yields the reconciled growth table across initialization redshifts:
+\begin{center}
+\begin{tabular}{lcccc}
+\hline\hline
+Redshift & $D_1(z)$ & $D_2(z)$ & $f_1(z)$ & $f_2(z)$ \\
+\hline
+$z_{\mathrm{init}} = 100$ ($a \approx 0.009901$) & $0.009901$ & $-4.201 \times 10^{-5}$ & $1.0000$ & $2.0000$ \\
+$z_{\mathrm{init}} = 30$ ($a \approx 0.032258$) & $0.032258$ & $-4.4596 \times 10^{-4}$ & $0.9998$ & $1.9994$ \\
+$z = 0$ ($a = 1.0$) & $0.7864$ & $-0.2670$ & $0.5235$ & $1.0596$ \\
+\hline\hline
+\end{tabular}
+\end{center}
+
+For a particle with unperturbed Lagrangian coordinate $\mathbf{q} \in [0, 1)^3$, the comoving Eulerian position $\mathbf{x}(\mathbf{q})$ and supercomoving canonical momentum $\tilde{\mathbf{p}}(\mathbf{q})$ at initialization redshift $z_{\mathrm{init}} \in \{100, 30\}$ are given by:
 \begin{align}
     \mathbf{x}(\mathbf{q}) &= \left[ \mathbf{q} - D_1(a) \nabla_{\mathbf{q}} \Phi^{(1)}(\mathbf{q}) + D_2(a) \nabla_{\mathbf{q}} \Phi^{(2)}(\mathbf{q}) \right] \pmod{1.0}, \\
     \tilde{\mathbf{p}}(\mathbf{q}) &= -\frac{a^2 H(a)}{L_{\mathrm{box}}} \left[ f_1(a) D_1(a) \nabla_{\mathbf{q}} \Phi^{(1)}(\mathbf{q}) - f_2(a) D_2(a) \nabla_{\mathbf{q}} \Phi^{(2)}(\mathbf{q}) \right],
 \end{align}
-where $a = (1 + z_{\mathrm{init}})^{-1}$. In the high-redshift matter-dominated era ($z_{\mathrm{init}} \gg 1$), the growth factors and growth rates evaluate to:
-\begin{equation}
-    D_1(a) = a, \quad D_2(a) = -\frac{3}{7}a^2, \quad f_1(a) = \frac{d\ln D_1}{d\ln a} = 1.0, \quad f_2(a) = \frac{d\ln D_2}{d\ln a} = 2.0.
-\end{equation}
-The linear displacement potential $\Phi^{(1)}$ and second-order potential $\Phi^{(2)}$ satisfy the Poisson equations in Lagrangian coordinates:
+where the linear displacement potential $\Phi^{(1)}$ and second-order potential $\Phi^{(2)}$ satisfy:
 \begin{align}
     \nabla_{\mathbf{q}}^2 \Phi^{(1)}(\mathbf{q}) &= \delta^{(1)}(\mathbf{q}), \\
     \nabla_{\mathbf{q}}^2 \Phi^{(2)}(\mathbf{q}) &= \frac{1}{2} \sum_{i \ne j} \left[ \frac{\partial^2 \Phi^{(1)}}{\partial q_i^2}\frac{\partial^2 \Phi^{(1)}}{\partial q_j^2} - \left( \frac{\partial^2 \Phi^{(1)}}{\partial q_i \partial q_j} \right)^2 \right].
@@ -815,7 +898,7 @@ Gravitational potentials on the periodic mesh are computed via Fast Fourier Tran
 \end{equation}
 where $W_{\mathrm{CIC}}^{-2}(\mathbf{k}) = \prod_{i=1}^3 \left( \frac{\pi k_i / N}{\sin(\pi k_i / N)} \right)^4$ is the fourth-order Cloud-In-Cell deconvolution kernel, $k_{\mathrm{cut}} = 2.0$ implements fundamental mode high-pass filtering to neutralize large-scale non-linear box turnaround, and setting $G(\mathbf{0}) \equiv 0$ strictly enforces total mass neutrality and DC monopole isolation.
 
-Dynamical evolution is integrated in Martel--Shapiro supercomoving coordinates $\tilde{\mathbf{x}} = \mathbf{x} / L_{\mathrm{box}}$, $d\tilde{\tau} = \frac{H_0}{a^2} dt$, and canonical momentum $\tilde{\mathbf{p}} = d\tilde{\mathbf{x}} / d\tilde{\tau}$ under a time-symmetric Kick-Drift-Kick (KDK) symplectic leapfrog scheme:
+Dynamical evolution is integrated in Martel--Shapiro supercomoving coordinates $\tilde{\mathbf{x}} = \mathbf{x} / L_{\mathrm{box}}$, $d\tilde{\tau} = \frac{H_0}{a^2} dt$, and canonical momentum $\tilde{\mathbf{p}} = d\tilde{\mathbf{x}} / d\tilde{\tau}$ (where the reference scale $H_0 = H_0^{\mathrm{rad-alg}} = 67.40058\,\mathrm{km\,s^{-1}\,Mpc^{-1}}$ exactly normalizes $L_{\mathrm{box}} = 150.0\,h^{-1}\mathrm{Mpc} = 222.5502\,\mathrm{Mpc}$) under a time-symmetric Kick-Drift-Kick (KDK) symplectic leapfrog scheme:
 \begin{align}
     \tilde{\mathbf{p}}_{n+1/2} &= \tilde{\mathbf{p}}_n + \frac{\Delta \tilde{\tau}}{2} \mathbf{a}_{\mathrm{tot}}(\tilde{\mathbf{x}}_n, a_n), \\
     \tilde{\mathbf{x}}_{n+1} &= \left[ \tilde{\mathbf{x}}_n + \Delta \tilde{\tau} \tilde{\mathbf{p}}_{n+1/2} \right] \pmod{1.0}, \\

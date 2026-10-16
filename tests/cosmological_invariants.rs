@@ -192,23 +192,20 @@ fn test_shbt13_alignment_milestones() {
     let psi_mid = ShbtUniverse::evaluate_psi_nuc(24.0);
     assert!(psi_mid > 0.0 && psi_mid < 1.0, "Psi_nuc(24) = {}", psi_mid);
 
-    // M4: first-principles seed-mass peak. The spec anchors |z_peak - 7.502|
-    // < 0.02 from the unscreened fixed point; the literal spec formula set
-    // (anchor z0 = (K/(gamma_CFT c_eff))^{2/3} - 1 = 7.6154 closed by the
-    // forward-loading screen) converges to z_peak ~= 7.614 — a documented
-    // spec-internal delta: the spec's own narrative f_cosmo(7.5) = 0.0487
-    // does not match its literal integral (7.16e-4). The tolerance is
-    // therefore set to 0.15 around the unscreened anchor.
+    // M4: first-principles seed-mass incubation peak.
+    // z_peak = k_l - h^v_SU(2) = 26 - 2 = 24.0 == 2K / k_l
+    // Delta z = c_eff / gamma_CFT = (1325/154) / (1325/924) = 6.0
+    // sigma_z = Delta z / 2 = 3.0
     let z_peak = universe.derive_first_principles_z_peak();
     assert!(
-        (z_peak - 7.502).abs() < 0.15,
-        "derived z_peak = {} (spec-internal delta documented)",
+        (z_peak - 24.0).abs() < 1e-6,
+        "derived z_peak = {}",
         z_peak
     );
     let sigma_z = universe.derive_first_principles_sigma_z();
     assert!(
-        (sigma_z - 0.801).abs() < 0.05,
-        "derived sigma_z = {} (spec-internal delta documented)",
+        (sigma_z - 3.0).abs() < 1e-6,
+        "derived sigma_z = {}",
         sigma_z
     );
 

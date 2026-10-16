@@ -234,22 +234,26 @@ fn instanton_action(r_ratio: f32) -> f32 {
 
 // Physical condensation threshold in normalized n = rho/rho_bar units
 // (shbt13 Stage-3):
-//   delta_th(z) = (delta_c0 / Psi_nuc(z)) * (H/H0)^{1/3}
+//   delta_th(z) = (NMS_PREFACTOR / Psi_nuc(z)) * (H/H0)^{1/3}
 //                 * (1 - (10/33) f_load_cosmo)
-// with delta_c0 = params.delta_n_thresh — the canonical critical
-// condensation threshold in normalized units. The H^{1/3} factor scales
-// the suppression margin with the physical background density so the
-// comoving 26-neighbor NMS stencil does not over-suppress newly forming
-// peaks along thin filaments; the Psi_nuc floor opens below z = 18.
+// with NMS_PREFACTOR = eta_V * delta_c0 = (10/33) * 0.065610 = 0.019881818.
+// Incubation window [Z_MIN, Z_MAX] = [18.0, 30.0] with Z_PEAK = k_l - 2 = 24.0
+// and DELTA_Z = c_eff / gamma_CFT = 6.0.
+const NMS_PREFACTOR: f32 = 0.019881818; // (10.0 / 33.0) * 0.065610
+const Z_PEAK: f32 = 24.0;               // k_l - h^v(SU(2)) = 26 - 2 = 24.0 = 2K/k_l
+const DELTA_Z: f32 = 6.0;               // c_eff / gamma_CFT = (1325/154)/(1325/924) = 6.0
+const Z_MIN: f32 = 18.0;                // z_peak - delta_z = 24.0 - 6.0 = 18.0
+const Z_MAX: f32 = 30.0;                // z_peak + delta_z = 24.0 + 6.0 = 30.0
+
 fn condensation_threshold_n(z: f32) -> f32 {
-    let psi = max(compute_nucleation_weight(z, 30.0, 18.0), 1.0e-3);
+    let psi = max(compute_nucleation_weight(z, Z_MAX, Z_MIN), 1.0e-3);
     let e0 = sqrt(0.315 + 9.2e-5 + 0.68491);
     let opz = 1.0 + z;
     let e = sqrt(0.315 * pow(opz, 3.0) + 9.2e-5 * pow(opz, 4.0) + 0.68491);
     let h_ratio = (1.0 + (4.797960072861 / 67.4) / opz) * e
         / ((1.0 + 4.797960072861 / 67.4) * e0);
     let corr = 1.0 - (10.0 / 33.0) * params.f_load;
-    return params.delta_n_thresh * pow(h_ratio, 1.0 / 3.0) * corr / psi;
+    return NMS_PREFACTOR * pow(h_ratio, 1.0 / 3.0) * corr / psi;
 }
 
 // ----------------------------------------------------------------------------
@@ -428,7 +432,7 @@ fn cs_detect_condensation(@builtin(global_invocation_id) id: vec3<u32>) {
         // Quintic condensation mollifier (Thm 9.14): nucleated mass is
         // C^2-smoothed through the z in [18, 30] window so defects grow
         // continuously rather than popping at the instanton draw.
-        let psi_nuc = compute_nucleation_weight(params.redshift, 30.0, 18.0);
+        let psi_nuc = compute_nucleation_weight(params.redshift, Z_MAX, Z_MIN);
         let m_seed = sum_overflow * params.alpha_mass * psi_nuc;
         let p_debt = m_seed * params.landauer_rate;
 
@@ -448,8 +452,8 @@ fn cs_detect_condensation(@builtin(global_invocation_id) id: vec3<u32>) {
 // streams |dw_vis/dz|(z)). The transported field feeds the
 // Psi_nuc-weighted precursor mass grid.
 const ETA_D: f32 = 0.6969696970;      // 23/33
-const Z_NUC_START: f32 = 30.0;        // precursor incubation window open
-const Z_NUC_END: f32 = 18.0;           // condensation onset handoff (z in [18, 30])
+const Z_NUC_START: f32 = Z_MAX;        // precursor incubation window open (30.0)
+const Z_NUC_END: f32 = Z_MIN;          // condensation onset handoff (18.0)
 
 // C^2 quintic nucleation weight Psi_nuc(z) with open floor Psi_nuc(z <= 18.0) = 1.0:
 fn compute_nucleation_weight(z: f32, z_start: f32, z_end: f32) -> f32 {
@@ -584,7 +588,7 @@ fn cs_temporal_tracking(@builtin(global_invocation_id) global_id: vec3<u32>) {
         // of its basin overflow each frame (linear accretion onto the
         // condensed register), so total defect mass grows monotonically
         // while the seed survives.
-        let accreted_mass = prev_mass + cand_mass * 0.02;
+        let accreted_mass = prev_mass + cand_mass * NMS_PREFACTOR;
         let m_dot = (accreted_mass - prev_mass) / max(params.delta_t, 1e-4);
         let p_debt = accreted_mass * params.landauer_rate;
 

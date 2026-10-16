@@ -40,5 +40,6 @@ pub use uniqueness::*;
 pub use structure::K_L;
 pub use higgs::K_Q;
 pub use thermal_history::{BOLTZMANN_K, ETA_V};
+pub use structure::DELTA_C0;
 
 

@@ -22,6 +22,14 @@ pub const ETA_VISIBLE_DEN: u64 = 33;
 /// Coordinate lattice dimension: C = {0,1,2} x {0,1,2} -> 9 cells.
 pub const LATTICE_CELLS: usize = 9;
 
+/// Macroscopic halo congestion dissipation power per solar mass: P_0 = 906.00 GW / M_sun = 9.06e11 W / M_sun.
+pub const P0_CONGESTION_PER_MSUN_WATTS: f64 = 9.0600e11;
+/// Reference local causal observer patch mass: M_obs = 10^-6 M_sun.
+pub const M_OBS_REFERENCE_MSUN: f64 = 1.0e-6;
+/// Intensive local observer Landauer debt limit: P_debt = 10^-6 P_0 = 906.00 kW = 9.06e5 W.
+pub const P_DEBT_OBSERVER_WATTS: f64 = 9.0600e5;
+pub const P_DEBT_OBSERVER_KW: f64 = 906.00;
+
 #[derive(Debug, Clone)]
 #[pyclass]
 pub struct LightConeSample {

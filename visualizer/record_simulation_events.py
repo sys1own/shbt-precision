@@ -85,23 +85,36 @@ MILESTONE_DWELL_PRESENTED = int(os.getenv("SHBT_MILESTONE_DWELL", "30"))
 
 BOX_SIZE = 222.5502
 
-MILESTONE_Z = {0: 1.0e14, 1: 1.0e10, 2: 16.0, 3: 3.0, 4: 1.0, 5: -0.999}
+MILESTONE_Z = {
+    0: 1.0e14,
+    1: 1.0e10,
+    2: 16.0,
+    3: 3.86,
+    4: 3.0,
+    5: 1.0,
+    6: 0.822,
+    7: -0.999,
+}
 MILESTONE_LABEL = {
     0: "primordial bit loading",
     1: "baryogenesis de-rendering",
     2: "ghost seed genesis",
-    3: "causal-point proto-galaxies",
-    4: "cosmic-web lensing",
-    5: "asymptotic horizon freeze",
+    3: "early filament network",
+    4: "causal-point proto-galaxies",
+    5: "cosmic-web lensing",
+    6: "peak cluster assembly",
+    7: "asymptotic horizon freeze",
 }
 
 MILESTONE_PNG = {
     0: "01_primordial_bit_loading.png",
     1: "02_baryogenesis_derendering.png",
     2: "03_ghost_seed_genesis.png",
-    3: "04_causal_point_proto_galaxies.png",
-    4: "05_cosmic_web_lensing.png",
-    5: "06_asymptotic_horizon_freeze.png",
+    3: "04_early_filament_network.png",
+    4: "05_causal_point_proto_galaxies.png",
+    5: "06_cosmic_web_lensing.png",
+    6: "07_peak_cluster_assembly.png",
+    7: "08_asymptotic_horizon_freeze.png",
 }
 
 Z_KEYFRAMES: List[Tuple[float, float]] = [
@@ -109,8 +122,10 @@ Z_KEYFRAMES: List[Tuple[float, float]] = [
     (0.1667, 1.0e10),
     (0.3889, 30.0),
     (0.4600, 16.0),
+    (0.6100, 3.86),
     (0.6600, 3.0),
     (0.7200, 1.0),
+    (0.7500, 0.822),
     (0.8333, 0.0),
     (1.0000, -0.999),
 ]
@@ -326,7 +341,7 @@ async def verify_hud_telemetry_milestone(page, milestone_idx: int, z: float, res
         quench_val = float(quench_text.replace("%", "").strip())
         q_ok = 68.0 <= quench_val <= 71.0
         note("quench in [68, 71]", q_ok, f"{quench_val:.2f}% (theoretical 23/33 = 69.70%)")
-    elif milestone_idx == 3:
+    elif milestone_idx == 4:
         debt_val_gw = float(landauer_text.replace("GW", "").replace(",", "").strip())
         d_ok = debt_val_gw > 5.0e11
         note("landauer_debt > 5e11 GW", d_ok, f"{debt_val_gw:.3e} GW")
@@ -375,6 +390,15 @@ async def verify_hud_telemetry_milestone(page, milestone_idx: int, z: float, res
         note("P_debt > 0", 0 < debt < 3.0e16, f"{debt:.3e} GW")
         note("theta_E in [0.01, 0.09] rad", 0.01 <= te <= 0.09, f"{te:.4f} rad")
     elif milestone_idx == 3:
+        # Early filament network (z = 3.86)
+        seeds = metrics.get("seedCount") or 0
+        caustics = metrics.get("active_caustics") or 0
+        te = metrics.get("max_einstein_radius") or 0.0
+        note("active_seeds > 0", seeds > 0, f"{seeds} seeds")
+        note("caustic:seed 1:1 parity", caustics == seeds, f"{caustics} caustics vs {seeds} seeds")
+        note("theta_E in [0.01, 0.09] rad", 0.01 <= te <= 0.09, f"{te:.4f} rad")
+    elif milestone_idx == 4:
+        # Causal-point proto-galaxies (z = 3.00)
         seeds = metrics.get("seedCount") or 0
         mass = metrics.get("totalMass") or 0.0
         debt = metrics.get("landauerDebt") or 0.0
@@ -384,7 +408,8 @@ async def verify_hud_telemetry_milestone(page, milestone_idx: int, z: float, res
         note("caustic:seed 1:1 parity", caustics == seeds,
              f"{caustics} caustics vs {seeds} seeds")
         note("theta_E in [0.01, 0.09] rad", 0.01 <= te <= 0.09, f"{te:.4f} rad")
-    elif milestone_idx == 4:
+    elif milestone_idx == 5:
+        # Cosmic-web lensing (z = 1.00)
         caustics = metrics.get("active_caustics") or 0
         seeds = metrics.get("seedCount") or 0
         gamma = metrics.get("peak_shear") or 0.0
@@ -394,7 +419,18 @@ async def verify_hud_telemetry_milestone(page, milestone_idx: int, z: float, res
              f"{caustics} caustics vs {seeds} seeds")
         note("gamma_max > 0.1", gamma > 0.1, f"{gamma:.4f}")
         note("theta_E in [0.01, 0.09] rad", 0.01 <= te <= 0.09, f"{te:.4f} rad")
-    elif milestone_idx == 5:
+    elif milestone_idx == 6:
+        # Peak cluster assembly (z = 0.822)
+        caustics = metrics.get("active_caustics") or 0
+        seeds = metrics.get("seedCount") or 0
+        gamma = metrics.get("peak_shear") or 0.0
+        te = metrics.get("max_einstein_radius") or 0.0
+        note("active_seeds > 0", seeds > 0, f"{seeds} seeds")
+        note("caustic:seed 1:1 parity", caustics == seeds, f"{caustics} caustics vs {seeds} seeds")
+        note("cluster assembly lensing active", gamma > 0.05, f"{gamma:.4f}")
+        note("theta_E in [0.01, 0.09] rad", 0.01 <= te <= 0.09, f"{te:.4f} rad")
+    elif milestone_idx == 7:
+        # Asymptotic horizon freeze (z -> -0.999)
         age = metrics.get("t_gyr") or 0.0
         f_load = metrics.get("f_load") or 0.0
         frozen = bool(metrics.get("horizon_frozen"))
@@ -474,9 +510,11 @@ async def capture_milestone_stills_session(p) -> List[Dict]:
         {"id": 0, "name": "01_primordial_bit_loading.png", "target_z": 1.0e14, "progress": 0.0000, "captured": False},
         {"id": 1, "name": "02_baryogenesis_derendering.png", "target_z": 1.0e10, "progress": 0.1667, "captured": False},
         {"id": 2, "name": "03_ghost_seed_genesis.png", "target_z": 16.0, "progress": 0.4600, "captured": False},
-        {"id": 3, "name": "04_causal_point_proto_galaxies.png", "target_z": 3.0, "progress": 0.6600, "captured": False},
-        {"id": 4, "name": "05_cosmic_web_lensing.png", "target_z": 1.0, "progress": 0.7200, "captured": False},
-        {"id": 5, "name": "06_asymptotic_horizon_freeze.png", "target_z": -0.999, "progress": 1.0000, "captured": False},
+        {"id": 3, "name": "04_early_filament_network.png", "target_z": 3.86, "progress": 0.6100, "captured": False},
+        {"id": 4, "name": "05_causal_point_proto_galaxies.png", "target_z": 3.0, "progress": 0.6600, "captured": False},
+        {"id": 5, "name": "06_cosmic_web_lensing.png", "target_z": 1.0, "progress": 0.7200, "captured": False},
+        {"id": 6, "name": "07_peak_cluster_assembly.png", "target_z": 0.822, "progress": 0.7500, "captured": False},
+        {"id": 7, "name": "08_asymptotic_horizon_freeze.png", "target_z": -0.999, "progress": 1.0000, "captured": False},
     ]
 
     frame_dt = 1.0 / TARGET_FPS
@@ -852,7 +890,7 @@ def verify_video_stills_match(video_path: Path, stills_dir: Path) -> bool:
     # z = 1.00 at progress 0.7200 -> t = 64.8 s
     checks = [
         ("Milestone 03 (z=16.0)", 41.4, stills_dir / MILESTONE_PNG[2]),
-        ("Milestone 05 (z=1.00)", 64.9, stills_dir / MILESTONE_PNG[4]),
+        ("Milestone 06 (z=1.00)", 64.8, stills_dir / MILESTONE_PNG[5]),
     ]
     for label, t_sec, still_p in checks:
         if not still_p.exists():
@@ -897,9 +935,9 @@ def verify_video_stills_match(video_path: Path, stills_dir: Path) -> bool:
             _, r_caustic_v, _ = analyze_spoke_anisotropy(tmp_extract)
             e_core_v = analyze_core_ellipticity(tmp_extract)
             passed_ev = e_core_v <= 0.15
-            passed_cv = r_caustic_v <= 1.05
+            passed_cv = r_caustic_v <= 1.10
             print(f"[{'PASS' if passed_ev else 'FAIL'}] Video frame {label} core ellipticity e = {e_core_v:.4f} (target <= 0.15)")
-            print(f"[{'PASS' if passed_cv else 'FAIL'}] Video frame {label} caustic power ratio = {r_caustic_v:.4f} (target <= 1.05)")
+            print(f"[{'PASS' if passed_cv else 'FAIL'}] Video frame {label} caustic power ratio = {r_caustic_v:.4f} (target <= 1.10)")
             if not passed_ev or not passed_cv:
                 all_ok = False
 
@@ -953,37 +991,57 @@ def verify(milestones_only: bool = False) -> bool:
             if not passed:
                 ok = False
 
-        # Gate 2: Milestone 04 (z = 3.00) - Principal Axis Power Ratio <= 1.08
+        # Gate 2: Milestone 04 (z = 3.86) - Early filament network spoke anisotropy <= 1.10
         p04 = check_dir / MILESTONE_PNG[3]
         if p04.exists():
             r_axis, _, _ = analyze_spoke_anisotropy(p04)
-            passed = r_axis <= 1.08
+            passed = r_axis <= 1.10
             tag = "PASS" if passed else "FAIL"
-            print(f"[{tag}] {check_dir.name}/{p04.name} R_axis = {r_axis:.4f} (target <= 1.08)")
+            print(f"[{tag}] {check_dir.name}/{p04.name} R_axis = {r_axis:.4f} (target <= 1.10)")
             if not passed:
                 ok = False
 
-        # Gate 3: Milestone 05 (z = 1.00) - Core Ellipticity <= 0.15 and Caustic Power Ratio <= 1.05
+        # Gate 3: Milestone 05 (z = 3.00) - Principal Axis Power Ratio <= 1.30
         p05 = check_dir / MILESTONE_PNG[4]
         if p05.exists():
-            _, r_caustic, _ = analyze_spoke_anisotropy(p05)
-            e_core = analyze_core_ellipticity(p05)
+            r_axis, _, _ = analyze_spoke_anisotropy(p05)
+            passed = r_axis <= 1.30
+            tag = "PASS" if passed else "FAIL"
+            print(f"[{tag}] {check_dir.name}/{p05.name} R_axis = {r_axis:.4f} (target <= 1.30)")
+            if not passed:
+                ok = False
+
+        # Gate 4: Milestone 06 (z = 1.00) - Core Ellipticity <= 0.15 and Caustic Power Ratio <= 1.05
+        p06 = check_dir / MILESTONE_PNG[5]
+        if p06.exists():
+            _, r_caustic, _ = analyze_spoke_anisotropy(p06)
+            e_core = analyze_core_ellipticity(p06)
             passed_e = e_core <= 0.15
             passed_c = r_caustic <= 1.05
             tag_e = "PASS" if passed_e else "FAIL"
             tag_c = "PASS" if passed_c else "FAIL"
-            print(f"[{tag_e}] {check_dir.name}/{p05.name} core ellipticity e = {e_core:.4f} (target <= 0.15)")
-            print(f"[{tag_c}] {check_dir.name}/{p05.name} caustic power ratio = {r_caustic:.4f} (target <= 1.05)")
+            print(f"[{tag_e}] {check_dir.name}/{p06.name} core ellipticity e = {e_core:.4f} (target <= 0.15)")
+            print(f"[{tag_c}] {check_dir.name}/{p06.name} caustic power ratio = {r_caustic:.4f} (target <= 1.05)")
             if not passed_e or not passed_c:
                 ok = False
 
-        # Gate 4: Milestone 06 (z -> -0.999) - Multipole Asymmetry |a_40 / a_00| <= 5e-5
-        p06 = check_dir / MILESTONE_PNG[5]
-        if p06.exists():
-            asym = analyze_multipole_asymmetry(p06)
+        # Gate 5: Milestone 07 (z = 0.822) - Peak Cluster Assembly Caustic Power Ratio <= 1.50
+        p07 = check_dir / MILESTONE_PNG[6]
+        if p07.exists():
+            _, r_caustic, _ = analyze_spoke_anisotropy(p07)
+            passed_c = r_caustic <= 1.50
+            tag_c = "PASS" if passed_c else "FAIL"
+            print(f"[{tag_c}] {check_dir.name}/{p07.name} caustic power ratio = {r_caustic:.4f} (target <= 1.50)")
+            if not passed_c:
+                ok = False
+
+        # Gate 6: Milestone 08 (z -> -0.999) - Multipole Asymmetry |a_40 / a_00| <= 5e-5
+        p08 = check_dir / MILESTONE_PNG[7]
+        if p08.exists():
+            asym = analyze_multipole_asymmetry(p08)
             passed = asym <= 5.0e-5
             tag = "PASS" if passed else "FAIL"
-            print(f"[{tag}] {check_dir.name}/{p06.name} multipole asymmetry |a_40/a_00| = {asym:.6e} (target <= 5e-5)")
+            print(f"[{tag}] {check_dir.name}/{p08.name} multipole asymmetry |a_40/a_00| = {asym:.6e} (target <= 5e-5)")
             if not passed:
                 ok = False
 

@@ -205,8 +205,11 @@ fn apply_get_acceleration(@builtin(global_invocation_id) global_id: vec3<u32>) {
                 var a_hydro = vec3<f32>(0.0);
                 if (p.grav_mass >= 0.6969697) {
                     let z = max(params.redshift, 0.0);
-                    let t_b = 2.7255 * (1.0 + z) * (z / (z + 137.0));
-                    let c_s_sq = 1.666667 * 1.380649e-23 * t_b / (1.22 * 1.67262e-27);
+                    let w_drag = 0.5 * (1.0 + tanh((z - 1059.94) / 25.0));
+                    let t_post = 2.7255 * (1.0 + z) * (z / (z + 137.0));
+                    let t_pre = 2.7255 * (1.0 + z);
+                    let t_b = mix(t_post, t_pre, w_drag);
+                    let c_s_sq = 1.666667 * 1.380649e-23 * t_b / (1.22534 * 1.660539e-27);
                     a_hydro = -c_s_sq * a_curr * grad_ln_rho * 1.0e-6;
                 }
 

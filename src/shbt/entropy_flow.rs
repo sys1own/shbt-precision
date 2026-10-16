@@ -29,6 +29,9 @@ pub struct ProjectionReport {
     pub trace_normalized: bool,
     pub positive_definite: bool,
     pub spatial_metric_shape: bool,
+    pub lambda_feedback: f64,
+    pub prime_conductor_sum: u32,
+    pub prime_conductor_sum_matches_level: bool,
     pub all_passed: bool,
 }
 
@@ -82,6 +85,12 @@ impl ProjectionReport {
         d.set_item("trace_normalized", self.trace_normalized)?;
         d.set_item("positive_definite", self.positive_definite)?;
         d.set_item("spatial_metric_shape", self.spatial_metric_shape)?;
+        d.set_item("lambda_feedback", self.lambda_feedback)?;
+        d.set_item("prime_conductor_sum", self.prime_conductor_sum)?;
+        d.set_item(
+            "prime_conductor_sum_matches_level",
+            self.prime_conductor_sum_matches_level,
+        )?;
         d.set_item("all_passed", self.all_passed)?;
         Ok(d)
     }
@@ -92,6 +101,8 @@ impl ProjectionReport {
 pub struct HolographicProjection {
     pub boundary: StaticBoundary,
     pub lambda_closure: Float,
+    pub lambda_feedback: Float,
+    pub prime_conductor_sum: u32,
     P: [[Float; 4]; 3],
 }
 
@@ -302,9 +313,16 @@ impl HolographicProjection {
             ],
         ];
 
+        // Exact cascade feedback dressing coupling: lambda = c_eff / K = (1325/154) / 312 = 1325 / 48048
+        let lambda_feedback = Float::with_val(PREC, 1325) / Float::with_val(PREC, 48048);
+        // Prime conductor skeleton level sum: 2 + 3 + 5 + 7 + 11 = 28 = k_l + h^v_SU(2)
+        let prime_conductor_sum = 2 + 3 + 5 + 7 + 11;
+
         Self {
             boundary,
             lambda_closure: Float::with_val(PREC, 1),
+            lambda_feedback,
+            prime_conductor_sum,
             P,
         }
     }
@@ -526,6 +544,9 @@ impl HolographicProjection {
         }
 
         let spatial_metric_shape = slices.iter().all(|s| s.spatial_metric.len() == 3);
+        let lambda_feedback = self.lambda_feedback.to_f64();
+        let prime_conductor_sum = self.prime_conductor_sum;
+        let prime_conductor_sum_matches_level = prime_conductor_sum == (self.boundary.lepton_level + 2);
 
         ProjectionReport {
             slice_count: slices.len(),
@@ -534,7 +555,14 @@ impl HolographicProjection {
             trace_normalized,
             positive_definite,
             spatial_metric_shape,
-            all_passed: symmetric && trace_normalized && positive_definite && spatial_metric_shape,
+            lambda_feedback,
+            prime_conductor_sum,
+            prime_conductor_sum_matches_level,
+            all_passed: symmetric
+                && trace_normalized
+                && positive_definite
+                && spatial_metric_shape
+                && prime_conductor_sum_matches_level,
         }
     }
 }

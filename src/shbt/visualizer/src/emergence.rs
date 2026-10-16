@@ -32,10 +32,27 @@ pub const CANONICAL_LN_N_SAT: f32 = 284.470588;
 
 /// Arithmetic cell measure for the 5-dimensional root lattice D_5.
 pub const KAPPA_STAR_D5: f64 = 0.988725345719;
+pub const KAPPA_D5_STAR: f64 = KAPPA_STAR_D5;
 
 /// Exact analytical agglomerative merge radius coefficient:
 /// r_merge = sqrt(2) * kappa_*^D5 * dx_cell ≈ 1.398249068038 * dx_cell.
-pub const D5_MERGE_COEFFICIENT: f64 = 1.398249068038;
+pub const D5_MERGE_COEFFICIENT: f64 = std::f64::consts::SQRT_2 * KAPPA_D5_STAR;
+
+/// Canonical visible affine central charge c_eff = 1325/154
+pub const C_EFF_COSET: f32 = 1325.0 / 154.0;
+/// Cardy anomalous dimension gamma_CFT = c_eff / 6 = 1325/924
+pub const GAMMA_CFT: f32 = 1325.0 / 924.0;
+/// First-principles incubation peak: z_peak = k_l - 2 = 24.0
+pub const Z_PEAK: f32 = K_L - 2.0; // 24.0
+/// First-principles incubation half-width: Delta z = c_eff / gamma_CFT = 6.0
+pub const DELTA_Z: f32 = C_EFF_COSET / GAMMA_CFT; // 6.0
+/// Incubation window bounds [z_min, z_max] = [18.0, 30.0]
+pub const Z_MIN: f32 = Z_PEAK - DELTA_Z; // 18.0
+pub const Z_MAX: f32 = Z_PEAK + DELTA_Z; // 30.0
+/// 9-coordinate RMS Cardy capacity floor
+pub const DELTA_C0: f32 = 0.065610;
+/// Exact NMS collapse threshold prefactor eta_V * delta_c0 = (10/33) * 0.065610 ~ 0.019881818
+pub const NMS_PREFACTOR: f32 = ETA_V * DELTA_C0;
 
 /// Particle representation within the holographic boundary register.
 #[derive(Clone, Copy, Debug)]
@@ -160,9 +177,8 @@ pub struct EmergenceUniforms {
 
 impl EmergenceUniforms {
     pub fn new(current_z: f32) -> Self {
-        let prefactor = (C_EFF * (K_L + K_Q)) / (18.0 * K_TOTAL); // 17.0 / 156.0
-        let z_start = (prefactor * CANONICAL_LN_N_SAT) - 1.0; // 30.000000
-        let z_end = z_start * P_C_SITE; // 17.782386
+        let z_start = Z_MAX; // 30.0
+        let z_end = Z_MIN;   // 18.0
 
         let psi_nuc = if current_z >= z_start {
             0.0

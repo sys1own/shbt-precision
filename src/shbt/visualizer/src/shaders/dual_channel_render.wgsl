@@ -459,8 +459,7 @@ fn fs_render_dual_channel(in: VertexOutput) -> GBufferOutput {
     // and condensed cluster cores / seeds where sigma > 0.8 activates the Landauer corona.
     let sigma = max(in.seed_glow, max(0.0, rho_b - 2.5) / 3.0);
     let r2 = dist_sq;
-    let w = max(0.0, 1.0 - r2);
-    let splat_profile = w * w * exp(-2.0 * r2);
+    let splat_profile = exp(-3.5 * r2);
     let core_intensity = splat_profile;
 
     // Multi-tier thermodynamic transfer (shbt11 / Thm 9.16): the C-infty

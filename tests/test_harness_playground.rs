@@ -29,6 +29,7 @@ mod tests {
 
     #[global_allocator]
     static GLOBAL: TrackingAllocator = TrackingAllocator;
+    static TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
     #[repr(C)]
     #[derive(Clone, Copy, Debug, PartialEq)]
@@ -59,6 +60,7 @@ mod tests {
 
     #[test]
     fn test_particle_memory_layout() {
+        let _guard = TEST_LOCK.lock().unwrap();
         assert_eq!(std::mem::size_of::<Particle>(), 32);
         assert_eq!(std::mem::align_of::<Particle>(), 4);
 
@@ -83,6 +85,7 @@ mod tests {
 
     #[test]
     fn test_seed_record_memory_layout() {
+        let _guard = TEST_LOCK.lock().unwrap();
         assert_eq!(std::mem::size_of::<SeedRecord>(), 32);
         assert_eq!(std::mem::align_of::<SeedRecord>(), 4);
 
@@ -101,6 +104,7 @@ mod tests {
 
     #[test]
     fn test_simulation_controls_layout_and_clamping() {
+        let _guard = TEST_LOCK.lock().unwrap();
         assert_eq!(std::mem::size_of::<SimulationControls>(), 24);
 
         let mut controls = SimulationControls {
@@ -127,6 +131,7 @@ mod tests {
 
     #[test]
     fn test_zero_allocation_frame_step() {
+        let _guard = TEST_LOCK.lock().unwrap();
         let initial_allocated = ALLOCATED_BYTES.load(Ordering::SeqCst);
 
         let mut positions = [[0.5f32; 3]; 2048];

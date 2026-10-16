@@ -195,6 +195,16 @@ pub struct GaugeCouplingsAuditReport {
     #[pyo3(get)]
     pub k_3: f64,
     #[pyo3(get)]
+    pub alpha_gut: f64,
+    #[pyo3(get)]
+    pub alpha_gut_rational: String,
+    #[pyo3(get)]
+    pub alpha_gut_inv_rational: String,
+    #[pyo3(get)]
+    pub delta_kraus_bare: [f64; 3],
+    #[pyo3(get)]
+    pub delta_spec: [f64; 3],
+    #[pyo3(get)]
     pub stinespring_delta_1: f64,
     #[pyo3(get)]
     pub stinespring_delta_2: f64,
@@ -228,6 +238,11 @@ impl GaugeCouplingsAuditReport {
         d.set_item("k_1", self.k_1)?;
         d.set_item("k_2", self.k_2)?;
         d.set_item("k_3", self.k_3)?;
+        d.set_item("alpha_gut", self.alpha_gut)?;
+        d.set_item("alpha_gut_rational", self.alpha_gut_rational.clone())?;
+        d.set_item("alpha_gut_inv_rational", self.alpha_gut_inv_rational.clone())?;
+        d.set_item("delta_kraus_bare", self.delta_kraus_bare.to_vec())?;
+        d.set_item("delta_spec", self.delta_spec.to_vec())?;
         d.set_item("stinespring_delta_1", self.stinespring_delta_1)?;
         d.set_item("stinespring_delta_2", self.stinespring_delta_2)?;
         d.set_item("stinespring_delta_3", self.stinespring_delta_3)?;
@@ -262,6 +277,16 @@ pub fn run_gauge_couplings_audit() -> GaugeCouplingsAuditReport {
         && (alpha_em_inv_mz - 127.8813).abs() < 1e-2
         && (sin2_theta_w_mz - 0.23130).abs() < 1e-4;
 
+    let alpha_gut = 104.0 / 4163.0;
+    let alpha_gut_rational = "104/4163".to_string();
+    let alpha_gut_inv_rational = "4163/104".to_string();
+    let delta_kraus_bare = [27.766324, 19.049407, 36.300000];
+    let delta_spec = [
+        24.071227 - 27.766324,
+        19.973448 - 19.049407,
+        36.712129 - 36.300000,
+    ];
+
     GaugeCouplingsAuditReport {
         m_p_gev: 1.220900e19,
         m_n_gev: 1.220900e16,
@@ -269,6 +294,11 @@ pub fn run_gauge_couplings_audit() -> GaugeCouplingsAuditReport {
         k_1: 260.0 / 19.0,
         k_2: 26.0,
         k_3: 8.0,
+        alpha_gut,
+        alpha_gut_rational,
+        alpha_gut_inv_rational,
+        delta_kraus_bare,
+        delta_spec,
         stinespring_delta_1: 24.071227,
         stinespring_delta_2: 19.973448,
         stinespring_delta_3: 36.712129,

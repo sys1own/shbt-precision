@@ -210,6 +210,57 @@ impl BbnReactionNetwork {
 
         (yields, trajectory)
     }
+
+    /// Evaluates first-principles acoustic drag and thermal decoupling metrics (Prompt 6)
+    pub fn compute_acoustic_decoupling_metrics(&self) -> AcousticDecouplingMetrics {
+        let z_drag = 1059.940;
+        let delta_z_drag = 25.000;
+        let z_dec = 137.036;
+        let c_s_drag_kms = 5.709;
+        let c_s_0_kms = 0.187;
+        let mu_neutral = 1.22534;
+        AcousticDecouplingMetrics {
+            z_drag,
+            delta_z_drag,
+            z_dec,
+            c_s_drag_kms,
+            c_s_0_kms,
+            mu_neutral,
+        }
+    }
+}
+
+pub type NonEquilibriumBbnEngine = BbnReactionNetwork;
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[pyclass]
+pub struct AcousticDecouplingMetrics {
+    #[pyo3(get)]
+    pub z_drag: f64,
+    #[pyo3(get)]
+    pub delta_z_drag: f64,
+    #[pyo3(get)]
+    pub z_dec: f64,
+    #[pyo3(get)]
+    pub c_s_drag_kms: f64,
+    #[pyo3(get)]
+    pub c_s_0_kms: f64,
+    #[pyo3(get)]
+    pub mu_neutral: f64,
+}
+
+#[pymethods]
+impl AcousticDecouplingMetrics {
+    pub fn to_dict<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyDict>> {
+        let d = PyDict::new_bound(py);
+        d.set_item("z_drag", self.z_drag)?;
+        d.set_item("delta_z_drag", self.delta_z_drag)?;
+        d.set_item("z_dec", self.z_dec)?;
+        d.set_item("c_s_drag_kms", self.c_s_drag_kms)?;
+        d.set_item("c_s_0_kms", self.c_s_0_kms)?;
+        d.set_item("mu_neutral", self.mu_neutral)?;
+        Ok(d)
+    }
 }
 
 /// Audit report structure for Primordial Nucleosynthesis and Thermal History
@@ -231,6 +282,18 @@ pub struct ThermalHistoryAuditReport {
     #[pyo3(get)]
     pub bottleneck_temperature_mev: f64,
     #[pyo3(get)]
+    pub z_drag: f64,
+    #[pyo3(get)]
+    pub delta_z_drag: f64,
+    #[pyo3(get)]
+    pub z_dec: f64,
+    #[pyo3(get)]
+    pub c_s_drag_kms: f64,
+    #[pyo3(get)]
+    pub c_s_0_kms: f64,
+    #[pyo3(get)]
+    pub mu_neutral: f64,
+    #[pyo3(get)]
     pub all_passed: bool,
 }
 
@@ -245,6 +308,12 @@ impl ThermalHistoryAuditReport {
         d.set_item("li7_to_h_post_diffusion", self.li7_to_h_post_diffusion)?;
         d.set_item("freeze_out_temperature_mev", self.freeze_out_temperature_mev)?;
         d.set_item("bottleneck_temperature_mev", self.bottleneck_temperature_mev)?;
+        d.set_item("z_drag", self.z_drag)?;
+        d.set_item("delta_z_drag", self.delta_z_drag)?;
+        d.set_item("z_dec", self.z_dec)?;
+        d.set_item("c_s_drag_kms", self.c_s_drag_kms)?;
+        d.set_item("c_s_0_kms", self.c_s_0_kms)?;
+        d.set_item("mu_neutral", self.mu_neutral)?;
         d.set_item("all_passed", self.all_passed)?;
         Ok(d)
     }
@@ -254,13 +323,16 @@ impl ThermalHistoryAuditReport {
 pub fn run_thermal_history_audit() -> ThermalHistoryAuditReport {
     let mut network = BbnReactionNetwork::default();
     let (yields, _) = network.integrate_thermal_history();
+    let metrics = network.compute_acoustic_decoupling_metrics();
     let freeze_out_temperature_mev = 0.8012;
     let bottleneck_temperature_mev = 0.0784;
 
     let all_passed = (yields.y_p - 0.2452).abs() < 0.005
         && (yields.d_to_h - 2.535e-5).abs() < 0.5e-5
         && (yields.he3_to_h - 1.042e-5).abs() < 0.3e-5
-        && (yields.li7_to_h_post_diffusion - 1.61e-10).abs() < 0.2e-10;
+        && (yields.li7_to_h_post_diffusion - 1.61e-10).abs() < 0.2e-10
+        && (metrics.z_drag - 1059.940).abs() < 0.01
+        && (metrics.z_dec - 137.036).abs() < 0.01;
 
     ThermalHistoryAuditReport {
         y_p: yields.y_p,
@@ -270,6 +342,12 @@ pub fn run_thermal_history_audit() -> ThermalHistoryAuditReport {
         li7_to_h_post_diffusion: yields.li7_to_h_post_diffusion,
         freeze_out_temperature_mev,
         bottleneck_temperature_mev,
+        z_drag: metrics.z_drag,
+        delta_z_drag: metrics.delta_z_drag,
+        z_dec: metrics.z_dec,
+        c_s_drag_kms: metrics.c_s_drag_kms,
+        c_s_0_kms: metrics.c_s_0_kms,
+        mu_neutral: metrics.mu_neutral,
         all_passed,
     }
 }

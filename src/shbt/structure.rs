@@ -325,9 +325,244 @@ impl ShbtCosmology {
     }
 }
 
-/// PyO3 audit report for Non-Linear Structure Formation and Cosmic Shear.
-#[derive(Debug, Clone, Serialize, Deserialize)]
 #[pyclass]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+pub struct BoxMetrology {
+    #[pyo3(get)]
+    pub s_cft: f64,
+    #[pyo3(get)]
+    pub box_curvature_ratio: f64,
+    #[pyo3(get)]
+    pub lambda_holo_box_si: f64,
+    #[pyo3(get)]
+    pub lambda_holo_box_mpc2: f64,
+    #[pyo3(get)]
+    pub l_box_mpc: f64,
+    #[pyo3(get)]
+    pub l_box_h_mpc: f64,
+    #[pyo3(get)]
+    pub k1_box_h: f64,
+    #[pyo3(get)]
+    pub k1_phys: f64,
+    #[pyo3(get)]
+    pub k1_contracted_h: f64,
+    #[pyo3(get)]
+    pub delta_ta: f64,
+    #[pyo3(get)]
+    pub variance_gate_ceiling: f64,
+}
+
+#[pymethods]
+impl BoxMetrology {
+    pub fn to_dict<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyDict>> {
+        let d = PyDict::new_bound(py);
+        d.set_item("s_cft", self.s_cft)?;
+        d.set_item("box_curvature_ratio", self.box_curvature_ratio)?;
+        d.set_item("lambda_holo_box_si", self.lambda_holo_box_si)?;
+        d.set_item("lambda_holo_box_mpc2", self.lambda_holo_box_mpc2)?;
+        d.set_item("l_box_mpc", self.l_box_mpc)?;
+        d.set_item("l_box_h_mpc", self.l_box_h_mpc)?;
+        d.set_item("k1_box_h", self.k1_box_h)?;
+        d.set_item("k1_phys", self.k1_phys)?;
+        d.set_item("k1_contracted_h", self.k1_contracted_h)?;
+        d.set_item("delta_ta", self.delta_ta)?;
+        d.set_item("variance_gate_ceiling", self.variance_gate_ceiling)?;
+        Ok(d)
+    }
+}
+
+pub fn derive_box_metrology() -> BoxMetrology {
+    let s_cft = (2_901_360_f64).ln();
+    let box_curvature_ratio = 24.0 * 24.0 + 8.0 + (4.0_f64).ln() / s_cft;
+    let lambda_holo_si = 1.08913883e-52;
+    let mpc_to_m = 3.085677581491367e22;
+    let lambda_holo_box_si = box_curvature_ratio * lambda_holo_si;
+    let lambda_holo_box_mpc2 = lambda_holo_box_si * (mpc_to_m * mpc_to_m);
+    let l_box_mpc = (3.0 / lambda_holo_box_mpc2).sqrt();
+    let h = 0.6740052;
+    let l_box_h_mpc = 150.0;
+    let k1_phys = (2.0 * PI) / l_box_mpc;
+    let k1_box_h = (2.0 * PI) / l_box_h_mpc;
+    let k1_contracted_h = k1_phys * h;
+    let delta_ta = 0.6 * (0.75 * PI).powf(2.0 / 3.0);
+    let variance_gate_ceiling = (delta_ta / 10.0).powi(2);
+
+    BoxMetrology {
+        s_cft,
+        box_curvature_ratio,
+        lambda_holo_box_si,
+        lambda_holo_box_mpc2,
+        l_box_mpc,
+        l_box_h_mpc,
+        k1_box_h,
+        k1_phys,
+        k1_contracted_h,
+        delta_ta,
+        variance_gate_ceiling,
+    }
+}
+
+#[pyclass]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+pub struct ShbtGrowthFactors {
+    #[pyo3(get)]
+    pub z: f64,
+    #[pyo3(get)]
+    pub a: f64,
+    #[pyo3(get)]
+    pub d1: f64,
+    #[pyo3(get)]
+    pub d2: f64,
+    #[pyo3(get)]
+    pub f1: f64,
+    #[pyo3(get)]
+    pub f2: f64,
+}
+
+#[pymethods]
+impl ShbtGrowthFactors {
+    pub fn to_dict<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyDict>> {
+        let d = PyDict::new_bound(py);
+        d.set_item("z", self.z)?;
+        d.set_item("a", self.a)?;
+        d.set_item("d1", self.d1)?;
+        d.set_item("d2", self.d2)?;
+        d.set_item("f1", self.f1)?;
+        d.set_item("f2", self.f2)?;
+        Ok(d)
+    }
+}
+
+pub fn compute_shbt_growth_factors(z_init: f64) -> ShbtGrowthFactors {
+    let a_target = 1.0 / (1.0 + z_init);
+    let a_start = 1.0e-4;
+    if a_target <= a_start {
+        return ShbtGrowthFactors {
+            z: z_init,
+            a: a_target,
+            d1: a_target,
+            d2: -(3.0 / 7.0) * a_target * a_target,
+            f1: 1.0,
+            f2: 2.0,
+        };
+    }
+
+    let omega_m = 0.315_f64;
+    let omega_l = 1.0 - omega_m;
+    let n_steps = 2000_usize;
+    let s_start = a_start.ln();
+    let s_end = a_target.ln();
+    let ds = (s_end - s_start) / (n_steps as f64);
+
+    let mut a = a_start;
+    let mut y = [
+        a_start,
+        1.0,
+        -(3.0 / 7.0) * a_start * a_start,
+        -(6.0 / 7.0) * a_start,
+    ];
+
+    let rhs = |a_val: f64, state: &[f64; 4]| -> [f64; 4] {
+        let d1 = state[0];
+        let v1 = state[1];
+        let d2 = state[2];
+        let v2 = state[3];
+
+        let exp_sq = omega_m / a_val.powi(3) + omega_l;
+        let e = exp_sq.sqrt();
+        let dln_e = -1.5 * omega_m / (a_val.powi(4) * exp_sq);
+        let friction = 3.0 / a_val + dln_e;
+
+        let f_load = if a_val < 0.05 {
+            0.0
+        } else {
+            0.101866 * a_val.powi(3)
+        };
+
+        let source = 1.5 * omega_m / (a_val.powi(5) * e * e) * (1.0 - (10.0 / 33.0) * f_load);
+        let acc1 = -friction * v1 + source * d1;
+        let acc2 = -friction * v2 + source * d2 - source * (d1 * d1);
+        [v1, acc1, v2, acc2]
+    };
+
+    for _ in 0..n_steps {
+        let da = a * (ds.exp() - 1.0);
+        let k1 = rhs(a, &y);
+        let y_k2 = [
+            y[0] + 0.5 * da * k1[0],
+            y[1] + 0.5 * da * k1[1],
+            y[2] + 0.5 * da * k1[2],
+            y[3] + 0.5 * da * k1[3],
+        ];
+        let k2 = rhs(a + 0.5 * da, &y_k2);
+        let y_k3 = [
+            y[0] + 0.5 * da * k2[0],
+            y[1] + 0.5 * da * k2[1],
+            y[2] + 0.5 * da * k2[2],
+            y[3] + 0.5 * da * k2[3],
+        ];
+        let k3 = rhs(a + 0.5 * da, &y_k3);
+        let y_k4 = [
+            y[0] + da * k3[0],
+            y[1] + da * k3[1],
+            y[2] + da * k3[2],
+            y[3] + da * k3[3],
+        ];
+        let k4 = rhs(a + da, &y_k4);
+
+        for i in 0..4 {
+            y[i] += (da / 6.0) * (k1[i] + 2.0 * k2[i] + 2.0 * k3[i] + k4[i]);
+        }
+        a += da;
+    }
+
+    let d1 = y[0];
+    let v1 = y[1];
+    let d2 = y[2];
+    let v2 = y[3];
+    let f1 = (a / d1) * v1;
+    let f2 = (a / d2) * v2;
+
+    ShbtGrowthFactors {
+        z: z_init,
+        a: a_target,
+        d1,
+        d2,
+        f1,
+        f2,
+    }
+}
+
+#[pyclass]
+#[derive(Debug, Clone, Copy, Default)]
+pub struct StructureFormationEngine {
+    pub metrology: HolographicMetrology,
+}
+
+#[pymethods]
+impl StructureFormationEngine {
+    #[new]
+    pub fn new() -> Self {
+        Self {
+            metrology: HolographicMetrology::new(),
+        }
+    }
+
+    pub fn derive_box_metrology(&self) -> BoxMetrology {
+        derive_box_metrology()
+    }
+
+    pub fn compute_shbt_growth_factors(&self, z_init: f64) -> ShbtGrowthFactors {
+        compute_shbt_growth_factors(z_init)
+    }
+
+    pub fn audit(&self) -> StructureAuditReport {
+        run_structure_audit()
+    }
+}
+
+#[pyclass]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct StructureAuditReport {
     #[pyo3(get)]
     pub s8_primordial: f64,
@@ -339,6 +574,10 @@ pub struct StructureAuditReport {
     pub kappa_get_max: f64,
     #[pyo3(get)]
     pub c_ell_1000: f64,
+    #[pyo3(get)]
+    pub box_metrology: BoxMetrology,
+    #[pyo3(get)]
+    pub growth_z100: ShbtGrowthFactors,
     #[pyo3(get)]
     pub all_passed: bool,
 }
@@ -352,6 +591,8 @@ impl StructureAuditReport {
         d.set_item("kappa_get_min", self.kappa_get_min)?;
         d.set_item("kappa_get_max", self.kappa_get_max)?;
         d.set_item("c_ell_1000", self.c_ell_1000)?;
+        d.set_item("box_metrology", self.box_metrology.to_dict(py)?)?;
+        d.set_item("growth_z100", self.growth_z100.to_dict(py)?)?;
         d.set_item("all_passed", self.all_passed)?;
         Ok(d)
     }
@@ -366,11 +607,17 @@ pub fn run_structure_audit() -> StructureAuditReport {
     let s8_effective = s8_primordial * (1.0 - 1.5 * cosmo.kappa_get(0.75));
     let c_ell_1000 = cosmo.compute_c_ell(1000.0, 0.1, 1.4, 50);
 
+    let box_metrology = derive_box_metrology();
+    let growth_z100 = compute_shbt_growth_factors(100.0);
+
     let all_passed = (s8_primordial - 0.831).abs() < 0.02
         && (s8_effective - 0.764).abs() < 0.02
         && (kappa_min - 1.0 / 23.0).abs() < 1e-6
         && (kappa_max - 5329.0 / 92092.0).abs() < 1e-6
-        && c_ell_1000 > 0.0;
+        && c_ell_1000 > 0.0
+        && (box_metrology.box_curvature_ratio - 584.0931606).abs() < 1e-4
+        && (box_metrology.l_box_mpc - 222.5502).abs() < 0.05
+        && (growth_z100.d1 - 0.00990).abs() < 1e-4;
 
     StructureAuditReport {
         s8_primordial,
@@ -378,6 +625,8 @@ pub fn run_structure_audit() -> StructureAuditReport {
         kappa_get_min: kappa_min,
         kappa_get_max: kappa_max,
         c_ell_1000,
+        box_metrology,
+        growth_z100,
         all_passed,
     }
 }
@@ -469,8 +718,8 @@ pub const SPLITMIX64_GAMMA: u64 = 0x9E3779B97F4A7C15;
 
 pub const N_MOD: i64 = 2_901_360;
 pub const CFT_MODULE_COUNT: u64 = 2_901_360;
-pub const ALPHA_WEIL: f64 = 1.0;
-pub const BETA_WEIL: f64 = 13.0;
+pub const ALPHA_WEIL: f64 = CANONICAL_ALPHA;
+pub const BETA_WEIL: f64 = CANONICAL_BETA;
 
 pub const MODULAR_REGISTER_M: usize = 2_901_360;
 pub const DELTA_C0_F64: f64 = 0.06561007575465141; // (1.0 / 3.0) * sqrt(154.0 / 3975.0)
@@ -582,8 +831,8 @@ pub fn generate_weil_modular_phases_canonical(grid_dim: usize, k1: f64) -> Vec<f
     let total_elements = n * n * n;
     let mut phases = vec![0.0_f64; total_elements];
 
-    let alpha = 1.0_f64;
-    let beta = 13.0_f64;
+    let alpha = ALPHA_WEIL;
+    let beta = BETA_WEIL;
 
     for iz in 0..n {
         let nz = if iz <= n / 2 { iz as i32 } else { iz as i32 - n as i32 };
@@ -901,7 +1150,7 @@ pub struct HolographicMetrology {
 
 impl Default for HolographicMetrology {
     fn default() -> Self {
-        let l_box_mpc = (3.0 / 6.05712e-5f64).sqrt();
+        let l_box_mpc = (3.0 / 6.057116e-5f64).sqrt();
         let fundamental_k = (2.0 * PI) / l_box_mpc;
         let volume_mpc3 = l_box_mpc.powi(3);
         Self {
@@ -923,23 +1172,11 @@ impl HolographicMetrology {
     }
 
     pub fn growth_factor_d1(&self, z: f64) -> f64 {
-        let a = 1.0 / (1.0 + z);
-        let om_m = 0.315;
-        let om_l = 0.685;
-        let om_z = (om_m * (1.0 + z).powi(3)) / (om_m * (1.0 + z).powi(3) + om_l);
-        let ol_z = om_l / (om_m * (1.0 + z).powi(3) + om_l);
-
-        let gz = 2.5 * om_z / (om_z.powf(4.0 / 7.0) - ol_z + (1.0 + om_z / 2.0) * (1.0 + ol_z / 70.0));
-        let g0 = 2.5 * om_m / (om_m.powf(4.0 / 7.0) - om_l + (1.0 + om_m / 2.0) * (1.0 + om_l / 70.0));
-        a * (gz / g0)
+        compute_shbt_growth_factors(z).d1
     }
 
     pub fn growth_factor_d2(&self, z: f64) -> f64 {
-        let d1 = self.growth_factor_d1(z);
-        let om_m = 0.315;
-        let om_l = 0.685;
-        let om_z = (om_m * (1.0 + z).powi(3)) / (om_m * (1.0 + z).powi(3) + om_l);
-        -(3.0 / 7.0) * d1.powi(2) * om_z.powf(-1.0 / 143.0)
+        compute_shbt_growth_factors(z).d2
     }
 }
 

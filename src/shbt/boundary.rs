@@ -220,71 +220,6 @@ pub struct StaticBoundary {
 }
 
 impl StaticBoundary {
-    // Existing constructors remain unchanged
-    // Helper methods for zero-parameter closure calculations
-    /// Primary Weil module count M
-    pub fn primary_weil_modules(&self) -> u64 {
-        let (lepton_level, quark_level, parent_level) = self.benchmark_branch;
-        // product of primes 3*5*7*11 = 1155
-        let prime_product: u64 = 3 * 5 * 7 * 11;
-        let k_q = quark_level as u64;
-        let K = parent_level as u64;
-        (2 * k_q) * prime_product * ((K / 2) + 1)
-    }
-
-    /// Weil index numerator I_Weil (same as C_DARK_COMP_NUM)
-    pub fn weil_index_numerator(&self) -> u64 { C_DARK_COMP_NUM as u64 }
-
-    /// Modular anomaly Δ_mod = I_Weil / (3 * M)
-    pub fn delta_mod(&self) -> Float {
-        let i_weil = Float::with_val(PREC, self.weil_index_numerator() as f64);
-        let m = Float::with_val(PREC, self.primary_weil_modules() as f64);
-        &i_weil / &(Float::with_val(PREC, 3.0) * &m)
-    }
-
-    /// Topological entropy bulk S_top = K - k_ℓ - k_q/2
-    pub fn topological_entropy_bulk(&self) -> u64 {
-        let (k_l, k_q, K) = self.benchmark_branch;
-        K as u64 - k_l as u64 - (k_q as u64 / 2)
-    }
-
-    /// Legacy modular remainder Δs_mod_legacy
-    pub fn delta_s_mod_legacy(&self) -> Float {
-        let delta_mod = self.delta_mod();
-        let k_q = self.quark_level as f64;
-        let K = self.parent_level as f64;
-        // term1 = (5/6) * Δ_mod
-        let term1 = Float::with_val(PREC, 5.0 / 6.0) * &delta_mod;
-        // term2 = (k_q / K) * (Δ_mod^2 - 1/(2πK))
-        let pi = Float::with_val(PREC, std::f64::consts::PI);
-        let delta_mod_sq = &delta_mod * &delta_mod;
-        let sub = Float::with_val(PREC, 1.0) / &(Float::with_val(PREC, 2.0) * &pi * K);
-        let term2 = Float::with_val(PREC, k_q / K) * &(delta_mod_sq - sub);
-        term1 - term2
-    }
-
-    /// Cardy–Verlinde Casimir weight w_CV = exp(ln_w)
-    pub fn cardy_verlinde_weight(&self) -> Float {
-        // ln w_CV = 1.798167135e-4
-        let ln_w = Float::with_val(PREC, 1.798167135e-4);
-        ln_w.exp()
-    }
-
-    /// Legacy bit capacity N_sat^legacy = exp(S_top + Δs_mod_legacy)
-    pub fn n_sat_legacy(&self) -> Float {
-        let s_top = Float::with_val(PREC, self.topological_entropy_bulk() as f64);
-        let delta_s = self.delta_s_mod_legacy();
-        (s_top + delta_s).exp()
-    }
-
-    /// Canonical bit capacity N_sat = N_sat^legacy / w_CV
-    pub fn n_sat(&self) -> Float {
-        let n_legacy = self.n_sat_legacy();
-        let w_cv = self.cardy_verlinde_weight();
-        &n_legacy / &w_cv
-    }
-
-    // Existing methods continue below
 
     pub fn new_with_branch(lepton_level: u32, quark_level: u32, parent_level: u32) -> Self {
         let benchmark_branch = (lepton_level, quark_level, parent_level);
@@ -636,9 +571,61 @@ impl StaticBoundary {
         self.bit_budget.to_f64()
     }
 
-    #[getter(name = "n_sat")]
-    fn n_sat_f64(&self) -> f64 {
+    #[getter]
+    pub fn n_sat(&self) -> f64 {
         self.n_sat.to_f64()
+    }
+
+    #[getter]
+    pub fn primary_weil_modules(&self) -> u64 {
+        let (_lepton_level, quark_level, parent_level) = self.benchmark_branch;
+        let prime_product: u64 = 3 * 5 * 7 * 11;
+        let k_q = quark_level as u64;
+        let K = parent_level as u64;
+        (2 * k_q) * prime_product * ((K / 2) + 1)
+    }
+
+    #[getter]
+    pub fn weil_index_numerator(&self) -> u64 {
+        C_DARK_COMP_NUM as u64
+    }
+
+    #[getter]
+    pub fn delta_mod(&self) -> f64 {
+        let i_weil = self.weil_index_numerator() as f64;
+        let m = self.primary_weil_modules() as f64;
+        i_weil / (3.0 * m)
+    }
+
+    #[getter]
+    pub fn topological_entropy_bulk(&self) -> u64 {
+        let (k_l, k_q, K) = self.benchmark_branch;
+        K as u64 - k_l as u64 - (k_q as u64 / 2)
+    }
+
+    #[getter]
+    pub fn delta_s_mod_legacy(&self) -> f64 {
+        let delta_mod = self.delta_mod();
+        let k_q = self.quark_level as f64;
+        let K = self.parent_level as f64;
+        let term1 = (5.0 / 6.0) * delta_mod;
+        let pi = std::f64::consts::PI;
+        let delta_mod_sq = delta_mod * delta_mod;
+        let sub = 1.0 / (2.0 * pi * K);
+        let term2 = (k_q / K) * (delta_mod_sq - sub);
+        term1 - term2
+    }
+
+    #[getter]
+    pub fn cardy_verlinde_weight(&self) -> f64 {
+        1.798167135e-4_f64.exp()
+    }
+
+    #[getter]
+    pub fn n_sat_legacy(&self) -> f64 {
+        let s_top = self.topological_entropy_bulk() as f64;
+        let delta_s = self.delta_s_mod_legacy();
+        (s_top + delta_s).exp()
     }
 
     #[getter]

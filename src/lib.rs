@@ -1498,6 +1498,16 @@ fn run_structure_audit() -> shbt::StructureAuditReport {
 }
 
 #[pyfunction]
+fn derive_box_metrology() -> shbt::BoxMetrology {
+    shbt::derive_box_metrology()
+}
+
+#[pyfunction]
+fn compute_shbt_growth_factors(z_init: f64) -> shbt::ShbtGrowthFactors {
+    shbt::compute_shbt_growth_factors(z_init)
+}
+
+#[pyfunction]
 fn run_calorimetry_audit() -> shbt::CalorimetryAuditReport {
     shbt::run_calorimetry_audit()
 }
@@ -3959,6 +3969,9 @@ mod shbt_simulator {
     use super::shbt::StaticBoundary;
 
     #[pymodule_export]
+    use super::shbt::ZeroParameterCosmologyClosure;
+
+    #[pymodule_export]
     use super::shbt::HolographicProjection;
 
     #[pymodule_export]
@@ -4043,6 +4056,9 @@ mod shbt_simulator {
     use super::shbt::ThermalHistoryAuditReport;
 
     #[pymodule_export]
+    use super::shbt::AcousticDecouplingMetrics;
+
+    #[pymodule_export]
     use super::run_thermal_history_audit;
 
     #[pymodule_export]
@@ -4050,6 +4066,21 @@ mod shbt_simulator {
 
     #[pymodule_export]
     use super::run_structure_audit;
+
+    #[pymodule_export]
+    use super::shbt::BoxMetrology;
+
+    #[pymodule_export]
+    use super::shbt::ShbtGrowthFactors;
+
+    #[pymodule_export]
+    use super::shbt::StructureFormationEngine;
+
+    #[pymodule_export]
+    use super::derive_box_metrology;
+
+    #[pymodule_export]
+    use super::compute_shbt_growth_factors;
 
     #[pymodule_export]
     use super::shbt::CalorimetryAuditReport;

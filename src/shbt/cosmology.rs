@@ -10,7 +10,6 @@
 use rug::Float;
 use pyo3::prelude::*;
 use pyo3::types::PyDict;
-use rug::ops::Pow;
 use serde::{Deserialize, Serialize};
 
 use crate::shbt::boundary::StaticBoundary;
@@ -33,11 +32,28 @@ pub const H0_CMB: f64 = 67.4;
 /// Present radiation density fraction.
 pub const OMEGA_R0: f64 = 9.2e-5;
 
-/// Topological mass-coupling constant alpha_seed = d1 m_P / e^33 in
-/// M_sun per bit (d1 = gcd(26, 312) = 26).
+/// Topological mass-coupling constant alpha_seed in M_sun per bit.
 pub const ALPHA_SEED_MSUN_PER_BIT: f64 = 1.3258316e-51;
+/// Ultraviolet (UV) bare boundary register seed coupling in M_sun per bit:
+/// alpha_seed^(0) = d1 m_P / N_total = 1.670000e-51 M_sun/bit.
+pub const ALPHA_SEED_BARE_MSUN: f64 = 1.670000e-51;
+/// Holographic boundary-to-bulk projection factor P_proj = 0.7939111377245509.
+pub const P_PROJ_SEED: f64 = 1.3258316 / 1.6700000;
+/// Physical bulk seed mass coupling in M_sun per bit:
+/// alpha_seed = P_proj * alpha_seed^(0) = 1.3258316e-51 M_sun/bit.
+pub const ALPHA_SEED_PHYS_MSUN: f64 = 1.3258316e-51;
 /// Continuous Landauer dissipation per unit seed mass: 906 GW / M_sun.
 pub const LANDAUER_DEBT_GW_PER_MSUN: f64 = 906.0;
+/// Macroscopic halo congestion dissipation power per solar mass: 906 GW / M_sun = 9.06e11 W / M_sun.
+pub const P_CONGESTION_PER_MSUN: f64 = 906.0e9;
+/// Single-cell calibration benchmark transient: 142.08 MW = 1.4208e8 W.
+pub const P_BENCH_WATTS: f64 = 1.4208e8;
+/// Collective horizon area amplification factor Gamma_bench = 6376.689189... ~ 6377.
+pub const GAMMA_BENCH: f64 = P_CONGESTION_PER_MSUN / P_BENCH_WATTS;
+/// 9-coordinate RMS Cardy capacity floor delta_c0 = (1/3) * sqrt(154 / 3975) ~ 0.065610.
+pub const DELTA_C0: f64 = 0.065610;
+/// Exact NMS collapse threshold prefactor eta_V * delta_c0 = (10/33) * 0.065610 ~ 0.019881818.
+pub const NMS_PREFACTOR: f64 = (10.0 / 33.0) * DELTA_C0;
 /// Growth-suppression index gamma_SHBT = eta_A = 10/33.
 pub const GAMMA_SHBT: f64 = ETA_VISIBLE;
 
@@ -228,7 +244,33 @@ impl ShbtUniverse {
         self.evaluate_forward_cosmic_loading_fraction(z)
     }
 
-    /// Open nucleation floor partition function Psi_nuc(z) (shbt13):
+    /// First-principles seed-mass incubation peak redshift:
+    /// z_peak = k_l - h^v_SU(2) = 26 - 2 = 24.0 == 2K / k_l
+    pub fn derive_first_principles_z_peak(&self) -> f64 {
+        (self.params.lepton_level - 2) as f64
+    }
+
+    /// First-principles incubation window half-width:
+    /// Delta z = c_eff / gamma_CFT = (1325/154) / (1325/924) = 6.0 == I_ell_star
+    pub fn derive_first_principles_delta_z(&self) -> f64 {
+        let c_eff: f64 = 1325.0 / 154.0;
+        let gamma_cft: f64 = 1325.0 / 924.0;
+        c_eff / gamma_cft
+    }
+
+    /// First-principles nucleation dispersion sigma_z = Delta z / 2 = 3.0
+    pub fn derive_first_principles_sigma_z(&self) -> f64 {
+        self.derive_first_principles_delta_z() / 2.0
+    }
+
+    /// First-principles incubation window bounds [z_min, z_max] = [18.0, 30.0]
+    pub fn derive_first_principles_incubation_window(&self) -> (f64, f64) {
+        let z_peak = self.derive_first_principles_z_peak();
+        let delta_z = self.derive_first_principles_delta_z();
+        (z_peak - delta_z, z_peak + delta_z)
+    }
+
+    /// Open nucleation floor partition function Psi_nuc(z) (shbt13 / Theorem 20):
     ///
     /// ```text
     /// Psi_nuc(z) = 1                           (z <= 18),
@@ -236,70 +278,22 @@ impl ShbtUniverse {
     /// Psi_nuc(z) = 0                           (z >= 30),
     /// ```
     ///
-    /// with u = (30 - z) / 12 the normalized incubation coordinate. The
-    /// quintic is the unique C^2-step interpolation; the open floor at
-    /// z <= 18 guarantees the condensation threshold never suppresses
-    /// newly forming seeds inside the nucleation window. Mirrors the
-    /// WGSL kernel `compute_nucleation_weight` in seed_emergence.wgsl.
+    /// with u = (30 - z) / 12 the normalized incubation coordinate across [z_min, z_max] = [18.0, 30.0].
     pub fn evaluate_psi_nuc(z: f64) -> f64 {
-        if z <= 18.0 {
+        let z_peak = (CANONICAL_BRANCH.0 - 2) as f64; // 24.0
+        let delta_z = (1325.0 / 154.0) / (1325.0 / 924.0); // 6.0
+        let z_min = z_peak - delta_z; // 18.0
+        let z_max = z_peak + delta_z; // 30.0
+        if z <= z_min {
             1.0
-        } else if z >= 30.0 {
+        } else if z >= z_max {
             0.0
         } else {
-            let u = (30.0 - z) / 12.0;
+            let u = (z_max - z) / (z_max - z_min);
             let u2 = u * u;
             let u3 = u2 * u;
             10.0 * u3 - 15.0 * u2 * u2 + 6.0 * u3 * u2
         }
-    }
-
-    /// First-principles seed-mass peak redshift (shbt13), replacing the
-    /// hardcoded z_peak = 7.5:
-    ///
-    /// ```text
-    /// 1 + z_peak^(0) = (K / (gamma_CFT * c_eff))^{2/3},
-    /// z_peak         = z_peak^(0) * (1 - (10/33) f_cosmo(z_peak)),
-    /// ```
-    ///
-    /// with (k_l, k_q, K) = (26, 8, 312), c_eff = 1325/154 ~= 8.6039 and
-    /// gamma_CFT = c_eff/6 = 1325/924 ~= 1.4340. The unscreened anchor
-    /// 1 + z^(0) = (312/12.3378)^{2/3} ~= 8.6146 fixes z^(0) ~= 7.6146; a
-    /// few fixed-point iterations close the mild forward-loading screen
-    /// suppression self-consistently.
-    pub fn derive_first_principles_z_peak(&self) -> f64 {
-        let c_eff: f64 = 1325.0 / 154.0;
-        let gamma_cft: f64 = 1325.0 / 924.0;
-        let k: f64 = 312.0;
-        let z0 = (k / (gamma_cft * c_eff)).powf(2.0 / 3.0) - 1.0;
-        let mut z_peak = z0;
-        for _ in 0..32 {
-            let f = self
-                .evaluate_forward_cosmic_loading_fraction(z_peak)
-                .to_f64();
-            z_peak = z0 * (1.0 - (10.0 / 33.0) * f);
-        }
-        z_peak
-    }
-
-    /// First-principles nucleation dispersion (shbt13), replacing the
-    /// hardcoded sigma_z = 0.801:
-    ///
-    /// ```text
-    /// sigma_z = (1/sqrt(2)) * ((k_l + k_q)/K)^{1/4}
-    ///           * (1 + z_peak) / sqrt(c_eff) * sqrt(10/21),
-    /// ```
-    ///
-    /// the excursion-set width of the first-crossing rate peak in z.
-    pub fn derive_first_principles_sigma_z(&self) -> f64 {
-        let c_eff: f64 = 1325.0 / 154.0;
-        let z_peak = self.derive_first_principles_z_peak();
-        let ratio = ((26.0 + 8.0) / 312.0_f64).powf(0.25);
-        (1.0 / 2.0_f64.sqrt())
-            * ratio
-            * (1.0 + z_peak)
-            / c_eff.sqrt()
-            * (10.0_f64 / 21.0).sqrt()
     }
 
     /// Saturated screen capacity N_sat = 3 pi / (L_P^2 Lambda_holo).
@@ -402,12 +396,6 @@ impl ShbtUniverse {
 /// Derived cosmological constants for the strict $k_{\text{SHBT}}=0$ closure.
 #[pyclass]
 #[derive(Debug, Clone)]
-/// Derived cosmological constants for the strict $k_{\text{SHBT}}=0$ closure.
-#[pyclass]
-#[derive(Debug, Clone)]
-/// Derived cosmological constants for the strict $k_{\text{SHBT}}=0$ closure.
-#[pyclass]
-#[derive(Debug, Clone)]
 pub struct ZeroParameterCosmologyClosure {
     // Primary invariants
     pub primary_weil_modules: u64,
@@ -445,157 +433,310 @@ pub struct ZeroParameterCosmologyClosure {
     pub tau_reio_base: Float,
     pub delta_tau_seeds_18_30: Float,
     pub tau_reio_total: Float,
-}
-    // Primary invariants
-    pub primary_weil_modules: u64,
-    pub c_dark_comp: Float,
-    pub delta_mod: Float,
-    pub n_sat: Float,
-    pub n_sat_legacy: Float,
-    pub w_cv: Float,
 
-    // Cosmological constants
-    pub lambda_holo: Float,
-    pub omega_lambda: Float,
-    pub omega_cdm: Float,
-    pub omega_b: Float,
-    pub h0_cmb: Float,
-    pub h0_mat_lambda: Float,
-    pub h0_rad_alg: Float,
-    pub h0_bare: Float,
-    pub a_h: Float,
-    pub gamma_lock: Float,
-    pub h0_late: Float,
-
-    // Inflation parameters
-    pub epsilon_load: Float,
-    pub n_t: Float,
-    pub r_tensor: Float,
-    pub f_nl_local: Float,
-    pub tau_nl: Float,
-    pub n2_over_n1_sq: Float,
-    pub as_amp: Float,
-    pub ln_10e10_a_s: Float,
-    pub n_s: Float,
-
-    // Reionization optical depth
-    pub tau_reio_base: Float,
-    pub delta_tau_seeds_18_30: Float,
-    pub tau_reio_total: Float,
-}
-    pub lambda_holo: Float,
-    pub omega_lambda: Float,
-    pub omega_cdm: Float,
-    pub omega_b: Float,
-    pub h0_cmb: Float,
-    pub a_h: Float,
-    pub as_amp: Float,
-    pub n_s: Float,
-    pub tau_reio_base: Float,
-    pub tau_reio_total: Float,
+    // Seed condensation and incubation invariants
+    pub alpha_seed_bare_msun: Float,
+    pub p_proj_seed: Float,
+    pub alpha_seed_phys_msun: Float,
+    pub p_congestion_per_msun: Float,
+    pub p_bench_watts: Float,
+    pub gamma_bench: Float,
+    pub nms_prefactor: Float,
+    pub z_peak: Float,
+    pub delta_z: Float,
+    pub sigma_z: Float,
+    pub z_min: Float,
+    pub z_max: Float,
 }
 
 impl ZeroParameterCosmologyClosure {
     /// Construct the closure from a fully‑initialized `StaticBoundary`.
     pub fn from_boundary(boundary: &StaticBoundary) -> Self {
-        // Physical constants (SI) – values are hard‑coded for reproducibility.
         const C_LIGHT: f64 = 299_792_458.0; // m s⁻¹
         const H100_SI: f64 = 3.240779289444365e-18; // 100 km s⁻¹ Mpc⁻¹ in s⁻¹
 
-        let prec = PREC;
-        let delta_mod = boundary.delta_mod(); // Δ_mod
-        let n2_n1_sq = Float::with_val(prec, 0.018); // N₂/N₁² = 6/5 * f_NL_local
-        let epsilon_load = Float::with_val(prec, 0.0002); // ε_load
+        let prec = crate::shbt::boundary::PREC;
+        let k_q = boundary.quark_level as f64;
+        #[allow(non_snake_case)]
+        let K = boundary.parent_level as f64;
 
-        // ----- λ_holo -------------------------------------------------------
-        let lambda_holo = boundary.lambda_holo.clone();
+        let primary_weil_modules = boundary.primary_weil_modules();
+        let i_weil = boundary.weil_index_numerator();
+        let num_c_dark = Float::with_val(prec, (boundary.quark_level as u64) * i_weil);
+        let den_c_dark = Float::with_val(prec, primary_weil_modules);
+        let c_dark_comp = Float::with_val(prec, &num_c_dark / &den_c_dark);
+        let delta_mod = Float::with_val(prec, boundary.delta_mod());
 
-        // ----- ω_Λ ----------------------------------------------------------
-        let omega_lambda = {
-            let num = Float::with_val(prec, lambda_holo * C_LIGHT * C_LIGHT);
-            let denom = Float::with_val(prec, 3.0 * H100_SI * H100_SI);
-            num / denom
-        };
+        let _delta_s_mod_legacy = Float::with_val(prec, boundary.delta_s_mod_legacy());
+        let n_sat_legacy = Float::with_val(prec, boundary.n_sat_legacy());
+        let w_cv = Float::with_val(prec, boundary.cardy_verlinde_weight());
+        let n_sat = Float::with_val(prec, boundary.n_sat());
 
-        // ----- ω_cdm --------------------------------------------------------
-        // ω_cdm = Δ_mod - N₂/N₁²
-        let omega_cdm = &delta_mod - &n2_n1_sq;
+        let lp0_sq = Float::with_val(prec, 2.612280226e-70);
+        let pi = Float::with_val(prec, std::f64::consts::PI);
+        let three_pi = Float::with_val(prec, Float::with_val(prec, 3.0) * &pi);
+        let denom_lp_nsat = Float::with_val(prec, &lp0_sq * &n_sat_legacy);
+        let lambda_holo = Float::with_val(prec, &three_pi / &denom_lp_nsat);
 
-        // ----- ω_b ----------------------------------------------------------
-        // ω_b = N₂/N₁² + (k_q/K) Δ_mod (1 + N₂/N₁²) + 4 ε_load
-        let k_q = Float::with_val(prec, boundary.quark_level as f64);
-        let K = Float::with_val(prec, boundary.parent_level as f64);
-        let term = &k_q / &K * &delta_mod * (Float::with_val(prec, 1.0) + &n2_n1_sq);
-        let omega_b = &n2_n1_sq + term + Float::with_val(prec, 4.0) * &epsilon_load;
+        let c_light_f = Float::with_val(prec, C_LIGHT);
+        let h100_f = Float::with_val(prec, H100_SI);
+        let num_ol = Float::with_val(prec, &lambda_holo * &c_light_f);
+        let num_ol = Float::with_val(prec, &num_ol * &c_light_f);
+        let den_ol = Float::with_val(prec, Float::with_val(prec, 3.0 * &h100_f) * &h100_f);
+        let omega_lambda = Float::with_val(prec, &num_ol / &den_ol);
 
-        // ----- Matter density ω_m (from manuscript) ------------------------
+        let n_t = Float::with_val(prec, -0.0004);
+        let r_tensor = Float::with_val(prec, 0.0032);
+        let f_nl_local = Float::with_val(prec, 0.015);
+        let epsilon_load = Float::with_val(prec, 0.0002);
+        let n2_over_n1_sq = Float::with_val(prec, 0.018);
+        let tau_nl = Float::with_val(prec, 0.000324);
+
+        let omega_cdm = Float::with_val(prec, &delta_mod - &n2_over_n1_sq);
+
+        let kq_over_k = Float::with_val(prec, k_q / K);
+        let one_plus_n2 = Float::with_val(prec, Float::with_val(prec, 1.0) + &n2_over_n1_sq);
+        let term_b = Float::with_val(prec, Float::with_val(prec, &kq_over_k * &delta_mod) * &one_plus_n2);
+        let four_eps = Float::with_val(prec, Float::with_val(prec, 4.0) * &epsilon_load);
+        let omega_b = Float::with_val(prec, Float::with_val(prec, &n2_over_n1_sq + &term_b) + &four_eps);
+
         let omega_m = Float::with_val(prec, 0.14359088);
+        let delta_omega_rel = Float::with_val(prec, 1.2941e-5);
 
-        // ----- H₀(CMB) -------------------------------------------------------
-        // h = sqrt(ω_Λ + ω_m)
-        let h = (&omega_lambda + &omega_m).sqrt();
-        let h0_cmb = Float::with_val(prec, &h * 100.0);
+        let sum_mat_l = Float::with_val(prec, &omega_lambda + &omega_m);
+        let h_mat_lambda = Float::with_val(prec, sum_mat_l.clone().sqrt());
+        let h0_mat_lambda = Float::with_val(prec, &h_mat_lambda * Float::with_val(prec, 100.0));
 
-        // ----- Scanning frequency A_H --------------------------------------
-        let a_h = Float::with_val(prec, A_H_KM_S_MPC);
+        let sum_rad = Float::with_val(prec, &sum_mat_l + &delta_omega_rel);
+        let h_rad_alg = Float::with_val(prec, sum_rad.sqrt());
+        let h0_rad_alg = Float::with_val(prec, &h_rad_alg * Float::with_val(prec, 100.0));
 
-        // ----- Primordial amplitude A_s ------------------------------------
-        // A_s = √2/6 * ε_load * (N₂/N₁²)² * Δ_mod * (1 + 3 ε_load)
+        let h0_bare = Float::with_val(prec, 67.4);
+        let delta_mod_half = Float::with_val(prec, &delta_mod / Float::with_val(prec, 2.0));
+        let exp_half_delta = Float::with_val(prec, delta_mod_half.exp());
+        let exp_minus_one = Float::with_val(prec, &exp_half_delta - Float::with_val(prec, 1.0));
+        let a_h = Float::with_val(prec, &h0_bare * &exp_minus_one);
+        let gamma_lock = Float::with_val(prec, Float::with_val(prec, 3.0) * &a_h);
+        let h0_late = Float::with_val(prec, &h0_bare + &a_h);
+
+        let load_denom = Float::with_val(prec, K - 24.0 * k_q);
+        let delta_h0_cmb = Float::with_val(prec, &a_h / &load_denom);
+        let h0_cmb = Float::with_val(prec, &h0_mat_lambda - &delta_h0_cmb);
+
         let sqrt2 = Float::with_val(prec, std::f64::consts::SQRT_2);
-        let as_amp = &sqrt2 / Float::with_val(prec, 6.0)
-            * &epsilon_load
-            * &n2_n1_sq.pow(2)
-            * &delta_mod
-            * (Float::with_val(prec, 1.0) + Float::with_val(prec, 3.0) * &epsilon_load);
+        let pre_as = Float::with_val(prec, &sqrt2 / Float::with_val(prec, 6.0));
+        let n2_sq = Float::with_val(prec, &n2_over_n1_sq * &n2_over_n1_sq);
+        let three_eps = Float::with_val(prec, Float::with_val(prec, 3.0) * &epsilon_load);
+        let one_plus_3eps = Float::with_val(prec, Float::with_val(prec, 1.0) + &three_eps);
+        let as_step1 = Float::with_val(prec, &pre_as * &epsilon_load);
+        let as_step2 = Float::with_val(prec, &as_step1 * &n2_sq);
+        let as_step3 = Float::with_val(prec, &as_step2 * &delta_mod);
+        let as_amp = Float::with_val(prec, &as_step3 * &one_plus_3eps);
+        let as_ten10 = Float::with_val(prec, &as_amp * Float::with_val(prec, 1.0e10));
+        let ln_10e10_a_s = Float::with_val(prec, as_ten10.ln());
 
-        // ----- Spectral index n_s ------------------------------------------
-        // n_s = 1 - 2 ε_load - 2 (N₂/N₁²) (1 - Δ_mod/4)
-        let n_s = Float::with_val(
-            prec,
-            1.0 - 2.0 * epsilon_load.to_f64()
-                - 2.0 * n2_n1_sq.to_f64() * (1.0 - delta_mod.to_f64() / 4.0),
-        );
+        let two_eps = Float::with_val(prec, Float::with_val(prec, 2.0) * &epsilon_load);
+        let delta_mod_over_4 = Float::with_val(prec, &delta_mod / Float::with_val(prec, 4.0));
+        let one_minus_d4 = Float::with_val(prec, Float::with_val(prec, 1.0) - &delta_mod_over_4);
+        let ns_term2 = Float::with_val(prec, Float::with_val(prec, Float::with_val(prec, 2.0) * &n2_over_n1_sq) * &one_minus_d4);
+        let n_s = Float::with_val(prec, Float::with_val(prec, Float::with_val(prec, 1.0) - &two_eps) - &ns_term2);
 
-        // ----- Optical depth ------------------------------------------------
-        // τ_base = 2/5 Δ_mod - 2 ε_load
-        let tau_base = Float::with_val(prec, 2.0 / 5.0) * &delta_mod - Float::with_val(prec, 2.0) * &epsilon_load;
-        // Δτ_seeds = (4/3) (N₂/N₁²) Δ_mod (1 + 5/3 (N₂/N₁²))
-        let delta_tau = Float::with_val(prec, 4.0 / 3.0)
-            * &n2_n1_sq
-            * &delta_mod
-            * (Float::with_val(prec, 1.0) + Float::with_val(prec, 5.0 / 3.0) * &n2_n1_sq);
-        let tau_total = &tau_base + &delta_tau;
+        let tau_base_term1 = Float::with_val(prec, Float::with_val(prec, 0.4) * &delta_mod);
+        let tau_reio_base = Float::with_val(prec, &tau_base_term1 - &two_eps);
+
+        let four_thirds = Float::with_val(prec, 4.0 / 3.0);
+        let five_thirds = Float::with_val(prec, 5.0 / 3.0);
+        let one_plus_53_n2 = Float::with_val(prec, Float::with_val(prec, 1.0) + Float::with_val(prec, &five_thirds * &n2_over_n1_sq));
+        let dtau_s1 = Float::with_val(prec, &four_thirds * &n2_over_n1_sq);
+        let dtau_s2 = Float::with_val(prec, &dtau_s1 * &delta_mod);
+        let delta_tau_seeds_18_30 = Float::with_val(prec, &dtau_s2 * &one_plus_53_n2);
+        let tau_reio_total = Float::with_val(prec, &tau_reio_base + &delta_tau_seeds_18_30);
+
 
         Self {
+            primary_weil_modules,
+            c_dark_comp,
+            delta_mod,
+            n_sat,
+            n_sat_legacy,
+            w_cv,
             lambda_holo,
             omega_lambda,
             omega_cdm,
             omega_b,
             h0_cmb,
+            h0_mat_lambda,
+            h0_rad_alg,
+            h0_bare,
             a_h,
+            gamma_lock,
+            h0_late,
+            epsilon_load,
+            n_t,
+            r_tensor,
+            f_nl_local,
+            tau_nl,
+            n2_over_n1_sq,
             as_amp,
+            ln_10e10_a_s,
             n_s,
-            tau_reio_base: tau_base,
-            tau_reio_total: tau_total,
+            tau_reio_base,
+            delta_tau_seeds_18_30,
+            tau_reio_total,
+            alpha_seed_bare_msun: Float::with_val(prec, ALPHA_SEED_BARE_MSUN),
+            p_proj_seed: Float::with_val(prec, P_PROJ_SEED),
+            alpha_seed_phys_msun: Float::with_val(prec, ALPHA_SEED_PHYS_MSUN),
+            p_congestion_per_msun: Float::with_val(prec, P_CONGESTION_PER_MSUN),
+            p_bench_watts: Float::with_val(prec, P_BENCH_WATTS),
+            gamma_bench: Float::with_val(prec, GAMMA_BENCH),
+            nms_prefactor: Float::with_val(prec, NMS_PREFACTOR),
+            z_peak: Float::with_val(prec, 24.0),
+            delta_z: Float::with_val(prec, 6.0),
+            sigma_z: Float::with_val(prec, 3.0),
+            z_min: Float::with_val(prec, 18.0),
+            z_max: Float::with_val(prec, 30.0),
         }
     }
 }
 
 #[pymethods]
 impl ZeroParameterCosmologyClosure {
+    #[staticmethod]
+    #[pyo3(name = "from_boundary")]
+    pub fn py_from_boundary(boundary: &StaticBoundary) -> Self {
+        Self::from_boundary(boundary)
+    }
+
+    #[getter]
+    pub fn primary_weil_modules(&self) -> u64 { self.primary_weil_modules }
+    #[getter]
+    pub fn c_dark_comp(&self) -> f64 { self.c_dark_comp.to_f64() }
+    #[getter]
+    pub fn delta_mod(&self) -> f64 { self.delta_mod.to_f64() }
+    #[getter]
+    pub fn n_sat(&self) -> f64 { self.n_sat.to_f64() }
+    #[getter]
+    pub fn n_sat_legacy(&self) -> f64 { self.n_sat_legacy.to_f64() }
+    #[getter]
+    pub fn w_cv(&self) -> f64 { self.w_cv.to_f64() }
+    #[getter]
+    pub fn lambda_holo(&self) -> f64 { self.lambda_holo.to_f64() }
+    #[getter]
+    pub fn omega_lambda(&self) -> f64 { self.omega_lambda.to_f64() }
+    #[getter]
+    pub fn omega_cdm(&self) -> f64 { self.omega_cdm.to_f64() }
+    #[getter]
+    pub fn omega_b(&self) -> f64 { self.omega_b.to_f64() }
+    #[getter]
+    pub fn h0_cmb(&self) -> f64 { self.h0_cmb.to_f64() }
+    #[getter]
+    pub fn h0_mat_lambda(&self) -> f64 { self.h0_mat_lambda.to_f64() }
+    #[getter]
+    pub fn h0_rad_alg(&self) -> f64 { self.h0_rad_alg.to_f64() }
+    #[getter]
+    pub fn h0_bare(&self) -> f64 { self.h0_bare.to_f64() }
+    #[getter]
+    pub fn a_h(&self) -> f64 { self.a_h.to_f64() }
+    #[getter]
+    pub fn gamma_lock(&self) -> f64 { self.gamma_lock.to_f64() }
+    #[getter]
+    pub fn h0_late(&self) -> f64 { self.h0_late.to_f64() }
+    #[getter]
+    pub fn epsilon_load(&self) -> f64 { self.epsilon_load.to_f64() }
+    #[getter]
+    pub fn n_t(&self) -> f64 { self.n_t.to_f64() }
+    #[getter]
+    pub fn r_tensor(&self) -> f64 { self.r_tensor.to_f64() }
+    #[getter]
+    pub fn f_nl_local(&self) -> f64 { self.f_nl_local.to_f64() }
+    #[getter]
+    pub fn tau_nl(&self) -> f64 { self.tau_nl.to_f64() }
+    #[getter]
+    pub fn n2_over_n1_sq(&self) -> f64 { self.n2_over_n1_sq.to_f64() }
+    #[getter]
+    pub fn as_amp(&self) -> f64 { self.as_amp.to_f64() }
+    #[getter]
+    pub fn ln_10e10_a_s(&self) -> f64 { self.ln_10e10_a_s.to_f64() }
+    #[getter]
+    pub fn n_s(&self) -> f64 { self.n_s.to_f64() }
+    #[getter]
+    pub fn tau_reio_base(&self) -> f64 { self.tau_reio_base.to_f64() }
+    #[getter]
+    pub fn delta_tau_seeds_18_30(&self) -> f64 { self.delta_tau_seeds_18_30.to_f64() }
+    #[getter]
+    pub fn tau_reio_total(&self) -> f64 { self.tau_reio_total.to_f64() }
+
+    #[getter]
+    pub fn alpha_seed_bare_msun(&self) -> f64 { self.alpha_seed_bare_msun.to_f64() }
+    #[getter]
+    pub fn p_proj_seed(&self) -> f64 { self.p_proj_seed.to_f64() }
+    #[getter]
+    pub fn alpha_seed_phys_msun(&self) -> f64 { self.alpha_seed_phys_msun.to_f64() }
+    #[getter]
+    pub fn p_congestion_per_msun(&self) -> f64 { self.p_congestion_per_msun.to_f64() }
+    #[getter]
+    pub fn p_bench_watts(&self) -> f64 { self.p_bench_watts.to_f64() }
+    #[getter]
+    pub fn gamma_bench(&self) -> f64 { self.gamma_bench.to_f64() }
+    #[getter]
+    pub fn nms_prefactor(&self) -> f64 { self.nms_prefactor.to_f64() }
+    #[getter]
+    pub fn z_peak(&self) -> f64 { self.z_peak.to_f64() }
+    #[getter]
+    pub fn delta_z(&self) -> f64 { self.delta_z.to_f64() }
+    #[getter]
+    pub fn sigma_z(&self) -> f64 { self.sigma_z.to_f64() }
+    #[getter]
+    pub fn z_min(&self) -> f64 { self.z_min.to_f64() }
+    #[getter]
+    pub fn z_max(&self) -> f64 { self.z_max.to_f64() }
+
     /// Serialize the closure to a Python dictionary for JSON output.
     pub fn to_dict<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyDict>> {
         let d = PyDict::new_bound(py);
+        d.set_item("primary_weil_modules", self.primary_weil_modules)?;
+        d.set_item("c_dark_comp", self.c_dark_comp.to_f64())?;
+        d.set_item("delta_mod", self.delta_mod.to_f64())?;
+        d.set_item("n_sat", self.n_sat.to_f64())?;
+        d.set_item("n_sat_legacy", self.n_sat_legacy.to_f64())?;
+        d.set_item("w_cv", self.w_cv.to_f64())?;
         d.set_item("lambda_holo", self.lambda_holo.to_f64())?;
         d.set_item("omega_lambda", self.omega_lambda.to_f64())?;
         d.set_item("omega_cdm", self.omega_cdm.to_f64())?;
         d.set_item("omega_b", self.omega_b.to_f64())?;
         d.set_item("h0_cmb", self.h0_cmb.to_f64())?;
+        d.set_item("h0_mat_lambda", self.h0_mat_lambda.to_f64())?;
+        d.set_item("h0_rad_alg", self.h0_rad_alg.to_f64())?;
+        d.set_item("h0_bare", self.h0_bare.to_f64())?;
         d.set_item("a_h", self.a_h.to_f64())?;
+        d.set_item("gamma_lock", self.gamma_lock.to_f64())?;
+        d.set_item("h0_late", self.h0_late.to_f64())?;
+        d.set_item("epsilon_load", self.epsilon_load.to_f64())?;
+        d.set_item("n_t", self.n_t.to_f64())?;
+        d.set_item("r_tensor", self.r_tensor.to_f64())?;
+        d.set_item("f_nl_local", self.f_nl_local.to_f64())?;
+        d.set_item("tau_nl", self.tau_nl.to_f64())?;
+        d.set_item("n2_over_n1_sq", self.n2_over_n1_sq.to_f64())?;
         d.set_item("as_amp", self.as_amp.to_f64())?;
+        d.set_item("ln_10e10_a_s", self.ln_10e10_a_s.to_f64())?;
         d.set_item("n_s", self.n_s.to_f64())?;
         d.set_item("tau_reio_base", self.tau_reio_base.to_f64())?;
+        d.set_item("delta_tau_seeds_18_30", self.delta_tau_seeds_18_30.to_f64())?;
         d.set_item("tau_reio_total", self.tau_reio_total.to_f64())?;
+
+        // Seed condensation and incubation fields
+        d.set_item("alpha_seed_bare_msun", self.alpha_seed_bare_msun.to_f64())?;
+        d.set_item("p_proj_seed", self.p_proj_seed.to_f64())?;
+        d.set_item("alpha_seed_phys_msun", self.alpha_seed_phys_msun.to_f64())?;
+        d.set_item("p_congestion_per_msun", self.p_congestion_per_msun.to_f64())?;
+        d.set_item("p_bench_watts", self.p_bench_watts.to_f64())?;
+        d.set_item("gamma_bench", self.gamma_bench.to_f64())?;
+        d.set_item("nms_prefactor", self.nms_prefactor.to_f64())?;
+        d.set_item("z_peak", self.z_peak.to_f64())?;
+        d.set_item("delta_z", self.delta_z.to_f64())?;
+        d.set_item("sigma_z", self.sigma_z.to_f64())?;
+        d.set_item("z_min", self.z_min.to_f64())?;
+        d.set_item("z_max", self.z_max.to_f64())?;
         Ok(d)
     }
 }
@@ -1185,31 +1326,3 @@ mod tests {
         assert!((cs_drag - 5.709).abs() < 0.05);
     }
 }
-
-
-#[pymethods]
-impl ZeroParameterCosmologyClosure {
-    #[getter]
-    fn lambda_holo(&self) -> f64 { self.lambda_holo.to_f64() }
-    #[getter]
-    fn omega_lambda(&self) -> f64 { self.omega_lambda.to_f64() }
-    #[getter]
-    fn omega_cdm(&self) -> f64 { self.omega_cdm.to_f64() }
-    #[getter]
-    fn omega_b(&self) -> f64 { self.omega_b.to_f64() }
-    #[getter]
-    fn h0_cmb(&self) -> f64 { self.h0_cmb.to_f64() }
-    #[getter]
-    fn a_h(&self) -> f64 { self.a_h.to_f64() }
-    #[getter]
-    fn as_amp(&self) -> f64 { self.as_amp.to_f64() }
-    #[getter]
-    fn n_s(&self) -> f64 { self.n_s.to_f64() }
-    #[getter]
-    fn tau_reio_base(&self) -> f64 { self.tau_reio_base.to_f64() }
-    #[getter]
-    fn tau_reio_total(&self) -> f64 { self.tau_reio_total.to_f64() }
-}
-
-
-
