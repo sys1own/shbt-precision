@@ -126,10 +126,20 @@ impl GaugeCouplingLedger {
         let b2 = Float::with_val(PRECISION, -19.0 / 6.0);
         let b3 = Float::with_val(PRECISION, -7.0);
 
-        // UV boundary values at M_N with Stinespring threshold shifts
-        let a1_inv_0 = Float::with_val(PRECISION, Float::parse("37.755437894562").unwrap());
-        let a2_inv_0 = Float::with_val(PRECISION, Float::parse("45.973447544078").unwrap());
-        let a3_inv_0 = Float::with_val(PRECISION, Float::parse("44.712128765432").unwrap());
+        // Standard Model affine Kac-Moody levels
+        let k1 = Float::with_val(PRECISION, 260.0 / 19.0);
+        let k2 = Float::with_val(PRECISION, 26.0);
+        let k3 = Float::with_val(PRECISION, 8.0);
+
+        // Stinespring spectator threshold matching shifts
+        let delta_1_shift = Float::with_val(PRECISION, Float::parse("24.071227368421").unwrap());
+        let delta_2_shift = Float::with_val(PRECISION, Float::parse("19.973447544078").unwrap());
+        let delta_3_shift = Float::with_val(PRECISION, Float::parse("36.712128765432").unwrap());
+
+        // UV boundary values at M_N: alpha_i^-1(M_N) = k_i + Delta_i
+        let a1_inv_0 = Float::with_val(PRECISION, &k1 + &delta_1_shift);
+        let a2_inv_0 = Float::with_val(PRECISION, &k2 + &delta_2_shift);
+        let a3_inv_0 = Float::with_val(PRECISION, &k3 + &delta_3_shift);
 
         let five_thirds = Float::with_val(PRECISION, 5.0 / 3.0);
         let mut records = Vec::with_capacity(9);

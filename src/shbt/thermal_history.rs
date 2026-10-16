@@ -216,9 +216,19 @@ impl BbnReactionNetwork {
         let z_drag = 1059.940;
         let delta_z_drag = 25.000;
         let z_dec = 137.036;
-        let c_s_drag_kms = 5.709;
-        let c_s_0_kms = 0.187;
-        let mu_neutral = 1.22534;
+        let y_p = 0.2452;
+        let mu_neutral = 4.0 / (4.0 - 3.0 * y_p);
+        let t_cmb_0 = 2.7255;
+        let t_drag = t_cmb_0 * (1.0 + z_drag);
+        let gamma_gas = 5.0 / 3.0;
+        let k_b = BOLTZMANN_K;
+        let m_p = 1.67262192e-27;
+        let c_s_drag_kms = ((gamma_gas * k_b * t_drag) / (mu_neutral * m_p)).sqrt() / 1000.0;
+        let eta_v = ETA_V;
+        let scale = 1.0 / (1.0 + z_drag);
+        let post_drag_scaling = eta_v * scale + (1.0 - eta_v) * scale.powf(2.0 - eta_v);
+        let t_post_0 = t_drag * post_drag_scaling;
+        let c_s_0_kms = ((gamma_gas * k_b * t_post_0) / (mu_neutral * m_p)).sqrt() / 1000.0;
         AcousticDecouplingMetrics {
             z_drag,
             delta_z_drag,

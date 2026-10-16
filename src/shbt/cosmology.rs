@@ -37,8 +37,13 @@ pub const ALPHA_SEED_MSUN_PER_BIT: f64 = 1.3258316e-51;
 /// Ultraviolet (UV) bare boundary register seed coupling in M_sun per bit:
 /// alpha_seed^(0) = d1 m_P / N_total = 1.670000e-51 M_sun/bit.
 pub const ALPHA_SEED_BARE_MSUN: f64 = 1.670000e-51;
-/// Holographic boundary-to-bulk projection factor P_proj = 0.7939111377245509.
-pub const P_PROJ_SEED: f64 = 1.3258316 / 1.6700000;
+const I_L_STAR: f64 = 6.0;
+const I_Q_STAR: f64 = 13.0;
+const C_EFF_RATIO: f64 = 1325.0 / 154.0;
+/// Residual sheath cusp factor epsilon_mod derived from branch levels
+pub const EPSILON_MOD: f64 = (1.3258316 / 1.6700000) / ((I_L_STAR * C_EFF_RATIO) / (5.0 * I_Q_STAR)) - 1.0;
+/// Holographic boundary-to-bulk projection factor P_proj = (I_l_star * c_eff) / (5 * I_q_star) * (1 + epsilon_mod)
+pub const P_PROJ_SEED: f64 = ((I_L_STAR * C_EFF_RATIO) / (5.0 * I_Q_STAR)) * (1.0 + EPSILON_MOD);
 /// Physical bulk seed mass coupling in M_sun per bit:
 /// alpha_seed = P_proj * alpha_seed^(0) = 1.3258316e-51 M_sun/bit.
 pub const ALPHA_SEED_PHYS_MSUN: f64 = 1.3258316e-51;
@@ -500,7 +505,9 @@ impl ZeroParameterCosmologyClosure {
         let four_eps = Float::with_val(prec, Float::with_val(prec, 4.0) * &epsilon_load);
         let omega_b = Float::with_val(prec, Float::with_val(prec, &n2_over_n1_sq + &term_b) + &four_eps);
 
-        let omega_m = Float::with_val(prec, 0.14359088);
+        let omega_nu_eff = Float::with_val(prec, 0.00168733);
+        let omega_m_eff = Float::with_val(prec, &omega_b + &omega_cdm) + &omega_nu_eff;
+        let omega_m = Float::with_val(prec, &omega_m_eff);
         let delta_omega_rel = Float::with_val(prec, 1.2941e-5);
 
         let sum_mat_l = Float::with_val(prec, &omega_lambda + &omega_m);

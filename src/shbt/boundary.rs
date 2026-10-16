@@ -573,7 +573,7 @@ impl StaticBoundary {
 
     #[getter]
     pub fn n_sat(&self) -> f64 {
-        self.n_sat.to_f64()
+        self.n_sat_legacy() / self.cardy_verlinde_weight()
     }
 
     #[getter]

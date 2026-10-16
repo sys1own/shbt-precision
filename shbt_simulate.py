@@ -373,11 +373,53 @@ def solve_shbt_2lpt_growth_factors(z_eval: float):
     return _sf(z_eval)
 
 
+solve_shbt_growth_factors = solve_shbt_2lpt_growth_factors
+
+
 def get_shbt_2lpt_growth_table(z_list=None):
     if _HAS_PC and hasattr(_pc, "get_shbt_2lpt_growth_table"):
         return _pc.get_shbt_2lpt_growth_table(z_list)
     from precision_cosmology import get_shbt_2lpt_growth_table as _gt
     return _gt(z_list)
+
+
+def derive_zero_parameter_cosmology(*args, **kwargs):
+    """Zero-parameter cosmological background and perturbation closure derivation."""
+    if _HAS_PC and hasattr(_pc, "derive_zero_parameter_cosmology"):
+        fn = _pc.derive_zero_parameter_cosmology
+    else:
+        from precision_cosmology import derive_zero_parameter_cosmology as fn
+    try:
+        return fn(*args, **kwargs)
+    except TypeError:
+        return fn()
+
+
+def derive_holographic_box_metrology():
+    """Holographic box metrology derivation."""
+    if _HAS_PC and hasattr(_pc, "derive_holographic_box_metrology"):
+        return _pc.derive_holographic_box_metrology()
+    from precision_cosmology import derive_holographic_box_metrology as _dbm
+    return _dbm()
+
+
+def compute_acoustic_decoupling_metrics():
+    """Acoustic drag and thermal decoupling metrics."""
+    if _HAS_PC and hasattr(_pc, "compute_acoustic_decoupling_metrics"):
+        return _pc.compute_acoustic_decoupling_metrics()
+    from precision_cosmology import compute_acoustic_decoupling_metrics as _cadm
+    return _cadm()
+
+
+def compute_2lpt_displacements(
+    n_particles_1d: int = 64,
+    l_box: float = 222.5502,
+    z_init: float = 100.0,
+    seed: int = 42,
+):
+    """Calculates 2LPT particle positions and displacements at z_init."""
+    grid = CosmologicalGrid2LPT(n_particles_1d=n_particles_1d, l_box=l_box, z_init=z_init, seed=seed)
+    return grid.compute_2lpt_displacements()
 
 
 def generate_2lpt_particles(
