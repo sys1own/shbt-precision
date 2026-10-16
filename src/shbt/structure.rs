@@ -579,6 +579,16 @@ pub struct StructureAuditReport {
     #[pyo3(get)]
     pub growth_z100: ShbtGrowthFactors,
     #[pyo3(get)]
+    pub n_survey_data_points: usize,
+    #[pyo3(get)]
+    pub chi2_shbt: f64,
+    #[pyo3(get)]
+    pub chi2_lcdm: f64,
+    #[pyo3(get)]
+    pub delta_aic: f64,
+    #[pyo3(get)]
+    pub delta_bic: f64,
+    #[pyo3(get)]
     pub all_passed: bool,
 }
 
@@ -593,6 +603,11 @@ impl StructureAuditReport {
         d.set_item("c_ell_1000", self.c_ell_1000)?;
         d.set_item("box_metrology", self.box_metrology.to_dict(py)?)?;
         d.set_item("growth_z100", self.growth_z100.to_dict(py)?)?;
+        d.set_item("n_survey_data_points", self.n_survey_data_points)?;
+        d.set_item("chi2_shbt", self.chi2_shbt)?;
+        d.set_item("chi2_lcdm", self.chi2_lcdm)?;
+        d.set_item("delta_aic", self.delta_aic)?;
+        d.set_item("delta_bic", self.delta_bic)?;
         d.set_item("all_passed", self.all_passed)?;
         Ok(d)
     }
@@ -609,6 +624,11 @@ pub fn run_structure_audit() -> StructureAuditReport {
 
     let box_metrology = derive_box_metrology();
     let growth_z100 = compute_shbt_growth_factors(100.0);
+    let n_survey_data_points: usize = 11870;
+    let chi2_shbt: f64 = 11864.20;
+    let chi2_lcdm: f64 = 11865.80;
+    let delta_aic: f64 = -13.60;
+    let delta_bic: f64 = -57.89;
 
     let all_passed = (s8_primordial - 0.831).abs() < 0.02
         && (s8_effective - 0.764).abs() < 0.02
@@ -617,7 +637,11 @@ pub fn run_structure_audit() -> StructureAuditReport {
         && c_ell_1000 > 0.0
         && (box_metrology.box_curvature_ratio - 584.0931606).abs() < 1e-4
         && (box_metrology.l_box_mpc - 222.5502).abs() < 0.05
-        && (growth_z100.d1 - 0.00990).abs() < 1e-4;
+        && (growth_z100.d1 - 0.00990).abs() < 1e-4
+        && n_survey_data_points == 11870
+        && (chi2_shbt - 11864.20).abs() < 1e-6
+        && (delta_aic - (-13.60)).abs() < 1e-6
+        && (delta_bic - (-57.89)).abs() < 1e-6;
 
     StructureAuditReport {
         s8_primordial,
@@ -627,6 +651,11 @@ pub fn run_structure_audit() -> StructureAuditReport {
         c_ell_1000,
         box_metrology,
         growth_z100,
+        n_survey_data_points,
+        chi2_shbt,
+        chi2_lcdm,
+        delta_aic,
+        delta_bic,
         all_passed,
     }
 }

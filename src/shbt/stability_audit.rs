@@ -19,18 +19,73 @@ const STATIONARITY_TOLERANCE: f64 = 1e-20;
 const THERMAL_TOLERANCE: f64 = 1.0;
 const FINITE_DIFF_H: f64 = 1e-6;
 
-#[derive(Debug, Clone)]
+use pyo3::prelude::*;
+use pyo3::types::PyDict;
+use std::collections::HashMap;
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[pyclass]
 pub struct StabilityAudit {
+    #[pyo3(get)]
     pub stationarity_passed: bool,
+    #[pyo3(get)]
     pub thermal_flux_passed: bool,
+    #[pyo3(get)]
     pub d_ln_c_even_dz: f64,
+    #[pyo3(get)]
     pub d_ln_c_odd_dz: f64,
+    #[pyo3(get)]
     pub q_dot_w: f64,
+    #[pyo3(get)]
     pub p_bench_w: f64,
+    #[pyo3(get)]
     pub gamma_bench: f64,
+    #[pyo3(get)]
     pub gamma_bench_target: f64,
+    #[pyo3(get)]
     pub seed_z_peak: f64,
+    #[pyo3(get)]
     pub seed_sigma_z: f64,
+    #[pyo3(get)]
+    pub teschner_shift_residual_max: f64,
+    #[pyo3(get)]
+    pub bootstrap_canonical_branch_verified: bool,
+    #[pyo3(get)]
+    pub noether_ward_identity_verified: bool,
+    #[pyo3(get)]
+    pub n_sat_accessor_crosswalk: HashMap<String, f64>,
+}
+
+#[pymethods]
+impl StabilityAudit {
+    pub fn to_dict<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyDict>> {
+        let d = PyDict::new_bound(py);
+        d.set_item("stationarity_passed", self.stationarity_passed)?;
+        d.set_item("thermal_flux_passed", self.thermal_flux_passed)?;
+        d.set_item("d_ln_c_even_dz", self.d_ln_c_even_dz)?;
+        d.set_item("d_ln_c_odd_dz", self.d_ln_c_odd_dz)?;
+        d.set_item("q_dot_w", self.q_dot_w)?;
+        d.set_item("p_bench_w", self.p_bench_w)?;
+        d.set_item("gamma_bench", self.gamma_bench)?;
+        d.set_item("gamma_bench_target", self.gamma_bench_target)?;
+        d.set_item("seed_z_peak", self.seed_z_peak)?;
+        d.set_item("seed_sigma_z", self.seed_sigma_z)?;
+        d.set_item("teschner_shift_residual_max", self.teschner_shift_residual_max)?;
+        d.set_item(
+            "bootstrap_canonical_branch_verified",
+            self.bootstrap_canonical_branch_verified,
+        )?;
+        d.set_item(
+            "noether_ward_identity_verified",
+            self.noether_ward_identity_verified,
+        )?;
+        let cw = PyDict::new_bound(py);
+        for (k, v) in &self.n_sat_accessor_crosswalk {
+            cw.set_item(k, v)?;
+        }
+        d.set_item("n_sat_accessor_crosswalk", cw)?;
+        Ok(d)
+    }
 }
 
 fn log_correlator(z: &Float, z_peak: &Float, sigma: &Float) -> Float {
@@ -77,6 +132,28 @@ pub fn verify_stability_audit() -> StabilityAudit {
     let thermal_flux_passed =
         (gamma_bench.clone() - &target).abs() <= Float::with_val(PREC, THERMAL_TOLERANCE);
 
+    let sb = crate::shbt::boundary::StaticBoundary::new();
+    let teschner = sb.verify_teschner_shift_residual();
+    let noether = sb.verify_noether_ward_identity();
+    let cw = sb.n_sat_crosswalk();
+
+    let mut cw_map = HashMap::new();
+    cw_map.insert("s_top_bulk".to_string(), cw.s_top_bulk as f64);
+    cw_map.insert("delta_s_mod_legacy".to_string(), cw.delta_s_mod_legacy);
+    cw_map.insert("cardy_verlinde_weight".to_string(), cw.cardy_verlinde_weight);
+    cw_map.insert("n_sat_legacy".to_string(), cw.n_sat_legacy);
+    cw_map.insert("n_sat".to_string(), cw.n_sat);
+    cw_map.insert(
+        "crosswalk_verified".to_string(),
+        if cw.crosswalk_verified { 1.0 } else { 0.0 },
+    );
+
+    let teschner_shift_residual_max = teschner
+        .teschner_shift_residual_even
+        .max(teschner.teschner_shift_residual_odd);
+    let bootstrap_canonical_branch_verified = teschner.bootstrap_canonical_branch_verified;
+    let noether_ward_identity_verified = noether.noether_ward_identity_verified;
+
     StabilityAudit {
         stationarity_passed,
         thermal_flux_passed,
@@ -88,6 +165,10 @@ pub fn verify_stability_audit() -> StabilityAudit {
         gamma_bench_target: GAMMA_BENCH_TARGET,
         seed_z_peak: z_peak_f64,
         seed_sigma_z: sigma_z_f64,
+        teschner_shift_residual_max,
+        bootstrap_canonical_branch_verified,
+        noether_ward_identity_verified,
+        n_sat_accessor_crosswalk: cw_map,
     }
 }
 

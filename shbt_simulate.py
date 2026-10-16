@@ -2082,6 +2082,15 @@ def simulate(config: dict[str, Any]) -> dict[str, Any]:
             foundation["standard_model_couplings"] = audit_dict["standard_model_couplings"]
         if "flavor_mixing" in audit_dict:
             foundation["flavor_mixing"] = audit_dict["flavor_mixing"]
+        if "baryogenesis" in audit_dict:
+            foundation["baryogenesis"] = audit_dict["baryogenesis"]
+        if "thermal_history" in audit_dict:
+            foundation["thermal_history"] = audit_dict["thermal_history"]
+        if "quadratic_annihilation_audit" in audit_dict:
+            foundation["quadratic_charge_annihilation"] = audit_dict["quadratic_annihilation_audit"]
+            foundation["quadratic_annihilation_audit"] = audit_dict["quadratic_annihilation_audit"]
+        if "thermal_ladder" in audit_dict:
+            foundation["thermal_ladder"] = audit_dict["thermal_ladder"]
         if "electroweak_symmetry_breaking" in audit_dict:
             foundation["electroweak_symmetry_breaking"] = audit_dict["electroweak_symmetry_breaking"]
         if "non_perturbative_qcd" in audit_dict:
@@ -2092,6 +2101,12 @@ def simulate(config: dict[str, Any]) -> dict[str, Any]:
             foundation["cosmic_shear_and_structure"] = audit_dict["cosmic_shear_and_structure"]
         if "calorimetry_hypothesis_audit" in audit_dict:
             foundation["calorimetry_hypothesis_audit"] = audit_dict["calorimetry_hypothesis_audit"]
+        if "stability_audit" in audit_dict:
+            foundation["stability_audit"] = audit_dict["stability_audit"]
+        from boltzmann_shbt import run_multi_probe_survey_validation
+        survey_dict = run_multi_probe_survey_validation()
+        foundation["multi_probe_survey_validation"] = survey_dict
+        result["multi_probe_survey_validation"] = survey_dict
         # Ensure alpha_gut_rational, alpha_gut_inv_rational, delta_kraus_bare are exported
         couplings_dict = audit_dict.get("standard_model_couplings", {})
         result["alpha_gut_rational"] = couplings_dict.get("alpha_gut_rational", "104/4163")

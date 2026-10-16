@@ -1454,6 +1454,23 @@ fn get_stability_audit(py: Python<'_>) -> PyResult<Bound<'_, PyDict>> {
     d.set_item("Gamma_bench_target", audit.gamma_bench_target)?;
     d.set_item("seed_z_peak", audit.seed_z_peak)?;
     d.set_item("seed_sigma_z", audit.seed_sigma_z)?;
+    d.set_item(
+        "teschner_shift_residual_max",
+        audit.teschner_shift_residual_max,
+    )?;
+    d.set_item(
+        "bootstrap_canonical_branch_verified",
+        audit.bootstrap_canonical_branch_verified,
+    )?;
+    d.set_item(
+        "noether_ward_identity_verified",
+        audit.noether_ward_identity_verified,
+    )?;
+    let cw = PyDict::new_bound(py);
+    for (k, v) in &audit.n_sat_accessor_crosswalk {
+        cw.set_item(k, v)?;
+    }
+    d.set_item("n_sat_accessor_crosswalk", cw)?;
     Ok(d)
 }
 
@@ -1510,6 +1527,26 @@ fn compute_shbt_growth_factors(z_init: f64) -> shbt::ShbtGrowthFactors {
 #[pyfunction]
 fn run_calorimetry_audit() -> shbt::CalorimetryAuditReport {
     shbt::run_calorimetry_audit()
+}
+
+#[pyfunction]
+fn run_operator_audit() -> shbt::QuadraticAnnihilationAudit {
+    shbt::run_operator_audit()
+}
+
+#[pyfunction]
+fn run_observer_thermal_ladder() -> shbt::MultiEpochThermalLadderResult {
+    shbt::run_observer_thermal_ladder()
+}
+
+#[pyfunction]
+fn classify_global_affine_levels() -> shbt::GlobalLevelClassificationResult {
+    shbt::classify_global_affine_levels()
+}
+
+#[pyfunction]
+fn verify_constructive_dark_voa_uniqueness() -> shbt::ConstructiveDarkVoaVerification {
+    shbt::verify_constructive_dark_voa_uniqueness()
 }
 
 // ===========================================================================
@@ -3467,6 +3504,8 @@ pub struct ShbtReport {
     pub thermal_history_report: ThermalHistoryAuditReport,
     pub structure_report: StructureAuditReport,
     pub calorimetry_report: CalorimetryAuditReport,
+    pub quadratic_annihilation_audit: QuadraticAnnihilationAudit,
+    pub thermal_ladder: MultiEpochThermalLadderResult,
 }
 
 #[pymethods]
@@ -3502,6 +3541,9 @@ impl ShbtReport {
         d.set_item("primordial_nucleosynthesis", self.thermal_history_report.to_dict(py)?)?;
         d.set_item("cosmic_shear_and_structure", self.structure_report.to_dict(py)?)?;
         d.set_item("calorimetry_hypothesis_audit", self.calorimetry_report.to_dict(py)?)?;
+        d.set_item("quadratic_charge_annihilation", self.quadratic_annihilation_audit.to_dict(py)?)?;
+        d.set_item("thermal_ladder", self.thermal_ladder.to_dict(py)?)?;
+        d.set_item("stability_audit", verify_stability_audit().to_dict(py)?)?;
         Ok(d)
     }
 
@@ -3683,6 +3725,8 @@ impl ShbtSimulator {
         let thermal_history_report = run_thermal_history_audit();
         let structure_report = run_structure_audit();
         let calorimetry_report = run_calorimetry_audit();
+        let quadratic_annihilation_audit = run_operator_audit();
+        let thermal_ladder = run_observer_thermal_ladder();
         ShbtReport {
             branch: self.boundary.benchmark_branch,
             boundary_report,
@@ -3703,6 +3747,8 @@ impl ShbtSimulator {
             thermal_history_report,
             structure_report,
             calorimetry_report,
+            quadratic_annihilation_audit,
+            thermal_ladder,
         }
     }
 
@@ -3740,6 +3786,22 @@ impl ShbtSimulator {
 
     fn run_calorimetry_audit(&self) -> CalorimetryAuditReport {
         run_calorimetry_audit()
+    }
+
+    fn run_operator_audit(&self) -> QuadraticAnnihilationAudit {
+        run_operator_audit()
+    }
+
+    fn run_observer_thermal_ladder(&self) -> MultiEpochThermalLadderResult {
+        run_observer_thermal_ladder()
+    }
+
+    fn classify_global_affine_levels(&self) -> GlobalLevelClassificationResult {
+        classify_global_affine_levels()
+    }
+
+    fn verify_constructive_dark_voa_uniqueness(&self) -> ConstructiveDarkVoaVerification {
+        verify_constructive_dark_voa_uniqueness()
     }
 
     fn baryogenesis_identity(&self) -> BaryogenesisIdentity {
@@ -4087,5 +4149,47 @@ mod shbt_simulator {
 
     #[pymodule_export]
     use super::run_calorimetry_audit;
+
+    #[pymodule_export]
+    use super::shbt::QuadraticAnnihilationAudit;
+
+    #[pymodule_export]
+    use super::run_operator_audit;
+
+    #[pymodule_export]
+    use super::shbt::EpochObservation;
+
+    #[pymodule_export]
+    use super::shbt::MultiEpochThermalLadderResult;
+
+    #[pymodule_export]
+    use super::run_observer_thermal_ladder;
+
+    #[pymodule_export]
+    use super::shbt::GlobalLevelClassificationResult;
+
+    #[pymodule_export]
+    use super::shbt::ConstructiveDarkVoaVerification;
+
+    #[pymodule_export]
+    use super::classify_global_affine_levels;
+
+    #[pymodule_export]
+    use super::verify_constructive_dark_voa_uniqueness;
+
+    #[pymodule_export]
+    use super::shbt::StabilityAudit;
+
+    #[pymodule_export]
+    use super::shbt::TeschnerShiftAudit;
+
+    #[pymodule_export]
+    use super::shbt::NoetherWardAudit;
+
+    #[pymodule_export]
+    use super::shbt::NSatCrosswalk;
+
+    #[pymodule_export]
+    use super::shbt::CryogenicCalorimetryEngine;
 }
 
