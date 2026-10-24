@@ -6,7 +6,7 @@
 [![Python](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 
-**`shbt-precision`** is the definitive computational mathematics core and foundational physics authority for the nine-repository SHBT ecosystem. It provides 512-bit arbitrary-precision proofs (via `rug`/MPFR, 492-bit mantissa) and symplectic Yoshida-6 integrators verifying boundary Conformal Field Theory (CFT) projections, baryogenesis, dark-matter topological ghosts, first-principles inflation, and precision cosmology.
+**`shbt-precision`** is the definitive computational mathematics core and foundational physics authority for the 10-repository SHBT ecosystem. It provides 512-bit arbitrary-precision proofs (via `rug`/MPFR, 492-bit mantissa) and symplectic Yoshida-6 integrators verifying boundary Conformal Field Theory (CFT) projections, baryogenesis, dark-matter topological ghosts, first-principles inflation, and precision cosmology.
 
 The theory is fully documented in the accompanying publications [`main.pdf`](main.pdf) and [`supplementary.pdf`](supplementary.pdf). This repository is the **executable proof** of the theory: every claim, equation, and numerical prediction in the papers is audited by the Rust/Python code herein.
 
@@ -20,7 +20,7 @@ The theory is fully documented in the accompanying publications [`main.pdf`](mai
 - [CLI & Execution Reference](#cli--execution-reference)
 - [Section 12 Verification & Traceability Matrices](#section-12-verification--traceability-matrices)
 - [Build, Packaging & Document Compilation](#build-packaging--document-compilation)
-- [Sibling Repository Crosswalk](#sibling-repository-crosswalk)
+- [10-Repository SHBT Ecosystem Topology & Crosswalk](#10-repository-shbt-ecosystem-topology--crosswalk)
 
 ---
 
@@ -389,15 +389,55 @@ make all
 
 ---
 
-## Sibling Repository Crosswalk
+<a id="sibling-repository-crosswalk"></a>
+<a id="10-repository-shbt-ecosystem-topology--crosswalk"></a>
+## 10-Repository SHBT Ecosystem Topology & Crosswalk
 
-The SHBT program is a federated ecosystem of nine configuration-controlled repositories. `shbt-precision` is the mathematical core; downstream repositories consume its audited invariants.
+The SHBT program is a federated ecosystem of 10 configuration-controlled repositories. `shbt-precision` is the mathematical core; downstream repositories consume its audited invariants.
 
-                                  ╭──────────────────────────────────────────╮
-                                  │             [shbt-precision]             │
-                                  │      Computational Math & Cosmology      │
-                                  │     (512-bit MPFR / WZW Characters)      │
-                                  ╰────────────────────┬─────────────────────╯
+                                  ```text
+                                  +------------------------------------------+
+                                  |             [shbt-precision]             |
+                                  |      Computational Math & Cosmology      |
+                                  |     (512-bit MPFR / WZW Characters)      |
+                                  +--------------------+---------------------+
+                                                       |
+                     +---------------------------------+---------------------------------+
+                     v                                 v                                 v
+       +---------------------------+     +---------------------------+     +---------------------------+
+       |       [shbt-power]        |     |         [shbt-cf]         |     |         [shbt-qc]         |
+       |  Commercial Fusion Grid   |     |  1,800-Module LANR Array  |     | Bare-Metal Microkernel &  |
+       |   (8,750 MW p-11B Twin)   |     |    & Thermal-Hydraulics   |     |   Photonic Quantum Bus    |
+       +-------------+-------------+     +-------------+-------------+     +-------------+-------------+
+                     |                                 |                                 |
+                     +---------------------------------+---------------------------------+
+                                                       |
+                     +---------------------------------+---------------------------------+
+                     v                                 v                                 v
+       +---------------------------+     +---------------------------+     +---------------------------+
+       |       [shbt-ghost]        |     |        [shbt-sglt]        |     |        [shbt-exotic]      |
+       | Ghost Seed Propulsion &   |     | Synthetic Gravitational   |     | Multi-Protocol Spacetime  |
+       |  Metric Interlocks (CCZ4) |     |  Lensing Telescope Stack  |     |  Co-Simulation & QI Audit |
+       +-------------+-------------+     +-------------+-------------+     +-------------+-------------+
+                     |                                 |                                 |
+                     +---------------------------------+---------------------------------+
+                                                       |
+                               +-----------------------+-----------------------+
+                               v                                               v
+               +-------------------------------+               +-------------------------------+
+               |          [shbt-recon]         |               |          [shbt-warp]          |
+               |  Macro State Translocation &  |<=============>|   Holographic Warp Drive &    |
+               |  Bipartite Fuel Foundry Twin  |  Dual-Gateway |    3+1D ADM Metric Engine     |
+               |  (V_unified^macro / MAR-312C) |    Corridor   |  (Alcubierre / SHBT-MAR-312C) |
+               +---------------+---------------+               +---------------+---------------+
+                               ^                                               ^
+                               |       +-------------------------------+       |
+                               |       |          [shbt-swarm]         |       |
+                               +=======|  Autonomous Von Neumann Swarm |=======+
+                                       |  Universal Matter Foundry &   |
+                                       |   5th-Gen SHBT-MAR-312X Twin  |
+                                       +-------------------------------+
+```
                                                        │
                      ┌─────────────────────────────────┼─────────────────────────────────┐
                      ▼                                 ▼                                 ▼
@@ -415,7 +455,7 @@ The SHBT program is a federated ecosystem of nine configuration-controlled repos
        │  • shbt-ghost : Reactionless Propulsion & Local Gravity Wells (3+1 CCZ4 / PCSS Crowbars)  │
        │  • shbt-recon : Macroscopic State Translocation Gateway (Stinespring V_macro / 504 Gbps)  │
        │  • shbt-sglt  : Synthetic Gravitational Lensing Telescope (SE-L2 Swarm / TMSV Metrology)  │
-       │  • shbt-warp  : Holographic Warp Metric & 3+1D Flight Twin (ADM α=1.0 / 500 TJ Graser)    │
+       │  • shbt-warp  : Holographic Warp Metric & 3+1D Flight Twin (ADM α=1.0 / SHBT-MAR-312X Engine)    │
        ╰──────────────────────────────────────────┬────────────────────────────────────────────────╯
                                                   │
                                                   ▼
@@ -428,21 +468,29 @@ The SHBT program is a federated ecosystem of nine configuration-controlled repos
        │  • Dynamic 5-Stage Multi-Technology Flight Director & Relativistic PDE Mesh Solvers       │
        ╰───────────────────────────────────────────────────────────────────────────────────────────╯
 
-### Standardized 9-Pillar Ecosystem Crosswalk
+### Standardized 10-Repository Ecosystem Crosswalk Table
 
 | Repository | Domain Role & Platform Scope | Shared Invariants & Interface Contracts |
 | :--- | :--- | :--- |
-| [`shbt-precision`](https://github.com/sys1own/shbt-precision) | Computational Math & Cosmological Foundation Core | 512-bit MPFR numerics, canonical WZW (26, 8, 312), Δ<sub>fr</sub> ≡ 0, Landauer debt P<sub>debt</sub> = 906.00 kW. |
-| [`shbt-power`](https://github.com/sys1own/shbt-power) | Commercial p-¹¹B Aneutronic Fusion Power Plant Twin | 8,750 MW fusion / 7,832.903 MW net export, 70-gate audit, closed-loop thermal ledger, 128-byte SHBT-MMIO-POWER. |
-| [`shbt-cf`](https://github.com/sys1own/shbt-cf) | LANR Cold Fusion Reactor Workbench & Thermal-Hydraulics | 1,800-module LANR starter grid (999.054 kW net DC), dual-stage CoSb<sub>3</sub>/ZrNiSn TEG, Kapitza resistance ΔT<sub>K</sub> = 3.546 K. |
-| [`shbt-qc`](https://github.com/sys1own/shbt-qc) | Photonic Quantum Computer Twin & C11 Microkernel | Bare-metal C11 shbt-os microkernel, base 56-byte SHBT-MMIO-1 at 0x70000000, SECDED Hamming(72,64) ECC, AVX-512 interlocks. |
-| [`shbt-ghost`](https://github.com/sys1own/shbt-ghost) | Ghost Seed Reactionless Propulsion & Metric Stabilization | Sub-2.5 ns PCSS crowbars, 94.20% SiC inductive recovery, 3+1 CCZ4/ADM stabilization (β<sup>i</sup> → 0, ‖det(g)+1‖ ≤ 10<sup>-12</sup>). |
-| [`shbt-recon`](https://github.com/sys1own/shbt-recon) | Macroscopic State Translocation & Gateway Twin | Macroscopic Stinespring dilation (V<sub>unified</sub><sup>macro</sup>), dark ledger η<sub>D</sub> = 23/33, 128-byte C-ABI DMA streaming, 78-gate audit. |
-| [`shbt-sglt`](https://github.com/sys1own/shbt-sglt) | Synthetic Gravitational Lensing Telescope (SE-L2) Stack | 2PN relativistic beam optics, TMSV heterodyne metrology (r = 2.50, 21.715 dB), 5th-order minimum-jerk flight profiles. |
-| [`shbt-exotic`](https://github.com/sys1own/shbt-exotic) | Multi-Protocol Spacetime Engineering Co-Simulation | Cross-protocol metric coupling (all 6 phenomena), Ford-Roman QI dark-ledger auditing, Heegaard-Floer boundary relabeling. |
-| [`shbt-warp`](https://github.com/sys1own/shbt-warp) | Holographic Warp Drive Digital Twin & 3+1D ADM Engine | Alcubierre metric foliation (α = 1.0, γ<sub>ij</sub> = δ<sub>ij</sub>), 500 TJ ¹⁷⁸ᵐ²Hf graser battery (109 TW burst), 128-gate audit, 8 Z3 proofs. |
+| [`shbt-precision`](https://github.com/sys1own/shbt-precision) | Computational Math & Cosmological Foundation Core | 512-bit MPFR arbitrary-precision arithmetic (`rug`), WZW affine levels `(26, 8, 312)`, 346 Dynkin slots, Callan–Symanzik RG thresholds, exact Casimir denominators `(28, 22, 640)`, framing defect `Δ_fr ≡ 0`, Landauer debt schedule `P_debt = 906.00 kW`, 15-gate audit / 15 Z3 SMT proofs. |
+| [`shbt-qc`](https://github.com/sys1own/shbt-qc) | Photonic Quantum Computer Twin & C11 Microkernel | Freestanding C11 `shbt-os` microkernel, SHBT-R photonic processor architecture, 52-hexamer InP/InGaAsP microcavities (3-stage polariton squeezing cascade), non-Hermitian PT-symmetric Geometry of Interaction (GoI) optical matrix engine (`t_prop = 1.701 ps`), Tomita–Takesaki inverse modular automorphism flow `σ_{-t}^Ψ` (`Q_internal = 0 J/bit`), 128-byte `SHBT-MMIO-2` at `0x70000000`, SECDED `Hamming(72,64)` ECC syndromes, 50-gate verification matrix (V-01..V-50), 10 Z3 SMT proofs. |
+| [`shbt-power`](https://github.com/sys1own/shbt-power) | Commercial p-¹¹B Aneutronic Fusion Power Plant Twin | Multi-gigawatt p-¹¹B aneutronic fusion power generation (8,750 MW fusion / 7,832.903 MW net export), 128-byte `SHBT-MMIO-POWER`, 906.00 kW Landauer debt schedule, closed-loop thermal ledger, 78-gate verification audit (78/78 PASS) + 84-EXT checks, 16 Z3 proofs. |
+| [`shbt-cf`](https://github.com/sys1own/shbt-cf) | LANR Cold Fusion Reactor Workbench & Thermal-Hydraulics | 1,800-module LANR starter grid (555.03 W net/cell, 999.054 kW net DC array @ 400 V), dynamic Floquet–Adler–Wiser dielectric screening (`U_eff = 352.48 eV`), dual-stage CoSb₃/ZrNiSn TEG enthalpy recovery, Kapitza resistance `ΔT_K = 3.546 K`, 3D Eulerian-Eulerian helium thermal-hydraulics, 50-gate verification matrix (`GATE-01`–`GATE-50`). |
+| [`shbt-ghost`](https://github.com/sys1own/shbt-ghost) | Ghost Seed Reactionless Propulsion & Metric Stabilization | 3+1D CCZ4 numerical relativity with Gundlach damping (`κ₁ = 0.15, κ₂ = 0.0`), ADM metric stabilization (`β^i → 0, ||det(g)+1|| ≤ 10⁻¹²`), sub-2.5 ns PCSS GaN/4H-SiC optical crowbar circuits, 94.20% SiC inductive recovery shunts, 312-channel reactionless artificial gravity generation (1.000g habitability floors, zero-Coriolis metric screening `E_μν ≡ 0`), stand-off Bondi–Hoyle mass harvesting, 78-gate verification audit (`GATE-BAT-01..08`), 12 Z3 proofs. |
+| [`shbt-recon`](https://github.com/sys1own/shbt-recon) | Macroscopic State Translocation & Bipartite Fuel Foundry Twin | Macroscopic Stinespring dilation (`V_unified^macro`), 101-layer Adaptive TTN-MERA, topological dark ledger (`η_D = 23/33`, 124 Fibonacci braids), bipartite coset fuel synthesis operator (`R_synth^MAR`, `Δh_vis = 45/64`), 64-bank `UnifiedStinespringHyperFrame` (`135,168 B` @ `0x70020000`), Mode II 4.2 K readout (`Q_readout = 4.0194 × 10⁻²³ J/bit`), compacted `SHBT-MAR-312C` nacelle (`2,257.70 kg`), `SHBT-IBR-312` magazine, 144-gate verification audit, 29 Z3 formal SMT proofs. |
+| [`shbt-sglt`](https://github.com/sys1own/shbt-sglt) | Synthetic Gravitational Lensing Telescope Stack | 2PN relativistic beam optics in harmonic coordinates, Two-Mode Squeezed Vacuum (TMSV) heterodyne metrology (`r = 2.50`, `21.715 dB`, noise ASD `S_r^{1/2} ≤ 0.010 pm/√Hz`), 5th-order minimum-jerk flight profiles (`||s'''|| ≤ 5.7735`), SE-L2 formation flight, CVD Diamond-on-GaN thermal dissipation, 70-gate verification audit, 14 Z3 proofs. |
+| [`shbt-exotic`](https://github.com/sys1own/shbt-exotic) | Multi-Protocol Spacetime Engineering Co-Simulation | Cross-protocol metric coupling across all 6 phenomena (warp + stasis + translocation + wells + comms + quine), Ford–Roman Quantum Inequality (QI) dark-ledger auditing, Heegaard–Floer symplectic boundary relabeling (`T^∂_ij ∈ Sp(2g, Z)`), dynamic 5-stage relativistic PDE solvers, 70-gate verification audit + 80-EXT checks, 8 Z3 formal proofs. |
+| [`shbt-warp`](https://github.com/sys1own/shbt-warp) | Holographic Warp Drive Digital Twin & 3+1D ADM Engine | 3+1D Alcubierre metric foliation (`α = 1.0`, `γ_ij = δ_ij`, `β^x = -v_s exp(Δ_mod/2) f_SHBT`), 4th-Gen `SHBT-MAR-312` (`4,096.99 kg`) / compacted `SHBT-MAR-312C` (`2,257.70 kg`, `0.8589 m³`) / 5th-Gen `SHBT-MAR-312X` (`950.00 kg`, `0.3500 m³`, `25.00 EW`, `2,482,950c`) mass-annihilation reactors, `SHBT-IBR-312` magazine (`41 cores / 1,378.06 EJ`), `SHBT-EW-312` Effective Traversable Wormhole System (`89.6c → 2,482,950c`, `8.957-hour` Andromeda M31 transit), 221-gate verification audit, 28 Z3 formal proofs. |
+| [`shbt-swarm`](https://github.com/sys1own/shbt-swarm) | Autonomous Interstellar Von Neumann Swarm Architecture | Macroscopic anyon-braid quine cloning (`R_clone^SWARM`, `13.418 ms` Jump-Cruiser ship replication), non-Hermitian PT-GoI optical template imprinting (`54.432 ps`), `SHBT-STEN` cognitive solver & Proof-Carrying CBF Xenobiological Safety Shield (Classes M0, X0, X1, X2), `R_univ^SWARM` universal 230-space-group matter folding (202.55 Mt planetary synthesis, `11.40 μs` Mode 1c direct breeding), 5th-Gen `SHBT-MAR-312X` autopoietic reactor (`950.00 kg`, `0.3500 m³`, `25.00 EW`, `99.200%` `SHBT-DEC-X`, `37,016.7×` sensible heat reduction), 104-gate verification audit, 20 Z3 formal SMT proofs. |
 
----
+### Architectural Lineage & Foundations Provided to shbt-swarm
+
+`shbt-precision` provides the mathematical foundation and arbitrary-precision arithmetic substrate governing the entire physical and informational architecture of [`sys1own/shbt-swarm`](https://github.com/sys1own/shbt-swarm):
+1. **512-Bit MPFR Arbitrary-Precision Arithmetic Core:** `shbt-precision`'s 512-bit arithmetic (`rug`/MPFR, 492-bit mantissa) validates the irrational and transcendental invariants that guarantee swarm self-consistency across astronomical simulation and replication chains.
+2. **WZW Conformal Character Convergence `(26, 8, 312)` & 346 Dynkin Slots:** The affine Lie algebra characters and 346 Dynkin weight routing channels audited in `shbt-precision` directly defined the exact Casimir denominators `(28, 22, 640)` used by `shbt-swarm`'s continuous Dynamic Sugawara Framing Compensator (`|Δh_vis| ≤ C_braid = 100/φ² = 38.196601 nats`, `Δ_fr ≡ 0`).
+3. **Callan–Symanzik Renormalization Group Lock & Sim-to-Real Isomorphism:** Rigorous proof of the Callan–Symanzik RG invariants prevents metric drift, securing the Zero-Compute Simulation-to-Reality Isomorphism (`ΔC_post-sim ≡ 0`) that allows `shbt-swarm` to fabricate macroscopic hardware directly from simulated boundary CFT states without post-synthesis recalibration.
+
+In return, `shbt-swarm` closes the loop back into `shbt-precision` by providing empirical and numerical stress-energy verification across all 230 space groups, feeding hardware-in-the-loop closure metrics back into the foundational mathematical tables.
 
 ## License
 
