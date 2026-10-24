@@ -395,7 +395,6 @@ make all
 
 The SHBT program is a federated ecosystem of 10 configuration-controlled repositories. `shbt-precision` is the mathematical core; downstream repositories consume its audited invariants.
 
-                                  ```text
                                   +------------------------------------------+
                                   |             [shbt-precision]             |
                                   |      Computational Math & Cosmology      |
@@ -437,7 +436,6 @@ The SHBT program is a federated ecosystem of 10 configuration-controlled reposit
                                        |  Universal Matter Foundry &   |
                                        |   5th-Gen SHBT-MAR-312X Twin  |
                                        +-------------------------------+
-```
                                                        │
                      ┌─────────────────────────────────┼─────────────────────────────────┐
                      ▼                                 ▼                                 ▼
@@ -449,14 +447,14 @@ The SHBT program is a federated ecosystem of 10 configuration-controlled reposit
                      │                                 │                                 │
                      └────────────────────────┬────────┴─────────────────────────────────┘
                                               ▼
-       ╭───────────────────────────────────────────────────────────────────────────────────────────╮
-       │                                SPECIALIZED VEHICLE TWINS                                  │
-       │                                                                                           │
-       │  • shbt-ghost : Reactionless Propulsion & Local Gravity Wells (3+1 CCZ4 / PCSS Crowbars)  │
-       │  • shbt-recon : Macroscopic State Translocation Gateway (Stinespring V_macro / 504 Gbps)  │
-       │  • shbt-sglt  : Synthetic Gravitational Lensing Telescope (SE-L2 Swarm / TMSV Metrology)  │
-       │  • shbt-warp  : Holographic Warp Metric & 3+1D Flight Twin (ADM α=1.0 / SHBT-MAR-312X Engine)    │
-       ╰──────────────────────────────────────────┬────────────────────────────────────────────────╯
+       ╭──────────────────────────────────────────────────────────────────────────────────────────────╮
+       │                                SPECIALIZED VEHICLE TWINS                                     │
+       │                                                                                              │
+       │  • shbt-ghost : Reactionless Propulsion & Local Gravity Wells (3+1 CCZ4 / PCSS Crowbars)     │
+       │  • shbt-recon : Macroscopic State Translocation Gateway (Stinespring V_macro / 504 Gbps)     │
+       │  • shbt-sglt  : Synthetic Gravitational Lensing Telescope (SE-L2 Swarm / TMSV Metrology)     │
+       │  • shbt-warp  : Holographic Warp Metric & 3+1D Flight Twin (ADM α=1.0 / SHBT-MAR-312X Engine)│
+       ╰──────────────────────────────────────────┬───────────────────────────────────────────────────╯
                                                   │
                                                   ▼
        ╭───────────────────────────────────────────────────────────────────────────────────────────╮
