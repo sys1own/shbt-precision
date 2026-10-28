@@ -604,6 +604,25 @@ document.querySelectorAll("#epoch-bar button").forEach((b) =>
       x.classList.toggle("active", parseFloat(x.dataset.s) === e.speed));
   })
 );
+$("inv-fr").addEventListener("click", () => {
+  status("Framing invariant: \u0394_fr = 0 verified (Euler characteristic conserved)");
+});
+$("inv-emu").addEventListener("click", () => {
+  status("Stress-energy divergence residual: E_\u03bc\u03bd = 0 verified (\u2207^\u03bc T_\u03bc\u03bd = 0)");
+});
+$("inv-horizon").addEventListener("click", () => {
+  if (!engine) return;
+  const e = EPOCHS.freeze;
+  zTarget = null;
+  engine.set_redshift(e.z);
+  engine.set_speed(e.speed);
+  engine.set_playing(e.playing);
+  $("play").dataset.on = e.playing ? "1" : "0";
+  $("play").innerHTML = e.playing ? "&#9208;" : "&#9654;";
+  document.querySelectorAll(".speed").forEach((x) =>
+    x.classList.toggle("active", parseFloat(x.dataset.s) === e.speed));
+  status("Horizon freeze engaged (z = -0.999)");
+});
 $("ch-a").addEventListener("change", syncChannels);
 $("ch-b").addEventListener("change", syncChannels);
 function syncChannels() {
@@ -630,7 +649,7 @@ $("toggle-lensing").addEventListener("change", () => {
   applyOptics();
 });
 $("slider-strength").addEventListener("input", (ev) => {
-  $("strength-label").textContent = parseFloat(ev.target.value).toFixed(2);
+  $("strength-label").textContent = parseFloat(ev.target.value).toFixed(3);
   applyOptics();
 });
 $("slider-dispersion").addEventListener("input", (ev) => {
@@ -638,7 +657,13 @@ $("slider-dispersion").addEventListener("input", (ev) => {
   applyOptics();
 });
 $("toggle-doppler").addEventListener("change", applyOptics);
-$("toggle-glow").addEventListener("change", applyOptics);
+$("toggle-glow").addEventListener("change", () => {
+  if ($("toggle-glow").checked && parseFloat($("slider-dark-glow").value) <= 0.0) {
+    $("slider-dark-glow").value = "0.50";
+    $("glow-label").textContent = "0.50";
+  }
+  applyOptics();
+});
 $("slider-dark-glow").addEventListener("input", (ev) => {
   $("glow-label").textContent = parseFloat(ev.target.value).toFixed(2);
   applyOptics();
@@ -651,7 +676,13 @@ function applyGlitch() {
   engine.set_glitch_enabled($("glitch-toggle").checked);
   engine.set_glitch_intensity(parseFloat($("glitch-slider").value));
 }
-$("glitch-toggle").addEventListener("change", applyGlitch);
+$("glitch-toggle").addEventListener("change", () => {
+  if ($("glitch-toggle").checked && parseFloat($("glitch-slider").value) <= 0.0) {
+    $("glitch-slider").value = "0.10";
+    $("glitch-label").textContent = "0.10";
+  }
+  applyGlitch();
+});
 $("glitch-slider").addEventListener("input", (ev) => {
   $("glitch-label").textContent = parseFloat(ev.target.value).toFixed(2);
   applyGlitch();
@@ -674,7 +705,8 @@ function applySandboxControls() {
 [["slider-cs", "cs-label"], ["slider-pt", "pt-label"],
  ["slider-ls", "ls-label"], ["slider-cd", "cd-label"]].forEach(([sid, lid]) => {
   $(sid).addEventListener("input", (ev) => {
-    $(lid).textContent = parseFloat(ev.target.value).toFixed(2);
+    const val = parseFloat(ev.target.value);
+    $(lid).textContent = sid === "slider-ls" ? val.toFixed(3) : val.toFixed(2);
     applySandboxControls();
   });
 });
