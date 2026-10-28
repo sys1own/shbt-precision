@@ -38,6 +38,7 @@ shbt_tensor_cls.csv
 sim_results.tex
 .xwin-cache/
 visualizer/recordings/raw_videos/
+visualizer/recordings/e2e_test_artifacts/
 tests/browser/node_modules/
 tectonic_bin/
 *.zip
