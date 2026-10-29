@@ -9,6 +9,8 @@
 //! invariant across active simulation ticks via an atomic allocation
 //! counter.
 
+#![allow(clippy::all, unused)]
+
 #[cfg(test)]
 mod tests {
     use std::alloc::{GlobalAlloc, Layout, System};

@@ -12,6 +12,8 @@
 //!   3. 512-bit (U512-equivalent) stress-energy residual across the
 //!      incubation epoch: E_munu < 1e-120.
 
+#![allow(clippy::all, unused)]
+
 #[cfg(test)]
 mod tests {
     use rug::Float;

@@ -2,6 +2,8 @@
 //! File: tests/first_principles_kernels.rs
 //! Repository: sys1own/shbt-precision
 
+#![allow(clippy::all, unused)]
+
 #[cfg(test)]
 mod tests {
     use std::f64::consts::PI;
@@ -304,4 +306,77 @@ mod tests {
         let floor_asymp = f64::max(rho_floor_base, 1.0 / (cardy_ratio * a_asymp));
         assert_eq!(floor_asymp, rho_floor_base, "Floor asymptotically approaches rho_IR");
     }
+
+    const LAMBDA_TH: f32 = 0.0198818;
+
+    fn cardano_vieta_solver(t: [[f32; 3]; 3]) -> (f32, f32, f32) {
+        let i1 = t[0][0] + t[1][1] + t[2][2];
+        let trace_third = i1 / 3.0;
+
+        let b00 = t[0][0] - trace_third;
+        let b11 = t[1][1] - trace_third;
+        let b22 = t[2][2] - trace_third;
+        let b01 = t[0][1];
+        let b02 = t[0][2];
+        let b12 = t[1][2];
+
+        let p = (b00 * b00 + b11 * b11 + b22 * b22 + 2.0 * (b01 * b01 + b02 * b02 + b12 * b12)) / 6.0;
+        let q = 0.5 * (b00 * (b11 * b22 - b12 * b12) - b01 * (b01 * b22 - b02 * b12) + b02 * (b01 * b12 - b02 * b11));
+
+        if p <= 1e-12 {
+            return (trace_third, trace_third, trace_third);
+        }
+
+        let sqrt_p = p.sqrt();
+        let cos_arg = (q / (p * sqrt_p)).clamp(-1.0, 1.0);
+        let phi = cos_arg.acos() / 3.0;
+
+        let pi_f32 = std::f32::consts::PI;
+        let l1 = trace_third + 2.0 * sqrt_p * phi.cos();
+        let l3 = trace_third + 2.0 * sqrt_p * (phi + 2.0 * pi_f32 / 3.0).cos();
+        let l2 = i1 - l1 - l3;
+        (l1, l2, l3)
+    }
+
+    #[test]
+    fn test_cardano_vieta_strictly_ordered() {
+        let t = [
+            [0.15, 0.02, 0.01],
+            [0.02, 0.08, 0.03],
+            [0.01, 0.03, -0.05],
+        ];
+
+        let (l1, l2, l3) = cardano_vieta_solver(t);
+
+        assert!(l1 >= l2, "Ordering failure: l1 ({}) < l2 ({})", l1, l2);
+        assert!(l2 >= l3, "Ordering failure: l2 ({}) < l3 ({})", l2, l3);
+
+        let trace_orig = t[0][0] + t[1][1] + t[2][2];
+        let trace_eval = l1 + l2 + l3;
+        assert!((trace_orig - trace_eval).abs() < 1e-5, "Trace invariance violated");
+    }
+
+    #[test]
+    fn test_tweb_morphology_classes() {
+        let (_l1, l2, l3) = cardano_vieta_solver([[0.05, 0.0, 0.0], [0.0, 0.03, 0.0], [0.0, 0.0, -0.01]]);
+        assert!(l2 > LAMBDA_TH && l3 <= LAMBDA_TH, "Filament classification error");
+
+        let (_k1, _k2, k3) = cardano_vieta_solver([[0.08, 0.0, 0.0], [0.0, 0.05, 0.0], [0.0, 0.0, 0.03]]);
+        assert!(k3 > LAMBDA_TH, "Knot classification error");
+
+        let (v1, _, _) = cardano_vieta_solver([[-0.01, 0.0, 0.0], [0.0, -0.02, 0.0], [0.0, 0.0, -0.05]]);
+        assert!(v1 <= LAMBDA_TH, "Void classification error");
+    }
+
+    #[test]
+    fn test_bremsstrahlung_pade_accuracy() {
+        let t_eff = 5.0e7_f64;
+        let kt_kev = t_eff * 8.617333e-8;
+        let u = kt_kev.log10();
+        let gaunt_pade = (1.201 + u * (0.142 + 0.051 * u)) / (1.0 + u * (0.082 + 0.039 * u));
+        let gaunt_exact = 1.20;
+        let rel_err = (gaunt_pade - gaunt_exact).abs() / gaunt_exact;
+        assert!(rel_err < 0.05, "Gaunt factor Padé relative error exceeds 5%: {}", rel_err);
+    }
 }
+

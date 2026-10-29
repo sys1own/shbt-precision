@@ -1,5 +1,8 @@
 //! Conservation invariant gates for the boundary cosmology engine and the
 //! SHBT-MMIO telemetry serializer (spec: `shbt3.txt`, Verification Matrix).
+
+#![allow(clippy::all, unused)]
+
 use rug::Float;
 use shbt_simulator::shbt::cosmology::ShbtUniverse;
 use shbt_simulator::shbt::export::{

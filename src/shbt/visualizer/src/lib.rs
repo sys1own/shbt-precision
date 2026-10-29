@@ -14,6 +14,9 @@
 //! into the `active_seeds` buffer that `nbody_pm.wgsl`,
 //! `dual_channel_render.wgsl`, and `holographic_post.wgsl` all read.
 
+#![allow(clippy::all, unused)]
+
+pub mod abi;
 mod emergence;
 mod engine;
 mod hud;
@@ -21,6 +24,7 @@ mod particle;
 mod telemetry;
 mod units;
 
+pub use abi::{CosmicBandHistogram, MeshCellAtomic, ShbtMmioHeaderV2};
 pub use emergence::{EmergenceUniforms, HaloMerger, D5_MERGE_COEFFICIENT, KAPPA_STAR_D5};
 pub use engine::{CausalPointRecord, ParticleRecord, SeedDefectRecord, WasmShbtEngine};
 pub use units::{

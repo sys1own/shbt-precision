@@ -223,8 +223,12 @@
     <button data-epoch="seed">3. Ghost Seed Genesis (z=18)</button>
     <button data-epoch="get">4. Proto-Galaxy Web (z=3)</button>
     <button data-epoch="freeze">5. Horizon Freeze (z=-0.999)</button>
+    <button id="btn-toggle-dock" title="Toggle Scientific Telemetry Dock [P]" style="background:#1a2f4d; border-color:#00e5ff; color:#00e5ff">Dock [P]</button>
+    <button id="btn-export-data" title="Export Quantitative Data [E]" style="background:#1a2f4d; border-color:#7ee0a3; color:#7ee0a3">Export [E]</button>
   </div>
 </div>
+
+<canvas id="telemetry-dock-canvas" width="640" height="960" style="position: absolute; right: 10px; top: 10px; width: 380px; height: 570px; z-index: 20; border: 1px solid #26406b; border-radius: 8px; box-shadow: 0 4px 20px rgba(0,0,0,0.75); display: none; background: #0a0d14;"></canvas>
 
 <div id="phase-space-card" aria-hidden="true">
   <div class="ps-title">Phase-Space Density (x, v&#8339;)</div>

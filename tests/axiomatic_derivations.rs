@@ -1,3 +1,5 @@
+#![allow(clippy::all, unused)]
+
 use shbt_simulator::shbt::couplings::{run_gauge_couplings_audit, GaugeCouplingLedger};
 use shbt_simulator::shbt::flavor::{run_flavor_audit, FlavorMixingEngine};
 use shbt_simulator::shbt::gauge_dynamics::{

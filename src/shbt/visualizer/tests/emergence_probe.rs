@@ -2,6 +2,8 @@
 //! seed lattice and measure candidate/merged counts vs the shbt13
 //! dynamic-threshold margin, at several redshifts.
 
+#![allow(unused)]
+
 use shbt_visualizer::Particle;
 
 const GRID_DIM: i32 = 32;

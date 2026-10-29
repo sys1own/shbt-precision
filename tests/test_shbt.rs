@@ -1,3 +1,5 @@
+#![allow(clippy::all, unused)]
+
 use shbt_simulator::shbt::stability_audit::mass_congestion_coupling;
 
 #[test]

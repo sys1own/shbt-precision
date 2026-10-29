@@ -650,3 +650,90 @@ fn fs_render_dual_channel(in: VertexOutput) -> GBufferOutput {
 
     return output;
 }
+
+// ---------------------------------------------------------------------------
+// First-principles 3D anisotropic ellipsoidal Gaussian splatting (D5 anchor)
+// ---------------------------------------------------------------------------
+const R0_D5: f32 = 1.380121;
+const TOPO_FACTOR: f32 = 25.09285714; // 3513.0 / 140.0
+
+struct SplatVertexInput {
+    @builtin(vertex_index) v_idx: u32,
+    @builtin(instance_index) i_idx: u32,
+};
+
+struct SplatVertexOutput {
+    @builtin(position) position: vec4<f32>,
+    @location(0) uv: vec2<f32>,
+    @location(1) @interpolate(flat) color: vec4<f32>,
+    @location(2) conic: vec3<f32>,
+};
+
+@vertex
+fn vs_splat(in: SplatVertexInput) -> SplatVertexOutput {
+    var out: SplatVertexOutput;
+    let p = particles[in.i_idx];
+    let pos_cam = (camera.view_proj * vec4<f32>(p.position, 1.0)).xyz;
+    if (pos_cam.z <= 0.05) {
+        out.position = vec4<f32>(0.0, 0.0, -100.0, 1.0);
+        return out;
+    }
+    let sigma_val = length(p.velocity) * 0.001;
+    let phi_topo = 1.0 / (1.0 + TOPO_FACTOR * sigma_val * sigma_val);
+    let r3 = R0_D5 * (1.0 + max(0.0, p.shear.x - p.shear.z));
+    let r1 = R0_D5 * phi_topo / (1.0 + max(0.0, p.shear.x));
+    let r2 = R0_D5 * phi_topo / (1.0 + max(0.0, p.shear.y));
+    let S = mat3x3<f32>(
+        r1, 0.0, 0.0,
+        0.0, r2, 0.0,
+        0.0, 0.0, r3
+    );
+    let sigma3d = S * transpose(S);
+    let tz = max(pos_cam.z, 0.1);
+    let tz2 = tz * tz;
+    let f_x = max(camera.params2.x, 100.0);
+    let f_y = max(camera.params2.y, 100.0);
+    let J = mat3x2<f32>(
+        f_x / tz, 0.0,
+        0.0, f_y / tz,
+        -(f_x * pos_cam.x) / tz2, -(f_y * pos_cam.y) / tz2
+    );
+    let J_mat = transpose(J);
+    let V2d = J_mat * sigma3d * transpose(J_mat);
+    let s_xx = V2d[0][0] + 0.33;
+    let s_xy = V2d[0][1];
+    let s_yy = V2d[1][1] + 0.33;
+    let det = s_xx * s_yy - s_xy * s_xy;
+    let inv_det = 1.0 / max(det, 1e-6);
+    out.conic = vec3<f32>(s_yy * inv_det, -s_xy * inv_det, s_xx * inv_det);
+    let mid = 0.5 * (s_xx + s_yy);
+    let radius = sqrt(max(0.1, mid + sqrt(max(0.1, (mid - s_xx) * (mid - s_yy) + s_xy * s_xy))));
+    let extent = 3.0 * sqrt(radius);
+    let quad_offsets = array<vec2<f32>, 4>(
+        vec2<f32>(-1.0, -1.0), vec2<f32>(1.0, -1.0),
+        vec2<f32>(-1.0,  1.0), vec2<f32>(1.0,  1.0)
+    );
+    let offset = quad_offsets[in.v_idx] * extent;
+    out.uv = offset;
+    let p_proj = camera.view_proj * vec4<f32>(p.position, 1.0);
+    let screen_delta = offset / max(camera.params2.xy, vec2<f32>(1.0)) * p_proj.w;
+    out.position = vec4<f32>(p_proj.xy + screen_delta, p_proj.zw);
+    if (p.channel == 0u) {
+        out.color = vec4<f32>(0.2, 0.7, 1.0, 0.85); // Baryonic visible matter: cyan
+    } else {
+        out.color = vec4<f32>(0.85, 0.15, 0.95, 0.35); // Ghost DM: infrared-magenta
+    }
+    return out;
+}
+
+@fragment
+fn fs_splat(in: SplatVertexOutput) -> @location(0) vec4<f32> {
+    let power = -0.5 * (in.conic.x * in.uv.x * in.uv.x +
+                        2.0 * in.conic.y * in.uv.x * in.uv.y +
+                        in.conic.z * in.uv.y * in.uv.y);
+    if (power > 0.0) { discard; }
+    let alpha = exp(power);
+    if (alpha < 0.005) { discard; }
+    return vec4<f32>(in.color.rgb, in.color.a * alpha);
+}
+

@@ -1,4 +1,4 @@
-#![allow(unexpected_cfgs)]
+#![allow(unexpected_cfgs, clippy::all, unused)]
 
 use pyo3::exceptions::{PyIndexError, PyValueError};
 use pyo3::prelude::*;

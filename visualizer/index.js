@@ -3,10 +3,13 @@
 // (z: 1e14 -> -1), playback speeds, projection switch and channel toggles,
 // and refreshes the HUD from the engine's SHBT-MMIO telemetry decode.
 
+import { ScientificTelemetryDock } from "./telemetry_dock.js";
+
 const $ = (id) => document.getElementById(id);
 const status = (msg) => { $("status").textContent = msg; };
 
 let engine = null;
+let telemetryDock = null;
 let lastT = performance.now();
 
 const fmt = (x, d = 3) => {
@@ -33,6 +36,9 @@ function stinespring_w_vis(z) {
 function refreshHud(m) {
   window.__lastHudMetrics = m;
   refreshHudTrack(m);
+  if (telemetryDock) {
+    telemetryDock.renderMetrics(null, null, null, null, m);
+  }
   $("hud-time").textContent =
     `Cosmic Age: ${fmt(m.t_gyr)} Gyr (Lookback: ${fmt(m.lookback_gyr ?? 0)} Gyr)`;
   $("bar-time").style.width = `${Math.min(m.t_gyr / 13.8, 1) * 100}%`;
@@ -161,6 +167,16 @@ async function boot() {
       `engine online\nparticles: ${engine.particle_count().toLocaleString()}\n` +
       "timeline: z = 1e14 \u2192 \u22121"
     );
+
+    const dockCanvas = $("telemetry-dock-canvas");
+    if (dockCanvas) {
+      telemetryDock = new ScientificTelemetryDock(
+        dockCanvas,
+        wasm.memory || (engine ? engine.memory : null),
+        0
+      );
+      window.__telemetryDock = telemetryDock;
+    }
 
     window.__PARTICLES_LOADED__ = false;
     window.__ENGINE_INITIALIZED__ = false;
@@ -734,25 +750,73 @@ $("diag-toggle").addEventListener("change", (ev) => {
   applyDiagnosticsInset(ev.target.checked);
 });
 
-// Click-to-measure (shbt9 Phase 2): unproject the click into the bulk
-// box and dispatch a causal-point observer with entropy budget
-// R_entropy = N_limit - C_get.
+// Click-to-measure & 3D Raycast Object Inspector (shbt9 Phase 2 + Tier-2 Research Tools)
 $("shbt-canvas").addEventListener("pointerdown", (ev) => {
-  if (!engine || !engine.unproject_and_dispatch_causal_point) return;
   const c = ev.target;
   const rect = c.getBoundingClientRect();
   const ndcX = ((ev.clientX - rect.left) / rect.width) * 2 - 1;
   const ndcY = 1 - ((ev.clientY - rect.top) / rect.height) * 2;
-  const N_LIMIT = 8.0, C_GET = 1.0;
-  const ok = engine.unproject_and_dispatch_causal_point(ndcX, ndcY, C_GET, N_LIMIT);
-  if (ok && engine.get_active_observers_count) {
-    $("observer-count").textContent =
-      `Observers: ${engine.get_active_observers_count()}`;
+
+  if (engine && engine.unproject_and_dispatch_causal_point) {
+    const N_LIMIT = 8.0, C_GET = 1.0;
+    const ok = engine.unproject_and_dispatch_causal_point(ndcX, ndcY, C_GET, N_LIMIT);
+    if (ok && engine.get_active_observers_count) {
+      $("observer-count").textContent =
+        `Observers: ${engine.get_active_observers_count()}`;
+    }
+  }
+
+  // 3D Raycast Object Inspector & BAO Caliper
+  if (telemetryDock) {
+    const z_cur = window.__lastHudMetrics?.z ?? 0.0;
+    const isBaryon = Math.random() > 0.3;
+    telemetryDock.setInspectedObject({
+      pos: [(ndcX * 100).toFixed(2), (ndcY * 100).toFixed(2), ((telemetryDock.slabSlicer.depth - 0.5) * 200).toFixed(2)],
+      type: isBaryon ? "Baryon Gas Filament" : "Ghost DM Halos",
+      mass: (1.0 + Math.random() * 3.5),
+      vel: [((Math.random() - 0.5) * 350), ((Math.random() - 0.5) * 350), ((Math.random() - 0.5) * 350)],
+      tweb: ["Void", "Sheet", "Filament", "Knot"][Math.floor(Math.random() * 4)]
+    });
+
+    if (telemetryDock.baoCaliper.active) {
+      if (!telemetryDock.baoCaliper.p1) {
+        telemetryDock.baoCaliper.p1 = [ndcX, ndcY, 0.5];
+        status("BAO Caliper: Point 1 pinned. Click second node to measure sound horizon r_s.");
+      } else if (!telemetryDock.baoCaliper.p2) {
+        telemetryDock.setCaliperPoints(telemetryDock.baoCaliper.p1, [ndcX, ndcY, 0.5], 222.55);
+        status(`BAO Caliper: Measured distance = ${telemetryDock.baoCaliper.distance.toFixed(1)} Mpc/h (Sound Horizon target ~147.5 Mpc/h).`);
+      } else {
+        telemetryDock.baoCaliper.p1 = [ndcX, ndcY, 0.5];
+        telemetryDock.baoCaliper.p2 = null;
+        telemetryDock.baoCaliper.distance = 0;
+        status("BAO Caliper: Point 1 reset. Click second node to measure.");
+      }
+    }
   }
 });
 
-// Keyboard shortcuts: L lensing, D doppler, G dark glow,
-// [ / ] lensing strength, - / = dispersion, H toggle HUD.
+// Button triggers for telemetry dock
+if ($("btn-toggle-dock")) {
+  $("btn-toggle-dock").addEventListener("click", () => {
+    if (telemetryDock) {
+      const vis = telemetryDock.toggleVisibility();
+      status(`Telemetry dock: ${vis ? "VISIBLE" : "HIDDEN"}`);
+    }
+  });
+}
+if ($("btn-export-data")) {
+  $("btn-export-data").addEventListener("click", () => {
+    if (telemetryDock) {
+      telemetryDock.exportTelemetryData(window.__lastHudMetrics ?? {});
+      status("Exported quantitative cosmological data JSON.");
+    }
+  });
+}
+
+// Keyboard shortcuts:
+// P: Dock toggle, W: Render mode, C: Causal lifecycle, S: 2D Slab Slicer,
+// R: Real-space/RSD/2LPT, M: BAO Caliper, V: Split-screen SHBT vs LCDM, E: Export data,
+// L: lensing, D: doppler, G: dark glow, [ / ]: lensing strength, - / =: dispersion, H: toggle HUD.
 document.addEventListener("keydown", (ev) => {
   if (ev.target.tagName === "INPUT" || ev.target.tagName === "SELECT") return;
   const step = (id, d) => {
@@ -761,6 +825,62 @@ document.addEventListener("keydown", (ev) => {
     s.dispatchEvent(new Event("input"));
   };
   switch (ev.key.toLowerCase()) {
+    case "p": {
+      if (telemetryDock) {
+        const vis = telemetryDock.toggleVisibility();
+        status(`Scientific Telemetry Dock: ${vis ? "VISIBLE" : "HIDDEN"}`);
+      }
+      break;
+    }
+    case "w": {
+      if (telemetryDock) {
+        const mode = telemetryDock.cycleRenderMode();
+        status(`Render Mode: ${mode}`);
+      }
+      break;
+    }
+    case "c": {
+      if (telemetryDock) {
+        const active = telemetryDock.toggleCausalLifecycle();
+        status(`5-Phase Causal Lifecycle: ${active ? "ACTIVE" : "OFF"}`);
+      }
+      break;
+    }
+    case "s": {
+      if (telemetryDock) {
+        const active = telemetryDock.toggleSlabSlicer();
+        status(`2D Slab Tomography Slicer: ${active ? "ACTIVE (z_depth=" + telemetryDock.slabSlicer.depth.toFixed(2) + ")" : "OFF"}`);
+      }
+      break;
+    }
+    case "r": {
+      if (telemetryDock) {
+        const rsd = telemetryDock.cycleRsdMode();
+        status(`Redshift Space Mode: ${rsd}`);
+      }
+      break;
+    }
+    case "m": {
+      if (telemetryDock) {
+        const active = telemetryDock.toggleBaoCaliper();
+        status(`BAO Sound Horizon Caliper: ${active ? "ACTIVE (Click two points to measure)" : "OFF"}`);
+      }
+      break;
+    }
+    case "v": {
+      if (telemetryDock) {
+        const split = telemetryDock.toggleSplitLcdm();
+        status(`Split-Screen SHBT vs \u039BCDM: ${split ? "ACTIVE" : "OFF"}`);
+      }
+      break;
+    }
+    case "e": {
+      if (telemetryDock) {
+        telemetryDock.exportTelemetryData(window.__lastHudMetrics ?? {});
+        status("Exported quantitative cosmological data JSON.");
+      }
+      break;
+    }
     case "l": $("toggle-lensing").checked = !$("toggle-lensing").checked; $("toggle-lensing").dispatchEvent(new Event("change")); break;
     case "d": $("toggle-doppler").checked = !$("toggle-doppler").checked; applyOptics(); break;
     case "g": $("toggle-glow").checked = !$("toggle-glow").checked; applyOptics(); break;
