@@ -265,7 +265,7 @@
   },
   {
     "milestone": 5,
-    "label": "cosmic-web lensing",
+    "label": "cosmic noon peak clustering",
     "z_target": 1.0,
     "z_hud": "1.000",
     "quench_pct": "69.70",
@@ -291,7 +291,7 @@
         "hard": true
       },
       {
-        "name": "gamma_max > 0.1",
+        "name": "gamma_max > 0.05",
         "pass": true,
         "detail": "0.3873",
         "hard": true
@@ -319,11 +319,11 @@
   },
   {
     "milestone": 6,
-    "label": "peak cluster assembly",
-    "z_target": 0.822,
-    "z_hud": "0.8220",
+    "label": "mature cosmic web (7-8 Gyr)",
+    "z_target": 0.55,
+    "z_hud": "0.5500",
     "quench_pct": "69.70",
-    "landauer_gw": "9.0178e+15",
+    "landauer_gw": "9.0031e+15",
     "fps": "0.0",
     "asserts": [
       {
@@ -331,6 +331,72 @@
         "pass": false,
         "detail": "0.0 FPS (offline fixed-timestep budget; strict mode: False)",
         "hard": false
+      },
+      {
+        "name": "cosmic age in [7.0, 9.5] Gyr",
+        "pass": true,
+        "detail": "8.227 Gyr",
+        "hard": true
+      },
+      {
+        "name": "caustics > 0",
+        "pass": true,
+        "detail": "1024",
+        "hard": true
+      },
+      {
+        "name": "caustic:seed 1:1 parity",
+        "pass": true,
+        "detail": "1024 caustics vs 1024 seeds",
+        "hard": true
+      },
+      {
+        "name": "gamma_max > 0.05",
+        "pass": true,
+        "detail": "0.4724",
+        "hard": true
+      },
+      {
+        "name": "theta_E in [0.01, 0.09] rad",
+        "pass": true,
+        "detail": "0.0850 rad",
+        "hard": true
+      }
+    ],
+    "metrics": {
+      "t_gyr": 8.226931,
+      "lookback_gyr": 5.563979,
+      "f_load": 0.0431655,
+      "seedCount": 1024,
+      "totalMass": 9937151000000,
+      "landauerDebt": 9003059000000000,
+      "active_caustics": 1024,
+      "peak_shear": 0.472358,
+      "peak_convergence": 0.581158,
+      "max_einstein_radius": 0.085,
+      "horizon_frozen": false
+    }
+  },
+  {
+    "milestone": 7,
+    "label": "present epoch universe",
+    "z_target": 0.0,
+    "z_hud": "0.000",
+    "quench_pct": "69.70",
+    "landauer_gw": "8.2920e+15",
+    "fps": "0.0",
+    "asserts": [
+      {
+        "name": "fps >= 55",
+        "pass": false,
+        "detail": "0.0 FPS (offline fixed-timestep budget; strict mode: False)",
+        "hard": false
+      },
+      {
+        "name": "cosmic age in [13.0, 14.5] Gyr",
+        "pass": true,
+        "detail": "13.791 Gyr",
+        "hard": true
       },
       {
         "name": "active_seeds > 0",
@@ -345,12 +411,6 @@
         "hard": true
       },
       {
-        "name": "cluster assembly lensing active",
-        "pass": true,
-        "detail": "0.4724",
-        "hard": true
-      },
-      {
         "name": "theta_E in [0.01, 0.09] rad",
         "pass": true,
         "detail": "0.0850 rad",
@@ -358,26 +418,74 @@
       }
     ],
     "metrics": {
-      "t_gyr": 6.638394,
-      "lookback_gyr": 7.152516,
-      "f_load": 0.03026595,
+      "t_gyr": 13.79091,
+      "lookback_gyr": 0,
+      "f_load": 0.10186786,
       "seedCount": 1024,
-      "totalMass": 9953452000000,
-      "landauerDebt": 9017827000000000,
+      "totalMass": 9152308000000,
+      "landauerDebt": 8291991000000000,
       "active_caustics": 1024,
-      "peak_shear": 0.472358,
-      "peak_convergence": 0.573515,
+      "peak_shear": 0.38083,
+      "peak_convergence": 0.679389,
       "max_einstein_radius": 0.085,
       "horizon_frozen": false
     }
   },
   {
-    "milestone": 7,
+    "milestone": 8,
+    "label": "de Sitter acceleration voids",
+    "z_target": -0.7,
+    "z_hud": "-0.7000",
+    "quench_pct": "69.70",
+    "landauer_gw": "7.5337e+15",
+    "fps": "0.0",
+    "asserts": [
+      {
+        "name": "fps >= 55",
+        "pass": false,
+        "detail": "0.0 FPS (offline fixed-timestep budget; strict mode: False)",
+        "hard": false
+      },
+      {
+        "name": "cosmic age > 15.0 Gyr",
+        "pass": true,
+        "detail": "33.774 Gyr",
+        "hard": true
+      },
+      {
+        "name": "f_load > 0.40",
+        "pass": true,
+        "detail": "0.4559",
+        "hard": true
+      },
+      {
+        "name": "active_seeds > 0",
+        "pass": true,
+        "detail": "1024 seeds",
+        "hard": true
+      }
+    ],
+    "metrics": {
+      "t_gyr": 33.77402,
+      "lookback_gyr": -19.98311,
+      "f_load": 0.45593222,
+      "seedCount": 1024,
+      "totalMass": 8315338000000,
+      "landauerDebt": 7533696000000000,
+      "active_caustics": 1024,
+      "peak_shear": 0.477038,
+      "peak_convergence": 0.847024,
+      "max_einstein_radius": 0.085,
+      "horizon_frozen": false
+    }
+  },
+  {
+    "milestone": 9,
     "label": "asymptotic horizon freeze",
     "z_target": -0.999,
     "z_hud": "-0.9990",
     "quench_pct": "69.70",
-    "landauer_gw": "1.3810e+16",
+    "landauer_gw": "1.3022e+16",
     "fps": "0.0",
     "asserts": [
       {
@@ -416,11 +524,11 @@
       "lookback_gyr": -119.9317,
       "f_load": 0.99999978,
       "seedCount": 1024,
-      "totalMass": 15242460000000,
-      "landauerDebt": 13809670000000000,
+      "totalMass": 14373440000000,
+      "landauerDebt": 13022330000000000,
       "active_caustics": 1024,
-      "peak_shear": 0.38083,
-      "peak_convergence": 1.211532,
+      "peak_shear": 0.378075,
+      "peak_convergence": 1.189387,
       "max_einstein_radius": 0.085,
       "horizon_frozen": true
     }

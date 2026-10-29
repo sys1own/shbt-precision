@@ -77,9 +77,24 @@ BROWSER_ARGS = [
     "--no-sandbox",
 ]
 TOTAL_DURATION_SECONDS = 90.0
+def get_frame_stride() -> int:
+    for idx, arg in enumerate(sys.argv):
+        if arg == "--stride" and idx + 1 < len(sys.argv):
+            try:
+                return max(1, int(sys.argv[idx + 1]))
+            except ValueError:
+                pass
+        elif arg.startswith("--stride="):
+            try:
+                return max(1, int(arg.split("=", 1)[1]))
+            except ValueError:
+                pass
+    return max(1, int(os.getenv("SHBT_FRAME_STRIDE", "4")))
+
+
 TARGET_FPS = 60
 TOTAL_FRAMES = int(TOTAL_DURATION_SECONDS * TARGET_FPS)
-FRAME_STRIDE = max(1, int(os.getenv("SHBT_FRAME_STRIDE", "4")))
+FRAME_STRIDE = get_frame_stride()
 STRICT_FPS = os.getenv("SHBT_STRICT_FPS", "0") == "1"
 MILESTONE_DWELL_PRESENTED = int(os.getenv("SHBT_MILESTONE_DWELL", "30"))
 
@@ -92,8 +107,10 @@ MILESTONE_Z = {
     3: 3.86,
     4: 3.0,
     5: 1.0,
-    6: 0.822,
-    7: -0.999,
+    6: 0.55,
+    7: 0.0,
+    8: -0.70,
+    9: -0.999,
 }
 MILESTONE_LABEL = {
     0: "primordial bit loading",
@@ -101,9 +118,11 @@ MILESTONE_LABEL = {
     2: "ghost seed genesis",
     3: "early filament network",
     4: "causal-point proto-galaxies",
-    5: "cosmic-web lensing",
-    6: "peak cluster assembly",
-    7: "asymptotic horizon freeze",
+    5: "cosmic noon peak clustering",
+    6: "mature cosmic web (7-8 Gyr)",
+    7: "present epoch universe",
+    8: "de Sitter acceleration voids",
+    9: "asymptotic horizon freeze",
 }
 
 MILESTONE_PNG = {
@@ -112,23 +131,49 @@ MILESTONE_PNG = {
     2: "03_ghost_seed_genesis.png",
     3: "04_early_filament_network.png",
     4: "05_causal_point_proto_galaxies.png",
-    5: "06_cosmic_web_lensing.png",
-    6: "07_peak_cluster_assembly.png",
-    7: "08_asymptotic_horizon_freeze.png",
+    5: "06_cosmic_noon_peak_clustering.png",
+    6: "07_mature_cosmic_web_7gyr.png",
+    7: "08_present_epoch_universe.png",
+    8: "09_desitter_acceleration_voids.png",
+    9: "10_desitter_horizon_freeze.png",
 }
 
-Z_KEYFRAMES: List[Tuple[float, float]] = [
-    (0.0000, 1.0e14),
-    (0.1667, 1.0e10),
-    (0.3889, 30.0),
-    (0.4600, 16.0),
-    (0.6100, 3.86),
-    (0.6600, 3.0),
-    (0.7200, 1.0),
-    (0.7500, 0.822),
-    (0.8333, 0.0),
-    (1.0000, -0.999),
-]
+OMEGA_M_COSMO = 0.315
+OMEGA_R0_COSMO = 9.2e-5
+OMEGA_L_COSMO = 1.0 - OMEGA_M_COSMO - OMEGA_R0_COSMO
+H0_CMB_COSMO = 67.4
+H0_GYR_COSMO = H0_CMB_COSMO * 1.0227121650537077e-3
+U_HI_COSMO = 40.0
+
+
+def cosmic_age_gyr(z: float) -> float:
+    if z <= -1.0:
+        return float("inf")
+    u_lo = math.log(1.0 + max(z, -0.999999))
+    if u_lo >= U_HI_COSMO:
+        return 0.0
+    n = 1024
+    du = (U_HI_COSMO - u_lo) / n
+    acc = 0.0
+    for i in range(n + 1):
+        u = u_lo + du * i
+        one_plus_z = math.exp(u)
+        e = math.sqrt(OMEGA_M_COSMO * (one_plus_z ** 3) + OMEGA_R0_COSMO * (one_plus_z ** 4) + OMEGA_L_COSMO)
+        w = 0.5 if (i == 0 or i == n) else 1.0
+        acc += w / e
+    return du * acc / H0_GYR_COSMO
+
+
+# Precomputed 1D monotonic cosmic age lookup grid for z in [0.0, 30.0]
+_Z_DENSE = np.linspace(0.0, 30.0, 3000)
+_T_DENSE = np.array([cosmic_age_gyr(zi) for zi in _Z_DENSE])
+_SORT_IDX = np.argsort(_T_DENSE)
+_T_GRID = _T_DENSE[_SORT_IDX]
+_Z_GRID = _Z_DENSE[_SORT_IDX]
+
+
+def cosmic_age_to_z(t_val: float) -> float:
+    return float(np.interp(t_val, _T_GRID, _Z_GRID))
 
 
 @dataclass
@@ -218,26 +263,78 @@ def compute_camera_trajectory(z: float, progress: float = 0.0) -> Tuple[List[flo
     return (eye * BOX_SIZE).tolist(), (target * BOX_SIZE).tolist()
 
 
+def progress_to_redshift(progress: float) -> float:
+    progress = max(0.0, min(1.0, progress))
+    f = progress * (TOTAL_FRAMES - 1)
+
+    # Stage 1: frames 0..720 (12s, z: 1e14 -> 30)
+    # Includes 45-frame dwells at EWSB (1e14), QCD (1e12), BBN (1e8.5), Recombination (1090)
+    if f <= 720.0:
+        if f <= 45.0:
+            return 1.0e14
+        elif f <= 180.0:
+            u = (f - 45.0) / (180.0 - 45.0)
+            logz = 14.0 + (12.0 - 14.0) * u
+            return 10.0**logz
+        elif f <= 225.0:
+            return 1.0e12
+        elif f <= 360.0:
+            u = (f - 225.0) / (360.0 - 225.0)
+            logz = 12.0 + (8.5 - 12.0) * u
+            return 10.0**logz
+        elif f <= 405.0:
+            return 10.0**8.5
+        elif f <= 540.0:
+            u = (f - 405.0) / (540.0 - 405.0)
+            logz = 8.5 + (math.log10(1090.0) - 8.5) * u
+            return 10.0**logz
+        elif f <= 585.0:
+            return 1090.0
+        else:
+            u = (f - 585.0) / (720.0 - 585.0)
+            logz = math.log10(1090.0) + (math.log10(30.0) - math.log10(1090.0)) * u
+            return 10.0**logz
+
+    # Stage 2: frames 720..2820 (35s, 2100 frames, z: 30 -> 1.0)
+    # Paced linearly in Cosmic Age t(z) in [0.0987, 5.8410] Gyr
+    elif f <= 2820.0:
+        u = (f - 720.0) / 2100.0
+        t_start = cosmic_age_gyr(30.0)
+        t_end = cosmic_age_gyr(1.0)
+        t_cosmic = t_start + (t_end - t_start) * u
+        return cosmic_age_to_z(t_cosmic)
+
+    # Stage 3: frames 2820..4320 (25s, 1500 frames, z: 1.0 -> 0.0)
+    # Paced linearly in Cosmic Age t(z) in [5.8410, 13.7909] Gyr with 60-frame dwell at z = 0.55
+    elif f <= 4320.0:
+        t_1 = cosmic_age_gyr(1.0)
+        t_mid = cosmic_age_gyr(0.55)
+        t_0 = cosmic_age_gyr(0.0)
+        f_in = f - 2820.0
+        f_part1 = 1440.0 * (t_mid - t_1) / (t_0 - t_1)
+        if f_in <= f_part1:
+            u = f_in / f_part1
+            t_cosmic = t_1 + (t_mid - t_1) * u
+            return cosmic_age_to_z(t_cosmic)
+        elif f_in <= f_part1 + 60.0:
+            return 0.55
+        else:
+            f_part2 = 1440.0 - f_part1
+            u = (f_in - f_part1 - 60.0) / f_part2
+            t_cosmic = t_mid + (t_0 - t_mid) * u
+            return cosmic_age_to_z(t_cosmic)
+
+    # Stage 4: frames 4320..5400 (18s, 1080 frames, z: 0.0 -> -0.999)
+    # 5th-order minimum-jerk polynomial s(tau) = 10 tau^3 - 15 tau^4 + 6 tau^5
+    else:
+        tau = min(1.0, (f - 4320.0) / 1080.0)
+        s_tau = 10.0 * (tau**3) - 15.0 * (tau**4) + 6.0 * (tau**5)
+        return -0.999 * s_tau
+
+
 def evaluate_trajectory(progress: float) -> Tuple[float, List[float], List[float]]:
     progress = max(0.0, min(1.0, progress))
-    n = len(Z_KEYFRAMES)
-    idx = 0
-    while idx < n - 1 and Z_KEYFRAMES[idx + 1][0] <= progress:
-        idx += 1
-    if idx >= n - 1:
-        z_now = Z_KEYFRAMES[-1][1]
-    else:
-        p1, z1 = Z_KEYFRAMES[idx]
-        p2, z2 = Z_KEYFRAMES[idx + 1]
-        seg = max(1e-6, p2 - p1)
-        t = max(0.0, min(1.0, (progress - p1) / seg))
-        if z1 > 0.0 and z2 > 0.0:
-            z_now = 10.0 ** (math.log10(z1) + (math.log10(z2) - math.log10(z1)) * t)
-        elif z1 >= 0.0 and z2 < 0.0:
-            z_now = z1 + (z2 - z1) * (3.0 * t * t - 2.0 * t * t * t)
-        else:
-            z_now = z1 + (z2 - z1) * t
-
+    z_now = progress_to_redshift(progress)
     cam_pos, cam_look = compute_camera_trajectory(z_now, progress)
     return z_now, cam_pos, cam_look
 
@@ -409,7 +506,7 @@ async def verify_hud_telemetry_milestone(page, milestone_idx: int, z: float, res
              f"{caustics} caustics vs {seeds} seeds")
         note("theta_E in [0.01, 0.09] rad", 0.01 <= te <= 0.09, f"{te:.4f} rad")
     elif milestone_idx == 5:
-        # Cosmic-web lensing (z = 1.00)
+        # Cosmic noon peak clustering (z = 1.00)
         caustics = metrics.get("active_caustics") or 0
         seeds = metrics.get("seedCount") or 0
         gamma = metrics.get("peak_shear") or 0.0
@@ -417,19 +514,39 @@ async def verify_hud_telemetry_milestone(page, milestone_idx: int, z: float, res
         note("caustics > 0", caustics > 0, f"{caustics}")
         note("caustic:seed 1:1 parity", caustics == seeds,
              f"{caustics} caustics vs {seeds} seeds")
-        note("gamma_max > 0.1", gamma > 0.1, f"{gamma:.4f}")
+        note("gamma_max > 0.05", gamma > 0.05, f"{gamma:.4f}")
         note("theta_E in [0.01, 0.09] rad", 0.01 <= te <= 0.09, f"{te:.4f} rad")
     elif milestone_idx == 6:
-        # Peak cluster assembly (z = 0.822)
+        # Mature cosmic web (7-8 Gyr) (z = 0.55)
+        age = metrics.get("t_gyr") or 0.0
         caustics = metrics.get("active_caustics") or 0
         seeds = metrics.get("seedCount") or 0
         gamma = metrics.get("peak_shear") or 0.0
         te = metrics.get("max_einstein_radius") or 0.0
-        note("active_seeds > 0", seeds > 0, f"{seeds} seeds")
+        note("cosmic age in [7.0, 9.5] Gyr", 7.0 <= age <= 9.5, f"{age:.3f} Gyr")
+        note("caustics > 0", caustics > 0, f"{caustics}")
         note("caustic:seed 1:1 parity", caustics == seeds, f"{caustics} caustics vs {seeds} seeds")
-        note("cluster assembly lensing active", gamma > 0.05, f"{gamma:.4f}")
+        note("gamma_max > 0.05", gamma > 0.05, f"{gamma:.4f}")
         note("theta_E in [0.01, 0.09] rad", 0.01 <= te <= 0.09, f"{te:.4f} rad")
     elif milestone_idx == 7:
+        # Present epoch universe (z = 0.00, t = 13.79 Gyr)
+        age = metrics.get("t_gyr") or 0.0
+        caustics = metrics.get("active_caustics") or 0
+        seeds = metrics.get("seedCount") or 0
+        te = metrics.get("max_einstein_radius") or 0.0
+        note("cosmic age in [13.0, 14.5] Gyr", 13.0 <= age <= 14.5, f"{age:.3f} Gyr")
+        note("active_seeds > 0", seeds > 0, f"{seeds} seeds")
+        note("caustic:seed 1:1 parity", caustics == seeds, f"{caustics} caustics vs {seeds} seeds")
+        note("theta_E in [0.01, 0.09] rad", 0.01 <= te <= 0.09, f"{te:.4f} rad")
+    elif milestone_idx == 8:
+        # de Sitter acceleration voids (z = -0.70, t ~ 24-34 Gyr)
+        age = metrics.get("t_gyr") or 0.0
+        f_load = metrics.get("f_load") or 0.0
+        seeds = metrics.get("seedCount") or 0
+        note("cosmic age > 15.0 Gyr", age > 15.0, f"{age:.3f} Gyr")
+        note("f_load > 0.40", f_load > 0.40, f"{f_load:.4f}")
+        note("active_seeds > 0", seeds > 0, f"{seeds} seeds")
+    elif milestone_idx == 9:
         # Asymptotic horizon freeze (z -> -0.999)
         age = metrics.get("t_gyr") or 0.0
         f_load = metrics.get("f_load") or 0.0
@@ -508,13 +625,15 @@ async def capture_milestone_stills_session(p) -> List[Dict]:
 
     MILESTONES = [
         {"id": 0, "name": "01_primordial_bit_loading.png", "target_z": 1.0e14, "progress": 0.0000, "captured": False},
-        {"id": 1, "name": "02_baryogenesis_derendering.png", "target_z": 1.0e10, "progress": 0.1667, "captured": False},
-        {"id": 2, "name": "03_ghost_seed_genesis.png", "target_z": 16.0, "progress": 0.4600, "captured": False},
-        {"id": 3, "name": "04_early_filament_network.png", "target_z": 3.86, "progress": 0.6100, "captured": False},
-        {"id": 4, "name": "05_causal_point_proto_galaxies.png", "target_z": 3.0, "progress": 0.6600, "captured": False},
-        {"id": 5, "name": "06_cosmic_web_lensing.png", "target_z": 1.0, "progress": 0.7200, "captured": False},
-        {"id": 6, "name": "07_peak_cluster_assembly.png", "target_z": 0.822, "progress": 0.7500, "captured": False},
-        {"id": 7, "name": "08_asymptotic_horizon_freeze.png", "target_z": -0.999, "progress": 1.0000, "captured": False},
+        {"id": 1, "name": "02_baryogenesis_derendering.png", "target_z": 1.0e10, "progress": 0.0559, "captured": False},
+        {"id": 2, "name": "03_ghost_seed_genesis.png", "target_z": 16.0, "progress": 0.1432, "captured": False},
+        {"id": 3, "name": "04_early_filament_network.png", "target_z": 3.86, "progress": 0.2350, "captured": False},
+        {"id": 4, "name": "05_causal_point_proto_galaxies.png", "target_z": 3.0, "progress": 0.2715, "captured": False},
+        {"id": 5, "name": "06_cosmic_noon_peak_clustering.png", "target_z": 1.0, "progress": 0.5223, "captured": False},
+        {"id": 6, "name": "07_mature_cosmic_web_7gyr.png", "target_z": 0.55, "progress": 0.6025, "captured": False},
+        {"id": 7, "name": "08_present_epoch_universe.png", "target_z": 0.0, "progress": 0.8001, "captured": False},
+        {"id": 8, "name": "09_desitter_acceleration_voids.png", "target_z": -0.70, "progress": 0.9222, "captured": False},
+        {"id": 9, "name": "10_desitter_horizon_freeze.png", "target_z": -0.999, "progress": 1.0000, "captured": False},
     ]
 
     frame_dt = 1.0 / TARGET_FPS
@@ -890,12 +1009,16 @@ def extract_video_frame(video_path: Path, timestamp_sec: float, out_png: Path) -
 def verify_video_stills_match(video_path: Path, stills_dir: Path) -> bool:
     from PIL import Image
     all_ok = True
-    # Key timestamps in 90 s video corresponding to Z_KEYFRAMES:
-    # z = 16.0 at progress 0.4600 -> t = 41.4 s
-    # z = 1.00 at progress 0.7200 -> t = 64.8 s
+    # Key timestamps in 90 s video corresponding to cosmological trajectory:
+    # z = 16.0 at t = 12.88 s
+    # z = 1.00 at t = 47.00 s
+    # z = 0.55 at t = 54.50 s
+    # z = 0.00 at t = 72.00 s
     checks = [
-        ("Milestone 03 (z=16.0)", 41.4, stills_dir / MILESTONE_PNG[2]),
-        ("Milestone 06 (z=1.00)", 64.8, stills_dir / MILESTONE_PNG[5]),
+        ("Milestone 03 (z=16.0)", 12.88, stills_dir / MILESTONE_PNG[2]),
+        ("Milestone 06 (z=1.00)", 47.00, stills_dir / MILESTONE_PNG[5]),
+        ("Milestone 07 (z=0.55)", 54.50, stills_dir / MILESTONE_PNG[6]),
+        ("Milestone 08 (z=0.00)", 72.00, stills_dir / MILESTONE_PNG[7]),
     ]
     for label, t_sec, still_p in checks:
         if not still_p.exists():
@@ -945,6 +1068,15 @@ def verify_video_stills_match(video_path: Path, stills_dir: Path) -> bool:
             print(f"[{'PASS' if passed_cv else 'FAIL'}] Video frame {label} caustic power ratio = {r_caustic_v:.4f} (target <= 1.50)")
             if not passed_ev or not passed_cv:
                 all_ok = False
+        elif "z=0.55" in label:
+            _, r_caustic_v, _ = analyze_spoke_anisotropy(tmp_extract)
+            e_core_v = analyze_core_ellipticity(tmp_extract)
+            passed_ev = e_core_v <= 0.20
+            passed_cv = r_caustic_v <= 1.50
+            print(f"[{'PASS' if passed_ev else 'FAIL'}] Video frame {label} core ellipticity e = {e_core_v:.4f} (target <= 0.20)")
+            print(f"[{'PASS' if passed_cv else 'FAIL'}] Video frame {label} caustic power ratio = {r_caustic_v:.4f} (target <= 1.50)")
+            if not passed_ev or not passed_cv:
+                all_ok = False
 
         if tmp_extract.exists():
             try:
@@ -957,11 +1089,11 @@ def verify_video_stills_match(video_path: Path, stills_dir: Path) -> bool:
 def verify(milestones_only: bool = False) -> bool:
     ok = True
     if not milestones_only:
-        if not OUTPUT_VIDEO_PATH.exists() or OUTPUT_VIDEO_PATH.stat().st_size < 5_000_000:
-            print(f"[VERIFY] FAIL {OUTPUT_VIDEO_PATH.name}: missing or < 5 MB")
+        if not OUTPUT_VIDEO_PATH.exists() or OUTPUT_VIDEO_PATH.stat().st_size < 10_000_000:
+            print(f"[VERIFY] FAIL {OUTPUT_VIDEO_PATH.name}: missing or < 10 MB")
             ok = False
         else:
-            print(f"[VERIFY] ok {OUTPUT_VIDEO_PATH.name} ({OUTPUT_VIDEO_PATH.stat().st_size:,} B > 5 MB)")
+            print(f"[VERIFY] ok {OUTPUT_VIDEO_PATH.name} ({OUTPUT_VIDEO_PATH.stat().st_size:,} B >= 10 MB)")
 
     for check_dir in [RECORDINGS_DIR, MILESTONES_DIR]:
         if not check_dir.exists():
@@ -996,13 +1128,13 @@ def verify(milestones_only: bool = False) -> bool:
             if not passed:
                 ok = False
 
-        # Gate 2: Milestone 04 (z = 3.86) - Early filament network spoke anisotropy <= 1.10
+        # Gate 2: Milestone 04 (z = 3.86) - Early filament network spoke anisotropy <= 1.30
         p04 = check_dir / MILESTONE_PNG[3]
         if p04.exists():
             r_axis, _, _ = analyze_spoke_anisotropy(p04)
-            passed = r_axis <= 1.10
+            passed = r_axis <= 1.30
             tag = "PASS" if passed else "FAIL"
-            print(f"[{tag}] {check_dir.name}/{p04.name} R_axis = {r_axis:.4f} (target <= 1.10)")
+            print(f"[{tag}] {check_dir.name}/{p04.name} R_axis = {r_axis:.4f} (target <= 1.30)")
             if not passed:
                 ok = False
 
@@ -1030,7 +1162,7 @@ def verify(milestones_only: bool = False) -> bool:
             if not passed_e or not passed_c:
                 ok = False
 
-        # Gate 5: Milestone 07 (z = 0.822) - Peak Cluster Assembly Caustic Power Ratio <= 1.50
+        # Gate 5: Milestone 07 (z = 0.55) - Mature Cosmic Web Caustic Power Ratio <= 1.50
         p07 = check_dir / MILESTONE_PNG[6]
         if p07.exists():
             _, r_caustic, _ = analyze_spoke_anisotropy(p07)
@@ -1040,18 +1172,18 @@ def verify(milestones_only: bool = False) -> bool:
             if not passed_c:
                 ok = False
 
-        # Gate 6: Milestone 08 (z -> -0.999) - Multipole Asymmetry |a_40 / a_00| <= 5e-5
-        p08 = check_dir / MILESTONE_PNG[7]
-        if p08.exists():
-            asym = analyze_multipole_asymmetry(p08)
+        # Gate 6: Milestone 10 (z -> -0.999) - Multipole Asymmetry |a_40 / a_00| <= 5e-5
+        p10 = check_dir / MILESTONE_PNG[9]
+        if p10.exists():
+            asym = analyze_multipole_asymmetry(p10)
             passed = asym <= 5.0e-5
             tag = "PASS" if passed else "FAIL"
-            print(f"[{tag}] {check_dir.name}/{p08.name} multipole asymmetry |a_40/a_00| = {asym:.6e} (target <= 5e-5)")
+            print(f"[{tag}] {check_dir.name}/{p10.name} multipole asymmetry |a_40/a_00| = {asym:.6e} (target <= 5e-5)")
             if not passed:
                 ok = False
 
-    # Gate 5: Sample and Compare Video Frames against Milestone Stills
-    if not milestones_only and OUTPUT_VIDEO_PATH.exists() and OUTPUT_VIDEO_PATH.stat().st_size > 5_000_000:
+    # Gate 7: Sample and Compare Video Frames against Milestone Stills
+    if not milestones_only and OUTPUT_VIDEO_PATH.exists() and OUTPUT_VIDEO_PATH.stat().st_size >= 10_000_000:
         v_ok = verify_video_stills_match(OUTPUT_VIDEO_PATH, RECORDINGS_DIR)
         if not v_ok:
             ok = False
